@@ -19,7 +19,7 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 | 命令 | 用途 |
 | --- | --- |
 | `./gradlew runClient` | 启动客户端，在主菜单的「模组」列表查看 BlockSpaceProgram |
-| `./gradlew runServer` | 启动无 GUI 的专用服务器，首次运行后请阅读 `runs/server/eula.txt` 指向的协议，同意后在该文件中设置 `eula=true` |
+| `./gradlew runServer` | 在 `runs/server/` 启动无 GUI 的开发服务器，本机可用 `localhost:25565` 连接 |
 | `./gradlew runData` | 运行数据生成器，生成的资源写入 `src/generated/resources/` |
 
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。
