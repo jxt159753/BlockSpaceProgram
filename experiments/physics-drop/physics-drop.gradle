@@ -1,0 +1,27 @@
+def gameDir = file('runs/physicsDrop')
+def sable = new File(gameDir, 'mods/sable-neoforge-1.21.1-2.0.6.jar')
+def spark = new File(gameDir, 'mods/spark-1.10.124-neoforge.jar')
+
+sourceSets {
+    physicsDrop {
+        java.srcDirs = ['experiments/physics-drop/java']
+        resources.srcDirs = ['experiments/physics-drop/resources']
+    }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.physicsDrop)
+neoForge.mods[mod_id].sourceSet(sourceSets.physicsDrop)
+neoForge.runs.register('physicsDrop') {
+    server()
+    gameDirectory = gameDir
+    programArgument '--nogui'
+}
+
+tasks.named('runPhysicsDrop', JavaExec) {
+    standardInput = System.in
+}
+
+dependencies {
+    physicsDropCompileOnly files(sable, spark)
+    physicsDropCompileOnly files(zipTree(sable).matching { include 'META-INF/jarjar/sable-companion-*.jar' })
+}

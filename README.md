@@ -2,6 +2,8 @@
 
 BlockSpaceProgram 是一个受《坎巴拉太空计划》启发的 Minecraft 模组。项目计划让玩家把方块结构制成零件，组装飞船，并在天体附近的飞行模拟与轨道传播之间切换。当前版本提供可构建和加载的工程骨架。 [项目路线图](https://github.com/jxt159753/BlockSpaceProgram/issues/24)
 
+近地飞行采用整船单刚体。两种原型的落地表现、spark 实测结果和复测步骤见[飞行物理决策记录](experiments/physics-drop/README.md)。
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge 和 Minecraft 开发所需的依赖。
