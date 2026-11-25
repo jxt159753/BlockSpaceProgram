@@ -1,0 +1,4 @@
+* text=auto
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+src/generated/**/*.json text eol=lf
