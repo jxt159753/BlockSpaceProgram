@@ -41,6 +41,11 @@ public final class CollisionCellBlock extends Block {
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return Shapes.empty();
+    }
+
+    @Override
+    protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
         Span x = state.getValue(X);
         Span y = state.getValue(Y);
         Span z = state.getValue(Z);
