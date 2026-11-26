@@ -27,7 +27,7 @@ public record BlockPartProperties(
     private static final BlockPartProperties DEFAULT = new BlockPartProperties(DEFAULT_MASS, Map.of(), 0, 0, 0, 0, 0, 0);
     private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0);
     private static final Codec<Double> NON_NEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
-    private static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+    static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             NON_NEGATIVE.optionalFieldOf("mass", DEFAULT_MASS).forGetter(BlockPartProperties::mass),
             Codec.unboundedMap(ResourceLocation.CODEC, NON_NEGATIVE)
                     .optionalFieldOf("fuel_capacity", Map.of()).forGetter(BlockPartProperties::fuelCapacity),
