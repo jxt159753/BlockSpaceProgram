@@ -166,6 +166,7 @@ public record BakedPart(
         double drag = 0;
         double heat = Double.POSITIVE_INFINITY;
         double electricCapacity = 0;
+        double impactResistance = Double.POSITIVE_INFINITY;
         Map<ResourceLocation, Double> fuelCapacity = new HashMap<>();
         for (BlockPartProperties contribution : contributions) {
             mass += contribution.mass();
@@ -179,6 +180,7 @@ public record BakedPart(
                 heat = Math.min(heat, contribution.heatResistance());
             }
             electricCapacity += contribution.electricCapacity();
+            impactResistance = Math.min(impactResistance, contribution.impactResistance());
             contribution.fuelCapacity().forEach((fuel, amount) -> fuelCapacity.merge(fuel, amount, Double::sum));
         }
         double vacuumIsp = vacuumFlow == 0 ? 0 : thrust / vacuumFlow;
@@ -219,7 +221,7 @@ public record BakedPart(
         }
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
-                drag, Double.isFinite(heat) ? heat : 0, electricCapacity);
+                drag, Double.isFinite(heat) ? heat : 0, electricCapacity, impactResistance);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
                 PartType.classify(structure.values()), scales.getFirst(), connectors));
     }

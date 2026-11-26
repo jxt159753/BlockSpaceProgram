@@ -13,7 +13,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
-public final class CollisionCellBlock extends Block {
+public class CollisionCellBlock extends Block {
     private static final EnumProperty<Span> X = EnumProperty.create("x_span", Span.class);
     private static final EnumProperty<Span> Y = EnumProperty.create("y_span", Span.class);
     private static final EnumProperty<Span> Z = EnumProperty.create("z_span", Span.class);

@@ -17,12 +17,13 @@ import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
 import org.joml.Vector3fc;
 
-/** Propellant and the ship-local locations at which the flight systems act. */
+/** Propellant, part damage, and the ship-local locations at which the flight systems act. */
 final class ShipFlightState {
     private static final double POD_WHEEL_TORQUE = 1_500;
     private final List<Engine> engines = new ArrayList<>();
@@ -31,20 +32,27 @@ final class ShipFlightState {
     private final double[] groupFuel;
     private final double[] demand;
     private final double[] burnFraction;
+    private final ImpactPart[] impactParts;
     private final Map<BlockPos, Cell> cells;
     private final Vec3 seat;
     private final Vector3d projectedDragArea = new Vector3d();
-    private final double wheelTorque;
+    private final double weakestPart;
+    private final long commandPods;
+    private long damagedParts;
+    private long pendingDamage;
 
-    ShipFlightState(ShipDesign design, ListTag savedFuel) {
+    ShipFlightState(ShipDesign design, ListTag savedFuel, long savedDamage) {
         int count = design.nodes().size();
         fuel = new double[count];
         groupFuel = new double[count];
         demand = new double[count];
         burnFraction = new double[count];
+        impactParts = new ImpactPart[count];
+        damagedParts = savedDamage & ((1L << count) - 1);
         int[] groups = new int[count];
         double dryMass = 0;
-        double torque = 0;
+        double weakest = Double.POSITIVE_INFINITY;
+        long pods = 0;
         int engineStage = design.nodes().stream().filter(ShipFlightState::hasEngine)
                 .mapToInt(ShipDesign.Node::engineStage).min().orElse(-1);
         List<PartBox> wetParts = new ArrayList<>(count);
@@ -57,7 +65,7 @@ final class ShipFlightState {
             groups[index] = group;
             double capacity = properties.fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
             double remaining = savedFuel.size() == count ? savedFuel.getDouble(index) : capacity;
-            fuel[index] = Double.isFinite(remaining) ? Math.clamp(remaining, 0, capacity) : 0;
+            fuel[index] = !isDamaged(index) && Double.isFinite(remaining) ? Math.clamp(remaining, 0, capacity) : 0;
             dryMass += properties.mass();
 
             var dry = PartBox.fromPart(part, node.pose().origin(), node.pose().rotation());
@@ -68,12 +76,14 @@ final class ShipFlightState {
                 tanks.add(new Tank(index, group, tankCells));
             }
             if (node.engineStage() == engineStage && hasEngine(node)) {
-                engines.add(engine(node, group));
+                engines.add(engine(node, index, group));
             }
             if (part.types().contains(PartType.COMMAND_POD)) {
-                torque += POD_WHEEL_TORQUE;
+                pods |= 1L << index;
             }
             var bounds = node.bounds();
+            impactParts[index] = new ImpactPart(bounds, properties.impactResistance());
+            weakest = Math.min(weakest, properties.impactResistance());
             double x = bounds.getXsize();
             double y = bounds.getYsize();
             double z = bounds.getZsize();
@@ -84,7 +94,8 @@ final class ShipFlightState {
         }
         cells = ShipCollisionLayout.rasterize(wetParts);
         seat = seat(design);
-        wheelTorque = torque;
+        weakestPart = weakest;
+        commandPods = pods;
     }
 
     private static boolean hasEngine(ShipDesign.Node node) {
@@ -92,7 +103,7 @@ final class ShipFlightState {
         return node.engineStage() >= 0 && props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
     }
 
-    private static Engine engine(ShipDesign.Node node, int group) {
+    private static Engine engine(ShipDesign.Node node, int part, int group) {
         Vec3 direction = Vec3.ZERO;
         Vec3 moment = Vec3.ZERO;
         int nozzleCount = 0;
@@ -116,7 +127,7 @@ final class ShipFlightState {
             moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
             nozzleCount = 1;
         }
-        return new Engine(group, node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
+        return new Engine(part, group, node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
                 moment.scale(1.0 / nozzleCount).toVector3f());
     }
 
@@ -143,7 +154,61 @@ final class ShipFlightState {
     }
 
     double wheelTorque() {
-        return wheelTorque;
+        return POD_WHEEL_TORQUE * Long.bitCount(commandPods & ~damagedParts);
+    }
+
+    long damagedParts() {
+        return damagedParts;
+    }
+
+    private boolean isDamaged(int part) {
+        return (damagedParts & (1L << part)) != 0;
+    }
+
+    void recordImpact(BlockPos origin, BlockPos cell, Vector3dc point, double speed) {
+        if (speed <= weakestPart) {
+            return;
+        }
+        var contact = new Vec3(point.x() - origin.getX(), point.y() - origin.getY(), point.z() - origin.getZ());
+        BlockPos local = cell.subtract(origin);
+        double nearestDistance = Double.POSITIVE_INFINITY;
+        long hits = 0;
+        for (int i = 0; i < impactParts.length; i++) {
+            ImpactPart part = impactParts[i];
+            if (!part.bounds.intersects(local.getX(), local.getY(), local.getZ(),
+                    local.getX() + 1, local.getY() + 1, local.getZ() + 1)) {
+                continue;
+            }
+            // Several parts can share a collision cell. Use the closest part bounds to the contact point.
+            double distance = part.bounds.distanceToSqr(contact);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                hits = 0;
+            }
+            if (distance == nearestDistance && speed > part.resistance) {
+                hits |= 1L << i;
+            }
+        }
+        pendingDamage |= hits;
+    }
+
+    boolean applyImpactDamage(ShipCollisionBody body) {
+        long damage = pendingDamage & ~damagedParts;
+        pendingDamage = 0;
+        if (damage == 0) {
+            return false;
+        }
+        damagedParts |= damage;
+        boolean drained = false;
+        for (Tank tank : tanks) {
+            if ((damage & (1L << tank.part)) != 0) {
+                drained |= setFuel(tank, 0, body);
+            }
+        }
+        if (drained) {
+            body.subLevel().updateMergedMassData(0);
+        }
+        return true;
     }
 
     double dragArea(Vector3dc unitDirection) {
@@ -174,6 +239,9 @@ final class ShipFlightState {
             groupFuel[tank.group] += fuel[tank.part];
         }
         for (Engine engine : engines) {
+            if (isDamaged(engine.part)) {
+                continue;
+            }
             var props = engine.properties;
             double vacuum = props.vacuumSpecificImpulse();
             double seaLevel = props.seaLevelSpecificImpulse() > 0 ? props.seaLevelSpecificImpulse() : vacuum;
@@ -188,28 +256,37 @@ final class ShipFlightState {
             int group = tank.group;
             if (fuel[tank.part] > 0 && demand[group] > 0) {
                 double keep = Math.max(0, 1 - demand[group] / groupFuel[group]);
-                double remaining = fuel[tank.part] * keep;
-                double deltaPerCell = (remaining - fuel[tank.part]) / tank.cells.size();
-                fuel[tank.part] = remaining;
-                if (deltaPerCell != 0) {
-                    for (BlockPos pos : tank.cells) {
-                        body.changeCellMass(pos, cells.get(pos), deltaPerCell);
-                    }
-                    burned = true;
-                }
+                burned |= setFuel(tank, fuel[tank.part] * keep, body);
             }
         }
         if (burned) {
             body.subLevel().updateMergedMassData(0);
         }
         for (Engine engine : engines) {
-            double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
-            impulse.fma(magnitude, engine.direction);
-            momentAboutOrigin.fma(magnitude, engine.moment);
+            if (!isDamaged(engine.part)) {
+                double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
+                impulse.fma(magnitude, engine.direction);
+                momentAboutOrigin.fma(magnitude, engine.moment);
+            }
         }
     }
 
+    private boolean setFuel(Tank tank, double remaining, ShipCollisionBody body) {
+        double change = remaining - fuel[tank.part];
+        if (change == 0) {
+            return false;
+        }
+        fuel[tank.part] = remaining;
+        double deltaPerCell = change / tank.cells.size();
+        for (BlockPos pos : tank.cells) {
+            body.changeCellMass(pos, cells.get(pos), deltaPerCell);
+        }
+        return true;
+    }
+
+    private record ImpactPart(AABB bounds, double resistance) {}
+
     private record Tank(int part, int group, List<BlockPos> cells) {}
 
-    private record Engine(int group, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
+    private record Engine(int part, int group, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
 }

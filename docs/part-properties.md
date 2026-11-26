@@ -21,7 +21,8 @@
       "sea_level_specific_impulse": 270.0,
       "drag_coefficient": 0.25,
       "heat_resistance": 900.0,
-      "electric_capacity": 1500.0
+      "electric_capacity": 1500.0,
+      "impact_resistance": 12.0
     }
   }
 }
@@ -37,8 +38,11 @@
 | `drag_coefficient` | 阻力系数，无量纲 | `0.0` |
 | `heat_resistance` | 耐热温度，K | `0.0` |
 | `electric_capacity` | 电量容量，J | `0.0` |
+| `impact_resistance` | 耐冲击速度，m/s | `8.0` |
 
 所有数值须为有限非负数。燃料 ID 使用 `命名空间:名称`。未配置的非空气方块使用表中的默认值，空气的属性为零。模组内置木板、铁块和空炼药锅的属性，可用优先级更高的数据包覆盖。同一方块匹配多条条目时，后加载的记录整体覆盖先加载的记录，省略的字段取默认值。 [NeoForge Data Maps](https://docs.neoforged.net/docs/1.21.1/resources/server/datamaps/)
+
+零件烘焙时取组成方块中最低的耐冲击速度。旧零件和蓝图中的零件使用 8 m/s 的默认耐冲击速度。 [着陆和撞击损坏](flight.md#着陆)
 
 ## 零件类型
 
@@ -46,6 +50,7 @@
 
 - `data/blockspaceprogram/tags/block/engine_nozzles.json` 中的方块使结构具备发动机类型 `ENGINE`。
 - `data/blockspaceprogram/tags/block/command_seats.json` 中的方块使结构具备指令舱类型 `COMMAND_POD`。
+- `data/blockspaceprogram/tags/block/landing_legs.json` 中的方块使结构具备着陆腿类型 `LANDING_LEG`，内置标记为避雷针。
 - 有任意一种正容量燃料的方块使结构具备燃料舱类型 `FUEL_TANK`。
 - 一个结构可以同时具备多种功能类型。无功能类型的结构归为 `STRUCTURAL`。
 

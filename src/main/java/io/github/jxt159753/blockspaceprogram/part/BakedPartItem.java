@@ -88,6 +88,7 @@ public final class BakedPartItem extends Item {
         }
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.scale", part.scale()));
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.mass", part.properties().mass()));
+        tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.impact_resistance", part.properties().impactResistance()));
         part.types().stream().sorted().forEach(type -> tooltip.add(Component.translatable("part_type.blockspaceprogram." + type.getSerializedName())));
         for (PartConnector connector : part.connectors()) {
             var center = part.modelToLocal(connector.center());
