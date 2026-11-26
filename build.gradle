@@ -84,3 +84,7 @@ tasks.named('jar', Jar) {
 if (providers.gradleProperty('physicsDrop').isPresent()) {
     apply from: 'experiments/physics-drop/physics-drop.gradle'
 }
+
+if (providers.gradleProperty('shipRigidBody').isPresent()) {
+    apply from: 'experiments/ship-rigidbody/ship-rigidbody.gradle'
+}

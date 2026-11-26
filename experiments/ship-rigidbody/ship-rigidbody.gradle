@@ -1,0 +1,26 @@
+def gameDir = file('runs/shipRigidBody')
+def sable = new File(gameDir, 'mods/sable-neoforge-1.21.1-2.0.6.jar')
+
+sourceSets {
+    shipRigidBody {
+        java.srcDirs = ['experiments/ship-rigidbody/java']
+        resources.srcDirs = ['experiments/ship-rigidbody/resources']
+    }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.shipRigidBody)
+neoForge.mods[mod_id].sourceSet(sourceSets.shipRigidBody)
+neoForge.runs.register('shipRigidBody') {
+    server()
+    gameDirectory = gameDir
+    programArgument '--nogui'
+}
+
+tasks.named('runShipRigidBody', JavaExec) {
+    standardInput = System.in
+}
+
+dependencies {
+    shipRigidBodyCompileOnly files(sable)
+    shipRigidBodyCompileOnly files(zipTree(sable).matching { include 'META-INF/jarjar/sable-companion-*.jar' })
+}
