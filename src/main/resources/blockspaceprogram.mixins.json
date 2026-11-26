@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "io.github.jxt159753.blockspaceprogram.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["ClientLevelMixin", "LevelRendererMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

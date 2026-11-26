@@ -11,6 +11,9 @@ displayURL = "https://github.com/jxt159753/BlockSpaceProgram"
 authors = "jxt159753"
 description = "A Minecraft mod about building spacecraft from blocks and flying them into orbit."
 
+[[mixins]]
+config = "blockspaceprogram.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"
