@@ -1,5 +1,4 @@
 def gameDir = file('runs/shipRigidBody')
-def sable = new File(gameDir, 'mods/sable-neoforge-1.21.1-2.0.6.jar')
 
 sourceSets {
     shipRigidBody {
@@ -21,6 +20,7 @@ tasks.named('runShipRigidBody', JavaExec) {
 }
 
 dependencies {
-    shipRigidBodyCompileOnly files(sable)
-    shipRigidBodyCompileOnly files(zipTree(sable).matching { include 'META-INF/jarjar/sable-companion-*.jar' })
+    shipRigidBodyCompileOnly sourceSets.main.output
 }
+
+configurations.shipRigidBodyCompileOnly.extendsFrom(configurations.compileOnly)

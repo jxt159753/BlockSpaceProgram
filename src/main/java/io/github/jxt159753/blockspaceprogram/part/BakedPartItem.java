@@ -16,7 +16,6 @@ import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 
 public final class BakedPartItem extends Item {
@@ -41,11 +40,11 @@ public final class BakedPartItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        Vec3 size = part.modelToLocal(part.geometry().size());
-        double x = clicked.getX() + (1 - size.x) / 2 + face.getStepX() * (1 + size.x) / 2;
-        double y = clicked.getY() + (face == Direction.UP ? 1 : face == Direction.DOWN ? -size.y : 0);
-        double z = clicked.getZ() + (1 - size.z) / 2 + face.getStepZ() * (1 + size.z) / 2;
-        AABB bounds = part.localBounds().move(x, y, z);
+        AABB local = part.localBounds();
+        double x = clicked.getX() + (1 - local.getXsize()) / 2 + face.getStepX() * (1 + local.getXsize()) / 2;
+        double y = clicked.getY() + (face == Direction.UP ? 1 : face == Direction.DOWN ? -local.getYsize() : 0);
+        double z = clicked.getZ() + (1 - local.getZsize()) / 2 + face.getStepZ() * (1 + local.getZsize()) / 2;
+        AABB bounds = local.move(x, y, z);
         var shape = Shapes.create(bounds);
         if (shape.isEmpty() || bounds.minY < level.getMinBuildHeight() || bounds.maxY > level.getMaxBuildHeight()
                 || !level.getWorldBorder().isWithinBounds(bounds) || !level.noCollision(bounds)

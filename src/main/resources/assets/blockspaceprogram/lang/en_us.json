@@ -13,5 +13,9 @@
   "item.blockspaceprogram.baked_part.mass": "Dry mass %s kg",
   "item.blockspaceprogram.baked_part.fuel": "%s capacity %s kg",
   "fuel.blockspaceprogram.liquid_fuel": "Liquid fuel",
-  "entity.blockspaceprogram.placed_part": "Baked Part"
+  "entity.blockspaceprogram.placed_part": "Baked Part",
+  "key.categories.blockspaceprogram": "BlockSpaceProgram",
+  "key.blockspaceprogram.collision": "Toggle part collision boxes",
+  "debug.blockspaceprogram.collision.on": "Part collision boxes shown",
+  "debug.blockspaceprogram.collision.off": "Part collision boxes hidden"
 }

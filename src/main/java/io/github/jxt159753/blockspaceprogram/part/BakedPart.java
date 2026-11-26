@@ -57,6 +57,7 @@ public record BakedPart(
         return point.scale(scale);
     }
 
+    /** The simplified collider, in the same scaled local frame as model points and connectors. */
     public AABB localBounds() {
         return new AABB(Vec3.ZERO, modelToLocal(geometry.size()));
     }

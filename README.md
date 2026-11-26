@@ -8,7 +8,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ## 构建
 
-安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge 和 Minecraft 开发所需的依赖。
+安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft 和 Sable 的编译依赖。
 
 ```sh
 ./gradlew build
@@ -30,4 +30,4 @@ Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspacep
 
 ## 许可证
 
-项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。当前模组的运行依赖为 Minecraft 和 NeoForge，飞船模块接入时再声明对 Sable 的依赖。整合包内其他模组的许可证在整合包仓库记录。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt)
+项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。烘焙、缩放和静态放置需要 Minecraft 和 NeoForge。生成飞船碰撞格需要可选依赖 Sable 2.0.6。整合包内其他模组的许可证在整合包仓库记录。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt) · [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)
