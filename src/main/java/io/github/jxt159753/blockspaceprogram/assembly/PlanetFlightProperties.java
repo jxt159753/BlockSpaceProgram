@@ -8,6 +8,8 @@ import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import java.util.HashMap;
 import java.util.Map;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
@@ -18,8 +20,8 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 /** Local flight parameters, keyed by dimension ID in the ship_flight data pack directory. */
-record PlanetFlightProperties(double seaLevel, double radius, double surfaceGravity, double seaLevelDensity,
-                              double atmosphereTop, double scaleHeight) {
+public record PlanetFlightProperties(double seaLevel, double radius, double surfaceGravity, double seaLevelDensity,
+                                     double atmosphereTop, double scaleHeight) {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Codec<Double> NONNEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
     private static final Codec<Double> POSITIVE = Codec.doubleRange(1, Double.MAX_VALUE);
@@ -31,6 +33,15 @@ record PlanetFlightProperties(double seaLevel, double radius, double surfaceGrav
             NONNEGATIVE.fieldOf("atmosphere_top").forGetter(PlanetFlightProperties::atmosphereTop),
             POSITIVE.fieldOf("scale_height").forGetter(PlanetFlightProperties::scaleHeight)
     ).apply(instance, PlanetFlightProperties::new));
+    public static final StreamCodec<FriendlyByteBuf, PlanetFlightProperties> STREAM_CODEC = StreamCodec.of((buf, planet) -> {
+        buf.writeDouble(planet.seaLevel());
+        buf.writeDouble(planet.radius());
+        buf.writeDouble(planet.surfaceGravity());
+        buf.writeDouble(planet.seaLevelDensity());
+        buf.writeDouble(planet.atmosphereTop());
+        buf.writeDouble(planet.scaleHeight());
+    }, buf -> new PlanetFlightProperties(buf.readDouble(), buf.readDouble(), buf.readDouble(),
+            buf.readDouble(), buf.readDouble(), buf.readDouble()));
     private static volatile Map<ResourceLocation, PlanetFlightProperties> planets = Map.of();
 
     static void register(AddReloadListenerEvent event) {
@@ -51,14 +62,22 @@ record PlanetFlightProperties(double seaLevel, double radius, double surfaceGrav
         return planets.get(level.dimension().location());
     }
 
+    public static Map<ResourceLocation, PlanetFlightProperties> all() {
+        return planets;
+    }
+
+    public boolean hasAtmosphere() {
+        return seaLevelDensity > 0 && atmosphereTop > 0;
+    }
+
     double gravityAt(double y) {
         double ratio = radius / Math.max(1, radius + (y - seaLevel));
         return surfaceGravity * ratio * ratio;
     }
 
-    double relativeDensityAt(double y) {
+    public double relativeDensityAt(double y) {
         double altitude = Math.max(0, y - seaLevel);
-        if (seaLevelDensity == 0 || altitude >= atmosphereTop) {
+        if (!hasAtmosphere() || altitude >= atmosphereTop) {
             return 0;
         }
         return Math.exp(-altitude / scaleHeight) * Math.expm1((altitude - atmosphereTop) / scaleHeight)
