@@ -24,9 +24,6 @@ public final class ShipPlacement {
     public record Result(ShipDesign design, @Nullable String error, int skippedMirrors) {}
 
     public static Result place(ShipDesign design, BakedPart part, Request request) {
-        if (!part.isAssemblyScale()) {
-            return rejected(design, "scale");
-        }
         if (part.connectors().stream().anyMatch(connector -> !connector.allowsScale(part.scale()))) {
             return rejected(design, "connector_size");
         }
@@ -165,7 +162,7 @@ public final class ShipPlacement {
         } else {
             PartConnector connector = marker(target.part(), targetMarker);
             PartConnector incoming = marker(placed.part(), partMarker);
-            if (!compatible(target.part(), connector, placed.part(), incoming) || connector.normal() != targetNormal
+            if (connector == null || incoming == null || !connector.matchesStackSize(incoming) || connector.normal() != targetNormal
                     || target.point(connector.center()).distanceToSqr(touch) != 0
                     || !connector.allowsScale(target.part().scale())
                     || links.stream().anyMatch(link -> link.uses(targetIndex, targetMarker))) {
@@ -198,14 +195,9 @@ public final class ShipPlacement {
         }
         PartConnector targetConnector = marker(target.part(), first.marker());
         PartConnector sourceConnector = marker(placed.part(), second.marker());
-        return compatible(target.part(), targetConnector, placed.part(), sourceConnector)
+        return targetConnector != null && sourceConnector != null && targetConnector.matchesStackSize(sourceConnector)
                 && targetConnector.normal() == first.normal() && targetConnector.center().distanceToSqr(first.anchor()) == 0
                 && link.separable() == (targetConnector.kind().separable() || sourceConnector.kind().separable());
-    }
-
-    private static boolean compatible(BakedPart first, @Nullable PartConnector a, BakedPart second, @Nullable PartConnector b) {
-        return a != null && b != null && a.kind().isStack() && b.kind().isStack()
-                && a.sizeInQuarters(first.scale()) == b.sizeInQuarters(second.scale());
     }
 
     @Nullable

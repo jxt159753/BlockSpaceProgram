@@ -130,8 +130,13 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             graphics.drawCenteredString(font, text("first_part"), (LEFT + stageLeft - 6) / 2, (VIEW_TOP + viewBottom) / 2, WHITE);
         } else if (hover != null) {
             graphics.drawString(font, text("part_number", hover.node() + 1), LEFT + 5, VIEW_TOP + 5, WHITE);
+            if (preview != null && preview.error() == null && request.partMarker() >= 0) {
+                var connector = part.connectors().get(request.partMarker());
+                graphics.drawString(font, text("preview_size", connector.width() * part.scale(),
+                        connector.height() * part.scale()), LEFT + 5, VIEW_TOP + 16, WHITE);
+            }
         }
-        drawStatus(graphics, preview, part);
+        drawStatus(graphics, preview);
         drawStages(graphics, mouseY);
         drawInventory(graphics, mouseX, mouseY);
 
@@ -168,7 +173,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {}
 
-    private void drawStatus(GuiGraphics graphics, @Nullable ShipPlacement.Result preview, @Nullable BakedPart part) {
+    private void drawStatus(GuiGraphics graphics, @Nullable ShipPlacement.Result preview) {
         Component status;
         int color = MUTED;
         if (preview != null && preview.error() != null && !menu.design().nodes().isEmpty()) {
@@ -176,9 +181,6 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             color = 0xFFFFC28A;
         } else if (!menu.message().isEmpty()) {
             status = text(menu.message(), menu.messageCount());
-        } else if (part != null && !part.isAssemblyScale()) {
-            status = text("scale");
-            color = 0xFFFFC28A;
         } else {
             status = text("camera_tip");
         }

@@ -28,14 +28,17 @@ import net.neoforged.neoforge.registries.datamaps.DataMapType;
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent;
 
 /** A planar rectangle in unscaled baked model coordinates. Stack connectors are square. */
-public record PartConnector(Kind kind, Vec3 center, Direction normal, int width, int height) {
+public record PartConnector(Kind kind, Vec3 center, Direction normal, int width, int height, int sizeQuarters) {
     private static final Codec<Integer> SIDE = Codec.intRange(1, BakedPart.MAX_SIDE);
+    private static final int MAX_SIZE_QUARTERS = BakedPart.MAX_SIDE * 4;
+    private static final Codec<Integer> QUARTER_SIZE = Codec.intRange(1, MAX_SIZE_QUARTERS);
     static final Codec<PartConnector> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Kind.CODEC.fieldOf("kind").forGetter(PartConnector::kind),
             Vec3.CODEC.fieldOf("center").forGetter(PartConnector::center),
             Direction.CODEC.fieldOf("normal").forGetter(PartConnector::normal),
             SIDE.fieldOf("width").forGetter(PartConnector::width),
-            SIDE.fieldOf("height").forGetter(PartConnector::height)
+            SIDE.fieldOf("height").forGetter(PartConnector::height),
+            QUARTER_SIZE.optionalFieldOf("size_quarters", 0).forGetter(PartConnector::sizeQuarters)
     ).apply(instance, PartConnector::new));
     static final StreamCodec<FriendlyByteBuf, PartConnector> STREAM_CODEC = StreamCodec.of((buffer, connector) -> {
         buffer.writeEnum(connector.kind());
@@ -46,12 +49,15 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
     }, buffer -> new PartConnector(buffer.readEnum(Kind.class), buffer.readVec3(),
             buffer.readEnum(Direction.class), buffer.readUnsignedByte(), buffer.readUnsignedByte()));
 
-    private static final Codec<List<Integer>> SIZE_CODEC = Codec.intRange(1, BakedPart.MAX_SIDE * 4)
-            .listOf(1, BakedPart.MAX_SIDE * 4);
-    private static final List<Integer> DEFAULT_SIZES = IntStream.rangeClosed(1, BakedPart.MAX_SIDE * 4).boxed().toList();
+    private static final Codec<List<Integer>> SIZE_CODEC = QUARTER_SIZE.listOf(1, MAX_SIZE_QUARTERS);
+    private static final List<Integer> DEFAULT_SIZES = IntStream.rangeClosed(1, MAX_SIZE_QUARTERS).boxed().toList();
     private static final DataMapType<Block, List<Integer>> SIZES = DataMapType.builder(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "connector_sizes"),
             Registries.BLOCK, SIZE_CODEC).synced(SIZE_CODEC, true).build();
+
+    public PartConnector(Kind kind, Vec3 center, Direction normal, int width, int height) {
+        this(kind, center, normal, width, height, kind.isStack() ? width * 4 : 0);
+    }
 
     public enum Kind implements StringRepresentable {
         STACK, SEPARATION, DOCKING, SURFACE;
@@ -63,7 +69,11 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
         }
 
         public boolean separable() {
-            return this == SEPARATION || this == DOCKING;
+            return this == SEPARATION || dockable();
+        }
+
+        public boolean dockable() {
+            return this == DOCKING;
         }
 
         @Override
@@ -76,8 +86,17 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
         event.register(SIZES);
     }
 
-    public int sizeInQuarters(float scale) {
-        return Math.round(width * scale * 4);
+    private int sizeInQuarters(float scale) {
+        return width * (int) (scale * 4);
+    }
+
+    PartConnector atScale(float scale) {
+        int size = kind.isStack() ? sizeInQuarters(scale) : 0;
+        return size == sizeQuarters ? this : new PartConnector(kind, center, normal, width, height, size);
+    }
+
+    public boolean matchesStackSize(PartConnector other) {
+        return kind.isStack() && other.kind.isStack() && sizeQuarters == other.sizeQuarters;
     }
 
     public boolean allowsScale(float scale) {

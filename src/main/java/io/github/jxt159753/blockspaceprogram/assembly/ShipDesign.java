@@ -154,8 +154,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         }
         List<AABB> bounds = new ArrayList<>(nodes.size());
         for (Node node : nodes) {
-            if (!node.part().isAssemblyScale() || !node.pose().valid()
-                    || !validStage(node.engineStage(), node.part().types().contains(PartType.ENGINE))) {
+            if (!node.pose().valid() || !validStage(node.engineStage(), node.part().types().contains(PartType.ENGINE))) {
                 return false;
             }
             AABB box = node.bounds();
