@@ -16,7 +16,8 @@ public enum PartType implements StringRepresentable {
     ENGINE,
     COMMAND_POD,
     FUEL_TANK,
-    SEPARATOR;
+    SEPARATOR,
+    LANDING_LEG;
 
     static final StringRepresentable.EnumCodec<PartType> CODEC = StringRepresentable.fromEnum(PartType::values);
 
@@ -24,6 +25,8 @@ public enum PartType implements StringRepresentable {
             Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "engine_nozzles"));
     public static final TagKey<Block> COMMAND_SEATS = TagKey.create(
             Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "command_seats"));
+    private static final TagKey<Block> LANDING_LEGS = TagKey.create(
+            Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "landing_legs"));
 
     @Override
     public String getSerializedName() {
@@ -42,6 +45,9 @@ public enum PartType implements StringRepresentable {
             }
             if (block.is(COMMAND_SEATS)) {
                 types.add(COMMAND_POD);
+            }
+            if (block.is(LANDING_LEGS)) {
+                types.add(LANDING_LEG);
             }
             if (block.getBlock() instanceof PartConnectorBlock marker && marker.kind().separable()) {
                 types.add(SEPARATOR);

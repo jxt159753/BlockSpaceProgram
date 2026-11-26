@@ -42,6 +42,8 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> FUEL = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Long> DAMAGED_PARTS = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.LONG);
 
     @Nullable
     private SableShipFlight flight;
@@ -62,6 +64,7 @@ public final class AssembledShipEntity extends Entity {
         builder.define(SEAT, new Vector3f());
         builder.define(THROTTLE, 0);
         builder.define(FUEL, 0.0F);
+        builder.define(DAMAGED_PARTS, 0L);
     }
 
     @Nullable
@@ -115,6 +118,18 @@ public final class AssembledShipEntity extends Entity {
 
     public float fuel() {
         return entityData.get(FUEL);
+    }
+
+    public int damagedPartCount() {
+        return Long.bitCount(damagedParts());
+    }
+
+    long damagedParts() {
+        return entityData.get(DAMAGED_PARTS);
+    }
+
+    void setDamagedParts(long damage) {
+        entityData.set(DAMAGED_PARTS, damage);
     }
 
     void setFlightStatus(int throttle, float fuel) {
@@ -252,6 +267,7 @@ public final class AssembledShipEntity extends Entity {
             bodyId = tag.getUUID("FlightBody");
             savedFuel = tag.getList("Fuel", Tag.TAG_DOUBLE);
             entityData.set(FLYING, true);
+            setDamagedParts(tag.getLong("DamagedParts"));
         }
     }
 
@@ -261,6 +277,7 @@ public final class AssembledShipEntity extends Entity {
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
             tag.put("Fuel", flight == null ? savedFuel : flight.saveFuel());
+            tag.putLong("DamagedParts", damagedParts());
         }
     }
 }

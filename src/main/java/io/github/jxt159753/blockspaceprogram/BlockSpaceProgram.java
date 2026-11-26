@@ -6,6 +6,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyMenu;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyTableBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.LaunchPadBlock;
+import io.github.jxt159753.blockspaceprogram.assembly.SableCollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipBlueprintItem;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
@@ -27,6 +28,7 @@ import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
@@ -56,7 +58,8 @@ public final class BlockSpaceProgram {
     public static final DeferredBlock<PartConnectorBlock> DOCKING_INTERFACE = registerConnector("docking_interface", PartConnector.Kind.DOCKING);
     public static final DeferredBlock<PartConnectorBlock> ATTACHMENT_FACE = registerConnector("attachment_face", PartConnector.Kind.SURFACE);
     public static final DeferredBlock<CollisionCellBlock> SHIP_COLLISION_CELL = BLOCKS.registerBlock(
-            "ship_collision_cell", CollisionCellBlock::new,
+            "ship_collision_cell", properties -> ModList.get().isLoaded("sable")
+                    ? SableCollisionCellBlock.create(properties) : new CollisionCellBlock(properties),
             BlockBehaviour.Properties.of().strength(-1.0F, 3_600_000.0F).noOcclusion().noLootTable());
     public static final DeferredItem<BakedPartItem> BAKED_PART = ITEMS.registerItem(
             "baked_part", BakedPartItem::new, new Item.Properties().stacksTo(1));

@@ -5,6 +5,7 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import java.util.Locale;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -70,8 +71,13 @@ public final class ShipFlightClient {
                     var game = Minecraft.getInstance();
                     if (!game.options.hideGui && game.player != null
                             && game.player.getVehicle() instanceof AssembledShipEntity ship && ship.isFlyingShip()) {
-                        Component status = Component.translatable("flight.blockspaceprogram.status", ship.throttle(),
+                        var status = Component.translatable("flight.blockspaceprogram.status", ship.throttle(),
                                 String.format(Locale.ROOT, "%.1f", ship.fuel()));
+                        int damagedParts = ship.damagedPartCount();
+                        if (damagedParts > 0) {
+                            status.append("   ").append(Component.translatable("flight.blockspaceprogram.damage", damagedParts)
+                                    .withStyle(ChatFormatting.RED));
+                        }
                         graphics.drawCenteredString(game.font, status, graphics.guiWidth() / 2, graphics.guiHeight() - 85, 0xFFFFFF);
                     }
                 });
