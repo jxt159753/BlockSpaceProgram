@@ -5,6 +5,12 @@
     },
     "minecraft:iron_block": {
       "mass": 200.0
+    },
+    "minecraft:cauldron": {
+      "mass": 50.0,
+      "fuel_capacity": {
+        "blockspaceprogram:liquid_fuel": 100.0
+      }
     }
   }
 }
