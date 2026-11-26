@@ -66,7 +66,12 @@ public final class BakingTableBlock extends Block {
         if (structure == null) {
             return false;
         }
-        BakedPart part = BakedPart.bake(structure).orElse(null);
+        BakedPart part;
+        try {
+            part = BakedPart.bake(structure).orElse(null);
+        } catch (PartConnector.InvalidConnector error) {
+            return reject(player, "connector_" + error.reason, error.pos.toShortString());
+        }
         if (part == null) {
             return reject(player, "invalid_properties");
         }

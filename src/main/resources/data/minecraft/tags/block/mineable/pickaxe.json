@@ -1,3 +1,11 @@
 {
-  "values": ["blockspaceprogram:baking_table"]
+  "values": [
+    "blockspaceprogram:baking_table",
+    "blockspaceprogram:assembly_table",
+    "blockspaceprogram:launch_pad",
+    "blockspaceprogram:stack_interface",
+    "blockspaceprogram:separation_interface",
+    "blockspaceprogram:docking_interface",
+    "blockspaceprogram:attachment_face"
+  ]
 }

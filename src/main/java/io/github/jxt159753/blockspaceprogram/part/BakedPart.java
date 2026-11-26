@@ -3,14 +3,22 @@ package io.github.jxt159753.blockspaceprogram.part;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -22,9 +30,12 @@ public record BakedPart(
         Vec3 centerOfMass,
         InertiaTensor inertia,
         Set<PartType> types,
-        float scale) {
+        float scale,
+        List<PartConnector> connectors) {
 
     static final int MAX_SIDE = 9;
+    private static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
+    private static final List<Float> ASSEMBLY_SCALES = List.of(1.0F, 0.5F, 0.25F);
     private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F);
 
     public static final Codec<BakedPart> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -34,14 +45,59 @@ public record BakedPart(
             InertiaTensor.CODEC.fieldOf("inertia").forGetter(BakedPart::inertia),
             PartType.CODEC.listOf().xmap(Set::copyOf, types -> types.stream().sorted().toList())
                     .fieldOf("types").forGetter(BakedPart::types),
-            SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale)
+            SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale),
+            PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors)
     ).apply(instance, BakedPart::new));
+
+    private static final StreamCodec<ByteBuf, BlockPartProperties> PROPERTIES_STREAM =
+            ByteBufCodecs.fromCodec(BlockPartProperties.CODEC);
+    private static final StreamCodec<FriendlyByteBuf, List<PartConnector>> CONNECTOR_STREAM =
+            PartConnector.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
+    public static final StreamCodec<FriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
+        buffer.writeVarInt(part.blocks().size());
+        for (StructureBlock block : part.blocks()) {
+            BlockPos pos = block.pos();
+            buffer.writeShort(pos.getX() | pos.getY() << 4 | pos.getZ() << 8);
+            buffer.writeVarInt(Block.getId(block.state()));
+        }
+        PROPERTIES_STREAM.encode(buffer, part.properties());
+        buffer.writeVec3(part.centerOfMass());
+        InertiaTensor inertia = part.inertia();
+        buffer.writeDouble(inertia.xx()).writeDouble(inertia.yy()).writeDouble(inertia.zz());
+        buffer.writeDouble(inertia.xy()).writeDouble(inertia.xz()).writeDouble(inertia.yz());
+        var types = EnumSet.noneOf(PartType.class);
+        types.addAll(part.types());
+        buffer.writeEnumSet(types, PartType.class);
+        buffer.writeFloat(part.scale());
+        CONNECTOR_STREAM.encode(buffer, part.connectors());
+    }, buffer -> {
+        int size = buffer.readVarInt();
+        if (size < 1 || size > MAX_BLOCKS) {
+            throw new DecoderException("Invalid baked geometry size: " + size);
+        }
+        List<StructureBlock> blocks = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            int pos = buffer.readUnsignedShort();
+            blocks.add(new StructureBlock(new BlockPos(pos & 15, pos >> 4 & 15, pos >> 8 & 15),
+                    Block.stateById(buffer.readVarInt())));
+        }
+        return new BakedPart(new Geometry(blocks), PROPERTIES_STREAM.decode(buffer), buffer.readVec3(),
+                new InertiaTensor(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
+                        buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
+                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer));
+    });
 
     public BakedPart {
         if (!(scale > 0.0F && scale <= 1.0F)) {
             throw new IllegalArgumentException("Part scale must be in (0, 1]");
         }
         types = Set.copyOf(types);
+        connectors = List.copyOf(connectors);
+    }
+
+    public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
+            Set<PartType> types, float scale) {
+        this(geometry, properties, centerOfMass, inertia, types, scale, List.of());
     }
 
     public List<StructureBlock> blocks() {
@@ -49,7 +105,23 @@ public record BakedPart(
     }
 
     public BakedPart withScale(float newScale) {
-        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale);
+        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors);
+    }
+
+    public boolean isAssemblyScale() {
+        return ASSEMBLY_SCALES.contains(scale);
+    }
+
+    float nextScale() {
+        float preferred = scale > 0.5F ? 0.5F : scale > 0.25F ? 0.25F : 1.0F;
+        int first = ASSEMBLY_SCALES.indexOf(preferred);
+        for (int offset = 0; offset < ASSEMBLY_SCALES.size(); offset++) {
+            float candidate = ASSEMBLY_SCALES.get((first + offset) % ASSEMBLY_SCALES.size());
+            if (connectors.stream().allMatch(connector -> connector.allowsScale(candidate))) {
+                return candidate;
+            }
+        }
+        return scale;
     }
 
     /** Converts a point in the baked model, such as a connector, to scaled local coordinates. */
@@ -67,9 +139,14 @@ public record BakedPart(
                 structure.keySet().stream().mapToInt(BlockPos::getX).min().orElseThrow(),
                 structure.keySet().stream().mapToInt(BlockPos::getY).min().orElseThrow(),
                 structure.keySet().stream().mapToInt(BlockPos::getZ).min().orElseThrow());
-        List<StructureBlock> blocks = structure.entrySet().stream()
+        Geometry geometry = new Geometry(structure.entrySet().stream()
                 .map(entry -> new StructureBlock(entry.getKey().subtract(origin), entry.getValue()))
-                .toList();
+                .toList());
+        List<StructureBlock> blocks = geometry.blocks();
+        List<PartConnector> connectors = PartConnector.scan(structure, origin);
+        float scale = ASSEMBLY_SCALES.stream()
+                .filter(candidate -> connectors.stream().allMatch(connector -> connector.allowsScale(candidate)))
+                .findFirst().orElseThrow(() -> new PartConnector.InvalidConnector(origin, "size"));
         List<BlockPartProperties> contributions = blocks.stream()
                 .map(block -> BlockPartProperties.get(block.state())).toList();
 
@@ -134,8 +211,8 @@ public record BakedPart(
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
                 drag, Double.isFinite(heat) ? heat : 0, electricCapacity);
-        return Optional.of(new BakedPart(new Geometry(blocks), properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
-                PartType.classify(structure.values()), 1.0F));
+        return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
+                PartType.classify(structure.values()), scale, connectors));
     }
 
     private static boolean finite(double... values) {
@@ -164,7 +241,7 @@ public record BakedPart(
 
     /** The unscaled model is shared by all instances of the same structure. */
     public static final class Geometry {
-        private static final Codec<Geometry> CODEC = StructureBlock.CODEC.listOf(1, MAX_SIDE * MAX_SIDE * MAX_SIDE)
+        private static final Codec<Geometry> CODEC = StructureBlock.CODEC.listOf(1, MAX_BLOCKS)
                 .validate(blocks -> blocks.stream().map(StructureBlock::pos).distinct().count() == blocks.size()
                         ? DataResult.success(blocks) : DataResult.error(() -> "Duplicate block positions in part"))
                 .xmap(Geometry::new, Geometry::blocks);

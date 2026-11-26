@@ -28,7 +28,7 @@ public final class ShipCollisionLayout {
 
         /** The model's minimum corner is placed at originInQuarters, before rotation about that corner. */
         public static PartBox fromPart(BakedPart part, BlockPos originInQuarters, OctahedralGroup rotation) {
-            if (rotation.transformation().determinant() < 0) {
+            if (!isRotation(rotation)) {
                 throw new IllegalArgumentException("The ship grid supports rotations only");
             }
             AABB bounds = part.localBounds();
@@ -39,6 +39,12 @@ public final class ShipCollisionLayout {
             return new PartBox(minimum(originInQuarters, opposite), maximum(originInQuarters, opposite),
                     part.properties().mass());
         }
+    }
+
+    public static boolean isRotation(OctahedralGroup rotation) {
+        var x = rotation.rotate(Direction.EAST).getNormal();
+        var y = rotation.rotate(Direction.UP).getNormal();
+        return x.cross(y).equals(rotation.rotate(Direction.SOUTH).getNormal());
     }
 
     /** Bounds within one block, also in quarters. Mass includes the contributions of all parts in the cell. */

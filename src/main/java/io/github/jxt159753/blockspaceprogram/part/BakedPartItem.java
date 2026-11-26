@@ -73,7 +73,7 @@ public final class BakedPartItem extends Item {
             return InteractionResultHolder.pass(stack);
         }
         if (!level.isClientSide) {
-            float scale = part.scale() > 0.5F ? 0.5F : part.scale() > 0.25F ? 0.25F : 1.0F;
+            float scale = part.nextScale();
             stack.set(BlockSpaceProgram.PART_DATA, part.withScale(scale));
             player.displayClientMessage(Component.translatable("item.blockspaceprogram.baked_part.scale", scale), true);
         }
@@ -88,6 +88,14 @@ public final class BakedPartItem extends Item {
         }
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.scale", part.scale()));
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.mass", part.properties().mass()));
+        part.types().stream().sorted().forEach(type -> tooltip.add(Component.translatable("part_type.blockspaceprogram." + type.getSerializedName())));
+        for (PartConnector connector : part.connectors()) {
+            var center = part.modelToLocal(connector.center());
+            tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.connector",
+                    Component.translatable("connector.blockspaceprogram." + connector.kind().getSerializedName()),
+                    Component.translatable("direction.blockspaceprogram." + connector.normal().getName()),
+                    connector.width() * part.scale(), connector.height() * part.scale(), center.x, center.y, center.z));
+        }
         part.properties().fuelCapacity().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(fuel -> {
             Component name = Component.translatableWithFallback(fuel.getKey().toLanguageKey("fuel"), fuel.getKey().toString());
             tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.fuel", name, fuel.getValue()));

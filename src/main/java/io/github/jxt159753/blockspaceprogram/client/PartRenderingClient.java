@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.client;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import java.io.IOException;
 import net.minecraft.client.Minecraft;
@@ -24,6 +25,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterShadersEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
 import net.neoforged.neoforge.client.model.BakedModelWrapper;
@@ -34,6 +36,12 @@ public final class PartRenderingClient {
     @SubscribeEvent
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(BlockSpaceProgram.PLACED_PART.get(), PlacedPartRenderer::new);
+        event.registerEntityRenderer(BlockSpaceProgram.ASSEMBLED_SHIP.get(), AssembledShipRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void registerScreens(RegisterMenuScreensEvent event) {
+        event.register(BlockSpaceProgram.ASSEMBLY_MENU.get(), AssemblyScreen::new);
     }
 
     @SubscribeEvent
@@ -116,6 +124,29 @@ public final class PartRenderingClient {
 
         @Override
         public ResourceLocation getTextureLocation(PlacedPartEntity entity) {
+            return TextureAtlas.LOCATION_BLOCKS;
+        }
+    }
+
+    private static final class AssembledShipRenderer extends EntityRenderer<AssembledShipEntity> {
+        private AssembledShipRenderer(EntityRendererProvider.Context context) {
+            super(context);
+        }
+
+        @Override
+        public void render(AssembledShipEntity entity, float yaw, float partialTick, PoseStack poses,
+                MultiBufferSource buffers, int light) {
+            var design = entity.design();
+            if (design != null) {
+                for (var node : design.nodes()) {
+                    AssemblyViewport.renderPart(node, poses, buffers, light);
+                }
+            }
+            super.render(entity, yaw, partialTick, poses, buffers, light);
+        }
+
+        @Override
+        public ResourceLocation getTextureLocation(AssembledShipEntity entity) {
             return TextureAtlas.LOCATION_BLOCKS;
         }
     }
