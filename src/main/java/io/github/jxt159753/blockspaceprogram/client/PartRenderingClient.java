@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.PartPose;
 import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import java.io.IOException;
 import net.minecraft.client.Minecraft;
@@ -42,6 +43,7 @@ public final class PartRenderingClient {
     @SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(BlockSpaceProgram.ASSEMBLY_MENU.get(), AssemblyScreen::new);
+        event.register(BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), AssemblyScreen::new);
     }
 
     @SubscribeEvent
@@ -116,8 +118,11 @@ public final class PartRenderingClient {
                 MultiBufferSource buffers, int light) {
             var part = entity.part();
             if (part != null) {
+                poses.pushPose();
+                poses.mulPose(PartPose.orientation(entity.rotation()));
                 PartMeshRenderer.render(part, poses, buffers, light);
                 CollisionDebugClient.renderPlacedPart(part, poses, buffers);
+                poses.popPose();
             }
             super.render(entity, yaw, partialTick, poses, buffers, light);
         }
@@ -138,9 +143,14 @@ public final class PartRenderingClient {
                 MultiBufferSource buffers, int light) {
             var design = entity.design();
             if (design != null) {
+                poses.pushPose();
+                if (!entity.isFlyingShip()) {
+                    poses.mulPose(PartPose.orientation(entity.launchRotation()));
+                }
                 for (var node : design.nodes()) {
                     AssemblyViewport.renderPart(node, poses, buffers, light);
                 }
+                poses.popPose();
             }
             super.render(entity, yaw, partialTick, poses, buffers, light);
         }

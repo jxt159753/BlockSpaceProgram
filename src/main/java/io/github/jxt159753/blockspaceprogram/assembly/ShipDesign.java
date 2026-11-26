@@ -23,8 +23,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     // With the blueprint in hand, the main inventory and offhand can supply 36 unstackable parts.
     public static final int MAX_PARTS = 36;
     public static final int MAX_STAGES = MAX_PARTS * 2;
-    private static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;
-    private static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
+    static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;
+    static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
     public static final ShipDesign EMPTY = new ShipDesign(List.of(), List.of(), 1);
 
     public static final Codec<ShipDesign> FLIGHT_CODEC = RecordCodecBuilder.<ShipDesign>create(instance -> instance.group(
@@ -100,7 +100,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     public record Link(Endpoint first, Endpoint second, boolean surface, boolean separable, int separationStage) {
-        private static final Codec<Link> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+        static final Codec<Link> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Endpoint.CODEC.fieldOf("first").forGetter(Link::first),
                 Endpoint.CODEC.fieldOf("second").forGetter(Link::second),
                 Codec.BOOL.optionalFieldOf("surface", false).forGetter(Link::surface),
@@ -122,15 +122,19 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         boolean uses(int node, int marker) {
             return first.node() == node && first.marker() == marker || second.node() == node && second.marker() == marker;
         }
+
+        Link withNodes(int firstIndex, int secondIndex) {
+            return new Link(first.withNode(firstIndex), second.withNode(secondIndex), surface, separable, separationStage);
+        }
     }
 
     public record Branch(int node, int parent, int link) {}
 
     public List<Branch> tree(Set<Integer> detachedLinks) {
-        return nodes.isEmpty() ? List.of() : tree(0, detachedLinks, new boolean[nodes.size()]);
+        return nodes.isEmpty() ? List.of() : tree(links, 0, detachedLinks, new boolean[nodes.size()]);
     }
 
-    private List<Branch> tree(int root, Set<Integer> detachedLinks, boolean[] visited) {
+    private static List<Branch> tree(List<Link> links, int root, Set<Integer> detachedLinks, boolean[] visited) {
         List<Branch> tree = new ArrayList<>();
         visited[root] = true;
         tree.add(new Branch(root, -1, -1));
@@ -148,11 +152,18 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     List<List<Integer>> components(Set<Integer> detachedLinks) {
-        boolean[] visited = new boolean[nodes.size()];
+        return components(nodes.size(), links, detachedLinks, -1);
+    }
+
+    static List<List<Integer>> components(int nodeCount, List<Link> links, Set<Integer> detachedLinks, int removedNode) {
+        boolean[] visited = new boolean[nodeCount];
+        if (removedNode >= 0) {
+            visited[removedNode] = true;
+        }
         List<List<Integer>> components = new ArrayList<>();
-        for (int node = 0; node < nodes.size(); node++) {
+        for (int node = 0; node < nodeCount; node++) {
             if (!visited[node]) {
-                components.add(tree(node, detachedLinks, visited).stream().map(Branch::node).toList());
+                components.add(tree(links, node, detachedLinks, visited).stream().map(Branch::node).toList());
             }
         }
         return components;
@@ -241,17 +252,20 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
             keptNodes.add(new Node(node.part(),
                     new PartPose(node.pose().origin().subtract(quarters), node.pose().rotation()), node.engineStage()));
         }
+        return new ShipDesign(keptNodes, remapLinks(links, indices, detachedLinks), stageCount);
+    }
+
+    static List<Link> remapLinks(List<Link> links, int[] indices, Set<Integer> detachedLinks) {
         var keptLinks = new ArrayList<Link>();
         for (int index = 0; index < links.size(); index++) {
             Link link = links.get(index);
             int first = indices[link.first().node()];
             int second = indices[link.second().node()];
             if (first >= 0 && second >= 0 && !detachedLinks.contains(index)) {
-                keptLinks.add(new Link(link.first().withNode(first), link.second().withNode(second), link.surface(),
-                        link.separable(), link.separationStage()));
+                keptLinks.add(link.withNodes(first, second));
             }
         }
-        return new ShipDesign(keptNodes, keptLinks, stageCount);
+        return keptLinks;
     }
 
     ShipDesign moveEngine(int index, int stage) {

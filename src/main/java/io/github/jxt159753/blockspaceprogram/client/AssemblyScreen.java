@@ -57,7 +57,9 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private Button removeStage;
     private Button save;
     private Button load;
+    private Button assemble;
     private ShipDesign shownDesign;
+    private double wetMass;
     private List<StageCard> cards = List.of();
     private int stageContentHeight;
     @Nullable
@@ -80,9 +82,17 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     protected void init() {
         stageLeft = width - LEFT - Mth.clamp(width / 3, 126, 204);
         inventoryTop = height - LEFT - SLOT * 3;
-        viewBottom = inventoryTop - 22;
+        viewBottom = menu.isWorldAssembly() ? height - LEFT - 35 : inventoryTop - 22;
         int viewWidth = stageLeft - LEFT - 6;
         viewport = new AssemblyViewport(LEFT, VIEW_TOP, viewWidth, viewBottom - VIEW_TOP);
+        addStage = button(width - LEFT - 39, TOOLS_Y, 18, "plus", "add_stage", () -> edit(Action.ADD_STAGE, -1, -1));
+        removeStage = button(width - LEFT - 19, TOOLS_Y, 19, "minus", "remove_stage", () -> edit(Action.REMOVE_STAGE, -1, -1));
+        shownDesign = null;
+        if (menu.isWorldAssembly()) {
+            assemble = button(LEFT, height - LEFT - 20, viewWidth, "world_assemble", "world_assemble_tip",
+                    () -> edit(Action.ASSEMBLE, -1, -1));
+            return;
+        }
 
         int toolWidth = (viewWidth - 6) / 4;
         modeButton = button(LEFT, TOOLS_Y, toolWidth, "stack", "mode_tip", () -> {
@@ -93,12 +103,9 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         turnButton = button(LEFT + (toolWidth + 2) * 2, TOOLS_Y, toolWidth, "turn_button", "turn_tip", () -> turns = (turns + 1) % 4);
         symmetryButton = button(LEFT + (toolWidth + 2) * 3, TOOLS_Y, toolWidth, "symmetry_button", "symmetry_tip",
                 () -> symmetry = symmetry == 4 ? 1 : symmetry * 2);
-        addStage = button(width - LEFT - 39, TOOLS_Y, 18, "plus", "add_stage", () -> edit(Action.ADD_STAGE, -1, -1));
-        removeStage = button(width - LEFT - 19, TOOLS_Y, 19, "minus", "remove_stage", () -> edit(Action.REMOVE_STAGE, -1, -1));
         int blueprintX = Math.max(LEFT + INVENTORY_COLUMNS * SLOT + 8, stageLeft);
         save = button(blueprintX, inventoryTop, width - LEFT - blueprintX, "save", "save_tip", () -> edit(Action.SAVE, selectedSlot, -1));
         load = button(blueprintX, inventoryTop + 24, width - LEFT - blueprintX, "load", "load_tip", () -> edit(Action.LOAD, selectedSlot, -1));
-        shownDesign = null;
     }
 
     private Button button(int x, int y, int width, String label, String tooltip, Runnable action) {
@@ -113,10 +120,11 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             updateStages(design);
         }
         BakedPart part = selectedPart();
-        Source source = source(part);
+        var source = source(part);
+        boolean world = menu.isWorldAssembly();
         var frame = viewport.frame(design);
         hover = viewport.pick(frame, design, mouseX, mouseY);
-        var request = request(design, frame, hover, source);
+        var request = world ? null : request(design, frame, hover, source);
         var preview = request == null || part == null ? null : ShipPlacement.place(design, part, request);
 
         graphics.fill(0, 0, width, height, 0xF4111721);
@@ -125,8 +133,8 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         Component count = text("parts", design.nodes().size(), ShipDesign.MAX_PARTS);
         graphics.drawString(font, count, width - LEFT - font.width(count), 8, MUTED);
         graphics.drawString(font, text("stages"), stageLeft + 1, TOOLS_Y + 6, WHITE);
-        viewport.render(graphics, frame, design, preview == null ? design : preview.design(), hover, stackMode);
-        if (design.nodes().isEmpty()) {
+        viewport.render(graphics, frame, design, preview == null ? design : preview.design(), hover, !world && stackMode);
+        if (design.nodes().isEmpty() && !world) {
             graphics.drawCenteredString(font, text("first_part"), (LEFT + stageLeft - 6) / 2, (VIEW_TOP + viewBottom) / 2, WHITE);
         } else if (hover != null) {
             graphics.drawString(font, text("part_number", hover.node() + 1), LEFT + 5, VIEW_TOP + 5, WHITE);
@@ -138,24 +146,28 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         }
         drawStatus(graphics, preview);
         drawStages(graphics, mouseY);
-        drawInventory(graphics, mouseX, mouseY);
-
-        modeButton.setMessage(text(stackMode ? "stack" : "surface"));
-        if (source == null) {
-            sourceButton.setMessage(text("no_source"));
+        if (world) {
+            graphics.drawString(font, text("world_mass", value(wetMass, 1)), LEFT, TOOLS_Y + 6, WHITE);
+            assemble.active = !design.nodes().isEmpty();
         } else {
-            var direction = Component.translatable("direction.blockspaceprogram.short." + source.normal().getName());
-            if (source.marker() >= 0) {
-                direction.append(" #" + (source.marker() + 1));
+            drawInventory(graphics, mouseX, mouseY);
+            modeButton.setMessage(text(stackMode ? "stack" : "surface"));
+            if (source == null) {
+                sourceButton.setMessage(text("no_source"));
+            } else {
+                var direction = Component.translatable("direction.blockspaceprogram.short." + source.normal().getName());
+                if (source.marker() >= 0) {
+                    direction.append(" #" + (source.marker() + 1));
+                }
+                sourceButton.setMessage(direction);
             }
-            sourceButton.setMessage(direction);
+            sourceButton.active = source != null;
+            turnButton.setMessage(Component.literal(turns * 90 + "°"));
+            symmetryButton.setMessage(Component.literal(symmetry + "×"));
+            updateBlueprintButtons();
         }
-        sourceButton.active = source != null;
-        turnButton.setMessage(Component.literal(turns * 90 + "°"));
-        symmetryButton.setMessage(Component.literal(symmetry + "×"));
-        addStage.active = design.stageCount() < ShipDesign.MAX_STAGES;
+        addStage.active = (!world || !design.nodes().isEmpty()) && design.stageCount() < ShipDesign.MAX_STAGES;
         removeStage.active = design.stageCount() > 1 && design.lastStageEmpty();
-        updateBlueprintButtons();
         super.render(graphics, mouseX, mouseY, partialTick);
 
         if (dragged != null) {
@@ -182,14 +194,21 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         } else if (!menu.message().isEmpty()) {
             status = text(menu.message(), menu.messageCount());
         } else {
-            status = text("camera_tip");
+            status = text(menu.isWorldAssembly() ? "world_camera_tip" : "camera_tip");
         }
-        graphics.drawString(font, font.plainSubstrByWidth(status.getString(), stageLeft - LEFT - 6), LEFT, viewBottom + 2, color);
-        graphics.drawString(font, text("inventory"), LEFT, inventoryTop - 11, MUTED);
+        int statusWidth = (menu.isWorldAssembly() ? width - LEFT : stageLeft - 6) - LEFT;
+        graphics.drawString(font, font.plainSubstrByWidth(status.getString(), statusWidth), LEFT, viewBottom + 2, color);
+        if (!menu.isWorldAssembly()) {
+            graphics.drawString(font, text("inventory"), LEFT, inventoryTop - 11, MUTED);
+        }
     }
 
     private void updateStages(ShipDesign design) {
         shownDesign = design;
+        wetMass = design.nodes().stream().mapToDouble(node -> {
+            var properties = node.part().properties();
+            return properties.mass() + properties.fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
+        }).sum();
         var metrics = StagePerformance.calculate(design);
         List<List<StageAction>> actions = new ArrayList<>();
         for (int i = 0; i < design.stageCount(); i++) {
@@ -270,7 +289,8 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     }
 
     private int slotAt(double x, double y) {
-        if (x < LEFT || x >= LEFT + SLOT * INVENTORY_COLUMNS || y < inventoryTop || y >= inventoryTop + SLOT * 3) {
+        if (menu.isWorldAssembly() || x < LEFT || x >= LEFT + SLOT * INVENTORY_COLUMNS
+                || y < inventoryTop || y >= inventoryTop + SLOT * 3) {
             return -1;
         }
         return ((int) y - inventoryTop) / SLOT * INVENTORY_COLUMNS + ((int) x - LEFT) / SLOT;
@@ -294,26 +314,17 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     }
 
     @Nullable
-    private Source source(@Nullable BakedPart part) {
+    private ShipPlacement.Source source(@Nullable BakedPart part) {
         if (part == null) {
             return null;
         }
-        List<Source> sources = new ArrayList<>();
-        for (int i = 0; i < part.connectors().size(); i++) {
-            var connector = part.connectors().get(i);
-            if (connector.kind().isStack() == stackMode) {
-                sources.add(new Source(i, connector.normal()));
-            }
-        }
-        if (!sources.isEmpty()) {
-            return sources.get(Math.floorMod(sourceIndex, sources.size()));
-        }
-        return stackMode ? null : new Source(-1, Direction.values()[Math.floorMod(sourceIndex, Direction.values().length)]);
+        var sources = ShipPlacement.sources(part, stackMode);
+        return sources.isEmpty() ? null : sources.get(Math.floorMod(sourceIndex, sources.size()));
     }
 
     @Nullable
     private ShipPlacement.Request request(ShipDesign design, AssemblyViewport.Frame frame, @Nullable AssemblyViewport.Hit hit,
-            @Nullable Source source) {
+            @Nullable ShipPlacement.Source source) {
         if (design.nodes().isEmpty()) {
             return new ShipPlacement.Request(-1, -1, -1, Direction.UP, Direction.DOWN, Vec3.ZERO, 0, 1);
         }
@@ -360,7 +371,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
                 orbiting = true;
                 return true;
             }
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !menu.isWorldAssembly()) {
                 ShipDesign design = menu.design();
                 var frame = viewport.frame(design);
                 var hit = viewport.pick(frame, design, x, y);
@@ -454,8 +465,6 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private static String value(double value, int digits) {
         return Double.isFinite(value) ? String.format(Locale.ROOT, digits == 1 ? "%.1f" : "%.2f", value) : "—";
     }
-
-    private record Source(int marker, Direction normal) {}
 
     private record StageAction(Action action, int index, int stage, Component label) {}
 

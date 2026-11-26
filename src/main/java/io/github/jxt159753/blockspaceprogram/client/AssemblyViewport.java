@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import io.github.jxt159753.blockspaceprogram.assembly.PartPose;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import java.util.List;
@@ -162,13 +163,10 @@ final class AssemblyViewport {
     }
 
     static void renderPart(ShipDesign.Node node, PoseStack pose, MultiBufferSource buffers, int light) {
-        var rotation = node.pose().rotation();
-        var axes = new Matrix3f(rotation.rotate(Direction.EAST).step(), rotation.rotate(Direction.UP).step(),
-                rotation.rotate(Direction.SOUTH).step());
         pose.pushPose();
         Vec3 origin = node.pose().position();
         pose.translate(origin.x, origin.y, origin.z);
-        pose.mulPose(new Quaternionf().setFromNormalized(axes));
+        pose.mulPose(PartPose.orientation(node.pose().rotation()));
         PartMeshRenderer.render(node.part(), pose, buffers, light);
         pose.popPose();
     }

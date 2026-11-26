@@ -15,11 +15,14 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 
 /** The baked minimum corner and a proper right-angle rotation, in ship coordinates. */
 public record PartPose(BlockPos origin, OctahedralGroup rotation) {
     private static final int MAX_OFFSET = ShipDesign.MAX_PARTS * 9 * 4;
-    private static final List<OctahedralGroup> ROTATIONS = Arrays.stream(OctahedralGroup.values())
+    private static final OctahedralGroup[] ORIENTATIONS = OctahedralGroup.values();
+    private static final List<OctahedralGroup> ROTATIONS = Arrays.stream(ORIENTATIONS)
             .filter(ShipCollisionLayout::isRotation).toList();
     private static final Codec<OctahedralGroup> ROTATION_CODEC = StringRepresentable.fromEnum(OctahedralGroup::values)
             .validate(rotation -> ROTATIONS.contains(rotation) ? DataResult.success(rotation)
@@ -77,6 +80,22 @@ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
         return Vec3.atLowerCornerOf(rotation.rotate(Direction.EAST).getNormal()).scale(point.x)
                 .add(Vec3.atLowerCornerOf(rotation.rotate(Direction.UP).getNormal()).scale(point.y))
                 .add(Vec3.atLowerCornerOf(rotation.rotate(Direction.SOUTH).getNormal()).scale(point.z));
+    }
+
+    public static AABB rotateBounds(OctahedralGroup rotation, AABB box) {
+        return new AABB(rotate(rotation, new Vec3(box.minX, box.minY, box.minZ)),
+                rotate(rotation, new Vec3(box.maxX, box.maxY, box.maxZ)));
+    }
+
+    public static Quaternionf orientation(OctahedralGroup rotation) {
+        var axes = new Matrix3f(rotation.rotate(Direction.EAST).step(), rotation.rotate(Direction.UP).step(),
+                rotation.rotate(Direction.SOUTH).step());
+        return new Quaternionf().setFromNormalized(axes);
+    }
+
+    public static OctahedralGroup rotationById(int id) {
+        return id >= 0 && id < ORIENTATIONS.length && ROTATIONS.contains(ORIENTATIONS[id])
+                ? ORIENTATIONS[id] : OctahedralGroup.IDENTITY;
     }
 
     static OctahedralGroup align(Direction normal, Direction tangent, Direction targetNormal, Direction targetTangent) {
