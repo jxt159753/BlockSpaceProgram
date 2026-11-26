@@ -26,6 +26,7 @@ import org.joml.Vector3fc;
 /** Propellant, part damage, and the ship-local locations at which the flight systems act. */
 final class ShipFlightState {
     private static final double POD_WHEEL_TORQUE = 1_500;
+    private static final double MASSLESS_FRAGMENT_DRY_MASS = 0.01;
     private final List<Engine> engines = new ArrayList<>();
     private final List<Tank> tanks = new ArrayList<>();
     private final double[] fuel;
@@ -38,23 +39,23 @@ final class ShipFlightState {
     private final Vector3d projectedDragArea = new Vector3d();
     private final double weakestPart;
     private final long commandPods;
+    private int stage;
     private long damagedParts;
     private long pendingDamage;
 
-    ShipFlightState(ShipDesign design, ListTag savedFuel, long savedDamage) {
+    ShipFlightState(ShipDesign design, ListTag savedFuel, long savedDamage, int stage) {
         int count = design.nodes().size();
         fuel = new double[count];
         groupFuel = new double[count];
         demand = new double[count];
         burnFraction = new double[count];
         impactParts = new ImpactPart[count];
+        this.stage = stage;
         damagedParts = savedDamage & ((1L << count) - 1);
         int[] groups = new int[count];
         double dryMass = 0;
         double weakest = Double.POSITIVE_INFINITY;
         long pods = 0;
-        int engineStage = design.nodes().stream().filter(ShipFlightState::hasEngine)
-                .mapToInt(ShipDesign.Node::engineStage).min().orElse(-1);
         List<PartBox> wetParts = new ArrayList<>(count);
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
             int index = branch.node();
@@ -75,10 +76,10 @@ final class ShipFlightState {
                 dry.coveredCells().forEach(pos -> tankCells.add(pos.immutable()));
                 tanks.add(new Tank(index, group, tankCells));
             }
-            if (node.engineStage() == engineStage && hasEngine(node)) {
+            if (hasEngine(node)) {
                 engines.add(engine(node, index, group));
             }
-            if (part.types().contains(PartType.COMMAND_POD)) {
+            if (node.isCommandPod()) {
                 pods |= 1L << index;
             }
             var bounds = node.bounds();
@@ -89,13 +90,26 @@ final class ShipFlightState {
             double z = bounds.getZsize();
             projectedDragArea.fma(properties.dragCoefficient(), new Vector3d(y * z, x * z, x * y));
         }
-        if (!Double.isFinite(dryMass) || dryMass <= 0) {
-            throw new IllegalArgumentException("A flying ship needs positive, finite dry mass");
+        if (!Double.isFinite(dryMass)) {
+            throw new IllegalArgumentException("A flying ship needs finite dry mass");
+        }
+        if (dryMass == 0) {
+            // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
+            PartBox first = wetParts.getFirst();
+            wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + MASSLESS_FRAGMENT_DRY_MASS));
         }
         cells = ShipCollisionLayout.rasterize(wetParts);
-        seat = seat(design);
+        seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
         weakestPart = weakest;
         commandPods = pods;
+    }
+
+    static int initialStage(ShipDesign design) {
+        int engineStage = design.nodes().stream().filter(ShipFlightState::hasEngine)
+                .mapToInt(ShipDesign.Node::engineStage).min().orElse(0);
+        int firstCut = design.links().stream().filter(ShipDesign.Link::separable)
+                .mapToInt(ShipDesign.Link::separationStage).min().orElse(design.stageCount());
+        return Math.min(engineStage, firstCut - 1);
     }
 
     private static boolean hasEngine(ShipDesign.Node node) {
@@ -127,12 +141,12 @@ final class ShipFlightState {
             moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
             nozzleCount = 1;
         }
-        return new Engine(part, group, node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
+        return new Engine(part, group, node.engineStage(), node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
                 moment.scale(1.0 / nozzleCount).toVector3f());
     }
 
-    private static Vec3 seat(ShipDesign design) {
-        var root = design.nodes().getFirst();
+    private static Vec3 seat(ShipDesign design, int pod) {
+        var root = design.nodes().get(pod);
         Vec3 marker = root.part().blocks().stream().filter(block -> block.state().is(PartType.COMMAND_SEATS))
                 .map(block -> root.point(Vec3.atCenterOf(block.pos()))).findFirst().orElseGet(() -> root.bounds().getCenter());
         double height = root.bounds().maxY;
@@ -151,6 +165,30 @@ final class ShipFlightState {
 
     Vec3 seat() {
         return seat;
+    }
+
+    boolean isDebris() {
+        return commandPods == 0;
+    }
+
+    int stage() {
+        return stage;
+    }
+
+    void setStage(int stage) {
+        this.stage = stage;
+    }
+
+    ShipFlightState fragment(ShipDesign design, List<Integer> members, int stage) {
+        var remainingFuel = new ListTag();
+        long damage = 0;
+        for (int part : members) {
+            if (isDamaged(part)) {
+                damage |= 1L << remainingFuel.size();
+            }
+            remainingFuel.add(DoubleTag.valueOf(fuel[part]));
+        }
+        return new ShipFlightState(design, remainingFuel, damage, stage);
     }
 
     double wheelTorque() {
@@ -239,7 +277,7 @@ final class ShipFlightState {
             groupFuel[tank.group] += fuel[tank.part];
         }
         for (Engine engine : engines) {
-            if (isDamaged(engine.part)) {
+            if (engine.stage != stage || isDamaged(engine.part)) {
                 continue;
             }
             var props = engine.properties;
@@ -263,7 +301,7 @@ final class ShipFlightState {
             body.subLevel().updateMergedMassData(0);
         }
         for (Engine engine : engines) {
-            if (!isDamaged(engine.part)) {
+            if (engine.stage == stage && !isDamaged(engine.part)) {
                 double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
                 impulse.fma(magnitude, engine.direction);
                 momentAboutOrigin.fma(magnitude, engine.moment);
@@ -288,5 +326,5 @@ final class ShipFlightState {
 
     private record Tank(int part, int group, List<BlockPos> cells) {}
 
-    private record Engine(int part, int group, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
+    private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
 }

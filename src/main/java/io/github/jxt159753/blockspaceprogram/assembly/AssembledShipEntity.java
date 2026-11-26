@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 /** The launched ship retains its graph and stages across saves. */
 public final class AssembledShipEntity extends Entity {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final int NO_SAVED_STAGE = -2;
     private static final EntityDataAccessor<ItemStack> BLUEPRINT = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.ITEM_STACK);
     private static final EntityDataAccessor<Boolean> FLYING = SynchedEntityData.defineId(
@@ -44,12 +45,15 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Long> DAMAGED_PARTS = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.LONG);
+    private static final EntityDataAccessor<Integer> ACTIVE_STAGE = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.INT);
 
     @Nullable
     private SableShipFlight flight;
     @Nullable
     private UUID bodyId;
     private ListTag savedFuel = new ListTag();
+    private long debrisSince = -1;
     private boolean triedFlight;
 
     public AssembledShipEntity(EntityType<? extends AssembledShipEntity> type, Level level) {
@@ -65,15 +69,24 @@ public final class AssembledShipEntity extends Entity {
         builder.define(THROTTLE, 0);
         builder.define(FUEL, 0.0F);
         builder.define(DAMAGED_PARTS, 0L);
+        builder.define(ACTIVE_STAGE, -1);
     }
 
     @Nullable
     public ShipDesign design() {
-        return entityData.get(BLUEPRINT).get(BlockSpaceProgram.SHIP_DESIGN);
+        var stack = entityData.get(BLUEPRINT);
+        ShipDesign layout = stack.get(BlockSpaceProgram.FLIGHT_LAYOUT);
+        return layout == null ? stack.get(BlockSpaceProgram.SHIP_DESIGN) : layout;
     }
 
     void setBlueprint(ItemStack stack) {
         entityData.set(BLUEPRINT, stack.copyWithCount(1));
+    }
+
+    void setFlightDesign(ShipDesign layout) {
+        var stack = new ItemStack(BlockSpaceProgram.SHIP_BLUEPRINT.get());
+        stack.set(BlockSpaceProgram.FLIGHT_LAYOUT, layout);
+        setBlueprint(stack);
     }
 
     public static void registerFlight() {
@@ -94,18 +107,36 @@ public final class AssembledShipEntity extends Entity {
             return false;
         }
         try {
-            flight = bodyId == null ? SableShipFlight.launch(this, level, design)
-                    : SableShipFlight.restore(this, level, design, bodyId, savedFuel);
-            bodyId = flight.bodyId();
-            savedFuel = new ListTag();
-            entityData.set(FLYING, true);
-            entityData.set(SEAT, flight.seat().toVector3f());
-            flight.tickControls(this);
+            bindFlight(bodyId == null ? SableShipFlight.launch(this, level, design)
+                    : SableShipFlight.restore(this, level, design, bodyId, savedFuel, activeStage()));
             return true;
         } catch (RuntimeException error) {
             LOGGER.warn("Could not initialize ship flight for {}", getUUID(), error);
             return false;
         }
+    }
+
+    void useFlightFragment(ShipDesign design, SableShipFlight flight) {
+        setFlightDesign(design);
+        setPos(flight.plotPosition());
+        bindFlight(flight);
+        if (getFirstPassenger() instanceof Player pilot) {
+            positionRider(pilot);
+        }
+    }
+
+    private void bindFlight(SableShipFlight flight) {
+        this.flight = flight;
+        triedFlight = true;
+        bodyId = flight.bodyId();
+        savedFuel = new ListTag();
+        if (flight.isDebris() && debrisSince < 0) {
+            debrisSince = level().getGameTime();
+        }
+        entityData.set(FLYING, true);
+        entityData.set(SEAT, flight.seat().toVector3f());
+        setDamagedParts(flight.damagedParts());
+        flight.syncStatus();
     }
 
     public boolean isFlyingShip() {
@@ -120,6 +151,19 @@ public final class AssembledShipEntity extends Entity {
         return entityData.get(FUEL);
     }
 
+    public int activeStage() {
+        return entityData.get(ACTIVE_STAGE);
+    }
+
+    public boolean isDebris() {
+        ShipDesign design = design();
+        return design != null && design.nodes().stream().noneMatch(ShipDesign.Node::isCommandPod);
+    }
+
+    long debrisSince() {
+        return debrisSince;
+    }
+
     public int damagedPartCount() {
         return Long.bitCount(damagedParts());
     }
@@ -132,9 +176,10 @@ public final class AssembledShipEntity extends Entity {
         entityData.set(DAMAGED_PARTS, damage);
     }
 
-    void setFlightStatus(int throttle, float fuel) {
+    void setFlightStatus(int throttle, float fuel, int stage) {
         entityData.set(THROTTLE, throttle);
         entityData.set(FUEL, fuel);
+        entityData.set(ACTIVE_STAGE, stage);
     }
 
     void acceptFlightInput(ServerPlayer pilot, int keys) {
@@ -171,7 +216,7 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     public InteractionResult interact(Player player, InteractionHand hand) {
-        if (!isFlyingShip() || player.isSpectator() || player.isSecondaryUseActive() || getFirstPassenger() != null) {
+        if (!isFlyingShip() || isDebris() || player.isSpectator() || player.isSecondaryUseActive() || getFirstPassenger() != null) {
             return InteractionResult.PASS;
         }
         if (level().isClientSide) {
@@ -180,7 +225,7 @@ public final class AssembledShipEntity extends Entity {
         if (flight != null && player.startRiding(this)) {
             player.displayClientMessage(Component.translatable("flight.blockspaceprogram.controls",
                     Component.keybind("key.blockspaceprogram.throttle_up"), Component.keybind("key.blockspaceprogram.throttle_down"),
-                    Component.keybind("key.blockspaceprogram.cutoff")), true);
+                    Component.keybind("key.blockspaceprogram.cutoff"), Component.keybind("key.jump")), true);
             return InteractionResult.CONSUME;
         }
         return InteractionResult.PASS;
@@ -188,7 +233,7 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     protected boolean canAddPassenger(Entity passenger) {
-        return isFlyingShip() && passenger instanceof Player && getPassengers().isEmpty();
+        return isFlyingShip() && !isDebris() && passenger instanceof Player && getPassengers().isEmpty();
     }
 
     @Override
@@ -231,7 +276,7 @@ public final class AssembledShipEntity extends Entity {
                 }
             }
             if (flight != null) {
-                flight.tickControls(this);
+                flight.tickControls();
             }
         }
     }
@@ -267,7 +312,9 @@ public final class AssembledShipEntity extends Entity {
             bodyId = tag.getUUID("FlightBody");
             savedFuel = tag.getList("Fuel", Tag.TAG_DOUBLE);
             entityData.set(FLYING, true);
+            entityData.set(ACTIVE_STAGE, tag.contains("FlightStage") ? tag.getInt("FlightStage") : NO_SAVED_STAGE);
             setDamagedParts(tag.getLong("DamagedParts"));
+            debrisSince = tag.contains("DebrisSince") ? tag.getLong("DebrisSince") : -1;
         }
     }
 
@@ -278,6 +325,12 @@ public final class AssembledShipEntity extends Entity {
             tag.putUUID("FlightBody", bodyId);
             tag.put("Fuel", flight == null ? savedFuel : flight.saveFuel());
             tag.putLong("DamagedParts", damagedParts());
+            if (activeStage() >= -1) {
+                tag.putInt("FlightStage", activeStage());
+            }
+            if (debrisSince >= 0) {
+                tag.putLong("DebrisSince", debrisSince);
+            }
         }
     }
 }

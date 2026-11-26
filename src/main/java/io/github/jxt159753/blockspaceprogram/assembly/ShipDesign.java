@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -17,7 +18,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-/** The command pod is node zero. Stages run in ascending order. */
+/** Blueprints start at their root command pod. Flight layouts may also describe detached parts. */
 public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     // With the blueprint in hand, the main inventory and offhand can supply 36 unstackable parts.
     public static final int MAX_PARTS = 36;
@@ -26,12 +27,15 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     private static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
     public static final ShipDesign EMPTY = new ShipDesign(List.of(), List.of(), 1);
 
-    public static final Codec<ShipDesign> CODEC = RecordCodecBuilder.<ShipDesign>create(instance -> instance.group(
+    public static final Codec<ShipDesign> FLIGHT_CODEC = RecordCodecBuilder.<ShipDesign>create(instance -> instance.group(
             Node.CODEC.listOf(1, MAX_PARTS).fieldOf("nodes").forGetter(ShipDesign::nodes),
             Link.CODEC.listOf(0, MAX_LINKS).fieldOf("links").forGetter(ShipDesign::links),
             Codec.intRange(1, MAX_STAGES).fieldOf("stages").forGetter(ShipDesign::stageCount)
-    ).apply(instance, ShipDesign::new)).validate(design -> design.isValid() ? DataResult.success(design)
-            : DataResult.error(() -> "Invalid ship blueprint"));
+    ).apply(instance, ShipDesign::new)).validate(design -> design.isValidLayout() ? DataResult.success(design)
+            : DataResult.error(() -> "Invalid ship layout"));
+
+    public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.hasBlueprintRoot()
+            ? DataResult.success(design) : DataResult.error(() -> "Invalid ship blueprint root"));
 
     public static final StreamCodec<FriendlyByteBuf, ShipDesign> STREAM_CODEC = StreamCodec.composite(
             Node.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_PARTS)), ShipDesign::nodes,
@@ -55,6 +59,10 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
 
         static Node placed(BakedPart part, PartPose pose) {
             return new Node(part, pose, part.types().contains(PartType.ENGINE) ? 0 : -1);
+        }
+
+        boolean isCommandPod() {
+            return part.types().contains(PartType.COMMAND_POD);
         }
 
         public AABB bounds() {
@@ -119,23 +127,35 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     public record Branch(int node, int parent, int link) {}
 
     public List<Branch> tree(Set<Integer> detachedLinks) {
+        return nodes.isEmpty() ? List.of() : tree(0, detachedLinks, new boolean[nodes.size()]);
+    }
+
+    private List<Branch> tree(int root, Set<Integer> detachedLinks, boolean[] visited) {
         List<Branch> tree = new ArrayList<>();
-        if (!nodes.isEmpty()) {
-            boolean[] visited = new boolean[nodes.size()];
-            visited[0] = true;
-            tree.add(new Branch(0, -1, -1));
-            for (int i = 0; i < tree.size(); i++) {
-                int parent = tree.get(i).node();
-                for (int j = 0; j < links.size(); j++) {
-                    int next = links.get(j).other(parent);
-                    if (next >= 0 && !visited[next] && !detachedLinks.contains(j)) {
-                        visited[next] = true;
-                        tree.add(new Branch(next, parent, j));
-                    }
+        visited[root] = true;
+        tree.add(new Branch(root, -1, -1));
+        for (int i = 0; i < tree.size(); i++) {
+            int parent = tree.get(i).node();
+            for (int j = 0; j < links.size(); j++) {
+                int next = links.get(j).other(parent);
+                if (next >= 0 && !visited[next] && !detachedLinks.contains(j)) {
+                    visited[next] = true;
+                    tree.add(new Branch(next, parent, j));
                 }
             }
         }
         return tree;
+    }
+
+    List<List<Integer>> components(Set<Integer> detachedLinks) {
+        boolean[] visited = new boolean[nodes.size()];
+        List<List<Integer>> components = new ArrayList<>();
+        for (int node = 0; node < nodes.size(); node++) {
+            if (!visited[node]) {
+                components.add(tree(node, detachedLinks, visited).stream().map(Branch::node).toList());
+            }
+        }
+        return components;
     }
 
     public AABB bounds() {
@@ -147,9 +167,16 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     public boolean isValid() {
+        return hasBlueprintRoot() && isValidLayout();
+    }
+
+    private boolean hasBlueprintRoot() {
+        return !nodes.isEmpty() && nodes.getFirst().pose().equals(PartPose.ROOT) && nodes.getFirst().isCommandPod();
+    }
+
+    private boolean isValidLayout() {
         if (nodes.isEmpty() || nodes.size() > MAX_PARTS || links.size() > MAX_LINKS || stageCount < 1
-                || stageCount > MAX_STAGES || !nodes.getFirst().pose().equals(PartPose.ROOT)
-                || !nodes.getFirst().part().types().contains(PartType.COMMAND_POD)) {
+                || stageCount > MAX_STAGES) {
             return false;
         }
         List<AABB> bounds = new ArrayList<>(nodes.size());
@@ -190,19 +217,36 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
                 removedLinks.add(i);
             }
         }
-        var connected = tree(removedLinks);
+        return subset(tree(removedLinks).stream().map(Branch::node).toList(), removedLinks, BlockPos.ZERO);
+    }
+
+    ShipDesign withoutLinks(Set<Integer> detachedLinks) {
+        List<Link> kept = new ArrayList<>();
+        for (int index = 0; index < links.size(); index++) {
+            if (!detachedLinks.contains(index)) {
+                kept.add(links.get(index));
+            }
+        }
+        return new ShipDesign(nodes, kept, stageCount);
+    }
+
+    ShipDesign subset(List<Integer> members, Set<Integer> detachedLinks, BlockPos offset) {
         int[] indices = new int[nodes.size()];
         Arrays.fill(indices, -1);
-        var keptNodes = new ArrayList<Node>();
-        for (Branch branch : connected) {
-            indices[branch.node()] = keptNodes.size();
-            keptNodes.add(nodes.get(branch.node()));
+        var keptNodes = new ArrayList<Node>(members.size());
+        BlockPos quarters = offset.multiply(4);
+        for (int member : members) {
+            indices[member] = keptNodes.size();
+            Node node = nodes.get(member);
+            keptNodes.add(new Node(node.part(),
+                    new PartPose(node.pose().origin().subtract(quarters), node.pose().rotation()), node.engineStage()));
         }
         var keptLinks = new ArrayList<Link>();
-        for (Link link : links) {
+        for (int index = 0; index < links.size(); index++) {
+            Link link = links.get(index);
             int first = indices[link.first().node()];
             int second = indices[link.second().node()];
-            if (first >= 0 && second >= 0) {
+            if (first >= 0 && second >= 0 && !detachedLinks.contains(index)) {
                 keptLinks.add(new Link(link.first().withNode(first), link.second().withNode(second), link.surface(),
                         link.separable(), link.separationStage()));
             }
