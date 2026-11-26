@@ -1,0 +1,18 @@
+{
+  "vertex": "blockspaceprogram:planet_sky",
+  "fragment": "blockspaceprogram:planet_sky",
+  "attributes": ["Position"],
+  "samplers": [],
+  "uniforms": [
+    { "name": "ClipToWorld", "type": "matrix4x4", "count": 16, "values": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
+    { "name": "Mode", "type": "int", "count": 1, "values": [0] },
+    { "name": "BodyDirection", "type": "float", "count": 3, "values": [0, 1, 0] },
+    { "name": "Radius", "type": "float", "count": 1, "values": [0] },
+    { "name": "LightDirection", "type": "float", "count": 3, "values": [0, 1, 0] },
+    { "name": "BodyPole", "type": "float", "count": 3, "values": [0, 1, 0] },
+    { "name": "PrimeMeridian", "type": "float", "count": 3, "values": [1, 0, 0] },
+    { "name": "Density", "type": "float", "count": 1, "values": [0] },
+    { "name": "Weather", "type": "float", "count": 1, "values": [0] },
+    { "name": "Horizon", "type": "float", "count": 1, "values": [-1] }
+  ]
+}

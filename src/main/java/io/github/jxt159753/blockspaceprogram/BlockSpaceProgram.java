@@ -12,6 +12,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipDebrisConfig;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakedPartItem;
 import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
@@ -19,6 +20,7 @@ import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
+import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.EntityType;
@@ -107,7 +109,9 @@ public final class BlockSpaceProgram {
         modBus.addListener(PartConnector::register);
         modBus.addListener(AssemblyNetworking::register);
         modBus.addListener(ShipFlightInput::register);
+        OrbitalNetworking.register(modBus);
         AssembledShipEntity.registerFlight();
+        SkyNetworking.register(modBus);
         modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
     }

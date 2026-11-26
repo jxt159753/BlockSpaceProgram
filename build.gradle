@@ -13,6 +13,7 @@ base {
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 repositories {
+    mavenCentral()
     maven {
         url = 'https://api.modrinth.com/maven'
         content { includeModule 'maven.modrinth', 'T9PomCSv' }
@@ -26,6 +27,7 @@ repositories {
 dependencies {
     compileOnly 'maven.modrinth:T9PomCSv:fg9dTRz9' // Sable NeoForge 2.0.6
     compileOnly 'dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0'
+    testImplementation 'junit:junit:4.13.2'
 }
 
 neoForge {
@@ -63,6 +65,12 @@ neoForge {
             sourceSet(sourceSets.main)
         }
     }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.test)
+tasks.named('test', Test) {
+    useJUnit()
+    workingDir layout.buildDirectory
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
