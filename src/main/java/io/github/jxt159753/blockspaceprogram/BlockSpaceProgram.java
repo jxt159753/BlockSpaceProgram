@@ -68,6 +68,8 @@ public final class BlockSpaceProgram {
             "baked_part", BakedPartItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredItem<ShipBlueprintItem> SHIP_BLUEPRINT = ITEMS.registerItem(
             "ship_blueprint", ShipBlueprintItem::new, new Item.Properties().stacksTo(1));
+    public static final DeferredItem<Item> SHIP_ASSEMBLER = ITEMS.registerItem(
+            "ship_assembler", Item::new, new Item.Properties().stacksTo(1));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<BakedPart>> PART_DATA =
             COMPONENTS.registerComponentType("part_data", builder -> builder.persistent(BakedPart.CODEC)
                     .networkSynchronized(BakedPart.STREAM_CODEC));
@@ -85,6 +87,8 @@ public final class BlockSpaceProgram {
                     .sized(1.0F, 1.0F).clientTrackingRange(12).build(id.toString()));
     public static final DeferredHolder<MenuType<?>, MenuType<AssemblyMenu>> ASSEMBLY_MENU = MENUS.register(
             "assembly", () -> new MenuType<>(AssemblyMenu::new, FeatureFlags.DEFAULT_FLAGS));
+    public static final DeferredHolder<MenuType<?>, MenuType<AssemblyMenu>> WORLD_ASSEMBLY_MENU = MENUS.register(
+            "world_assembly", () -> new MenuType<>(AssemblyMenu::worldClient, FeatureFlags.DEFAULT_FLAGS));
 
     static {
         ITEMS.registerSimpleBlockItem(BAKING_TABLE);
@@ -118,6 +122,9 @@ public final class BlockSpaceProgram {
             event.accept(DOCKING_INTERFACE);
             event.accept(ATTACHMENT_FACE);
             event.accept(SHIP_BLUEPRINT);
+        }
+        if (event.getTabKey().equals(CreativeModeTabs.TOOLS_AND_UTILITIES)) {
+            event.accept(SHIP_ASSEMBLER);
         }
     }
 

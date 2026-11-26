@@ -1,12 +1,15 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,6 +34,12 @@ public final class AssemblyNetworking {
                 }
             }
         });
+        registrar.playToServer(WorldPlace.TYPE, WorldPlace.CODEC, (payload, context) -> {
+            if (context.player() instanceof ServerPlayer player
+                    && player.serverLevel().getEntity(payload.target()) instanceof PlacedPartEntity part) {
+                WorldPartPlacement.placeAttached(player, part, payload.hand(), payload.hit(), payload.options());
+            }
+        });
         registrar.playToClient(State.TYPE, State.CODEC, (payload, context) -> {
             if (context.player().containerMenu instanceof AssemblyMenu menu && menu.containerId == payload.container()) {
                 menu.receive(payload);
@@ -41,10 +50,10 @@ public final class AssemblyNetworking {
     @Nullable
     private static AssemblyMenu activeMenu(ServerPlayer player, int container, int revision) {
         return player.containerMenu instanceof AssemblyMenu menu && menu.containerId == container
-                && menu.revision() == revision && menu.stillValid(player) ? menu : null;
+                && menu.accepts(player, revision) ? menu : null;
     }
 
-    public enum Action { REMOVE, ADD_STAGE, REMOVE_STAGE, MOVE_ENGINE, MOVE_SEPARATOR, SAVE, LOAD }
+    public enum Action { REMOVE, ADD_STAGE, REMOVE_STAGE, MOVE_ENGINE, MOVE_SEPARATOR, SAVE, LOAD, ASSEMBLE }
 
     public record Place(int container, int revision, int slot, ShipPlacement.Request request) implements CustomPacketPayload {
         private static final Type<Place> TYPE = payloadType("assembly_place");
@@ -85,6 +94,25 @@ public final class AssemblyNetworking {
 
         @Override
         public Type<Edit> type() {
+            return TYPE;
+        }
+    }
+
+    public record WorldPlace(int target, InteractionHand hand, Vec3 hit, WorldPartPlacement.Options options)
+            implements CustomPacketPayload {
+        private static final Type<WorldPlace> TYPE = payloadType("world_assembly_place");
+        private static final StreamCodec<FriendlyByteBuf, WorldPlace> CODEC = StreamCodec.of((buffer, payload) -> {
+            buffer.writeVarInt(payload.target());
+            buffer.writeEnum(payload.hand());
+            buffer.writeVec3(payload.hit());
+            buffer.writeBoolean(payload.options().surface());
+            buffer.writeVarInt(payload.options().source());
+            buffer.writeVarInt(payload.options().turns());
+        }, buffer -> new WorldPlace(buffer.readVarInt(), buffer.readEnum(InteractionHand.class), buffer.readVec3(),
+                new WorldPartPlacement.Options(buffer.readBoolean(), buffer.readVarInt(), buffer.readVarInt())));
+
+        @Override
+        public Type<WorldPlace> type() {
             return TYPE;
         }
     }

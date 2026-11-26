@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import com.mojang.logging.LogUtils;
+import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
@@ -35,6 +36,8 @@ public final class AssembledShipEntity extends Entity {
     private static final int NO_SAVED_STAGE = -2;
     private static final EntityDataAccessor<ItemStack> BLUEPRINT = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.ITEM_STACK);
+    private static final EntityDataAccessor<Byte> LAUNCH_ROTATION = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.BYTE);
     private static final EntityDataAccessor<Boolean> FLYING = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Vector3f> SEAT = SynchedEntityData.defineId(
@@ -64,6 +67,7 @@ public final class AssembledShipEntity extends Entity {
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         builder.define(BLUEPRINT, ItemStack.EMPTY);
+        builder.define(LAUNCH_ROTATION, (byte) OctahedralGroup.IDENTITY.ordinal());
         builder.define(FLYING, false);
         builder.define(SEAT, new Vector3f());
         builder.define(THROTTLE, 0);
@@ -89,16 +93,29 @@ public final class AssembledShipEntity extends Entity {
         setBlueprint(stack);
     }
 
+    @Nullable
+    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation) {
+        var ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
+        ship.setBlueprint(blueprint);
+        ship.entityData.set(LAUNCH_ROTATION, (byte) rotation.ordinal());
+        ship.setPos(origin);
+        ship.triedFlight = true;
+        if ((ModList.get().isLoaded("sable") && !ship.startFlight(level)) || !level.addFreshEntity(ship)) {
+            ship.discard();
+            return null;
+        }
+        return ship;
+    }
+
+    public OctahedralGroup launchRotation() {
+        return PartPose.rotationById(entityData.get(LAUNCH_ROTATION));
+    }
+
     public static void registerFlight() {
         if (ModList.get().isLoaded("sable")) {
             SableShipFlight.register();
         }
         NeoForge.EVENT_BUS.addListener(PlanetFlightProperties::register);
-    }
-
-    boolean prepareLaunch(ServerLevel level) {
-        triedFlight = true;
-        return !ModList.get().isLoaded("sable") || startFlight(level);
     }
 
     private boolean startFlight(ServerLevel level) {
@@ -191,16 +208,21 @@ public final class AssembledShipEntity extends Entity {
     @Override
     protected AABB makeBoundingBox() {
         ShipDesign design = design();
-        return design == null ? super.makeBoundingBox() : design.bounds().move(position());
+        if (design == null) {
+            return super.makeBoundingBox();
+        }
+        AABB bounds = design.bounds();
+        return (isFlyingShip() ? bounds : PartPose.rotateBounds(launchRotation(), bounds)).move(position());
     }
 
     @Override
     public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
         super.onSyncedDataUpdated(key);
-        if (BLUEPRINT.equals(key)) {
+        if (BLUEPRINT.equals(key) || LAUNCH_ROTATION.equals(key)) {
             reapplyPosition();
         } else if (FLYING.equals(key)) {
             blocksBuilding = !isFlyingShip();
+            reapplyPosition();
         }
     }
 
@@ -211,11 +233,25 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     public boolean isPickable() {
-        return isAlive() && isFlyingShip();
+        return isAlive() && design() != null;
     }
 
     @Override
     public InteractionResult interact(Player player, InteractionHand hand) {
+        ItemStack stack = player.getItemInHand(hand);
+        if (stack.isEmpty() && hand == InteractionHand.MAIN_HAND) {
+            stack = player.getOffhandItem();
+        }
+        ShipDesign design = design();
+        if (stack.is(BlockSpaceProgram.SHIP_BLUEPRINT.get()) && !stack.has(BlockSpaceProgram.SHIP_DESIGN)
+                && player.getAbilities().mayBuild && !player.isSpectator() && design != null && design.isValid()) {
+            if (!level().isClientSide) {
+                stack.set(BlockSpaceProgram.SHIP_DESIGN, design);
+                player.getInventory().setChanged();
+                player.displayClientMessage(Component.translatable("assembly.blockspaceprogram.saved"), true);
+            }
+            return InteractionResult.sidedSuccess(level().isClientSide);
+        }
         if (!isFlyingShip() || isDebris() || player.isSpectator() || player.isSecondaryUseActive() || getFirstPassenger() != null) {
             return InteractionResult.PASS;
         }
@@ -307,6 +343,7 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
+        entityData.set(LAUNCH_ROTATION, tag.getByte("LaunchRotation"));
         setBlueprint(ItemStack.parseOptional(registryAccess(), tag.getCompound("Blueprint")));
         if (tag.hasUUID("FlightBody")) {
             bodyId = tag.getUUID("FlightBody");
@@ -321,6 +358,7 @@ public final class AssembledShipEntity extends Entity {
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
         tag.put("Blueprint", entityData.get(BLUEPRINT).saveOptional(registryAccess()));
+        tag.putByte("LaunchRotation", entityData.get(LAUNCH_ROTATION));
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
             tag.put("Fuel", flight == null ? savedFuel : flight.saveFuel());

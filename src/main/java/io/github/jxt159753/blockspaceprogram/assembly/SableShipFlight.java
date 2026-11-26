@@ -29,6 +29,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Unit;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
@@ -126,7 +127,8 @@ final class SableShipFlight {
         }
         var state = new ShipFlightState(design, new ListTag(), 0, ShipFlightState.initialStage(design));
         var origin = new Vector3d(ship.getX(), ship.getY(), ship.getZ());
-        var flight = spawn(ship, level, design, state, origin, new Quaterniond());
+        var rotation = new Quaterniond(PartPose.orientation(ship.launchRotation())).normalize();
+        var flight = spawn(ship, level, design, state, origin, rotation);
         ship.setPos(flight.plotPosition());
         return flight;
     }
@@ -140,7 +142,7 @@ final class SableShipFlight {
         return new SableShipFlight(ship, body, state, design);
     }
 
-    static boolean obstructs(ServerLevel level, AABB bounds) {
+    static boolean obstructs(Level level, AABB bounds) {
         for (var subLevel : Sable.HELPER.getAllIntersecting(level, new BoundingBox3d(bounds))) {
             if (!subLevel.isRemoved() && subLevel.boundingBox().toMojang().intersects(bounds)) {
                 return true;

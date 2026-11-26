@@ -8,6 +8,7 @@ import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
@@ -21,16 +22,32 @@ public final class ShipPlacement {
     public record Request(int target, int targetMarker, int partMarker, Direction targetNormal, Direction partNormal,
                           Vec3 hit, int turns, int symmetry) {}
 
-    public record Result(ShipDesign design, @Nullable String error, int skippedMirrors) {}
+    public record Result(ShipDesign design, @Nullable String error, int skippedMirrors, @Nullable Node candidate) {}
+
+    public record Source(int marker, Direction normal) {}
+
+    public static List<Source> sources(BakedPart part, boolean stack) {
+        List<Source> sources = new ArrayList<>();
+        for (int i = 0; i < part.connectors().size(); i++) {
+            var connector = part.connectors().get(i);
+            if (connector.kind().isStack() == stack) {
+                sources.add(new Source(i, connector.normal()));
+            }
+        }
+        return !stack && sources.isEmpty()
+                ? Arrays.stream(Direction.values()).map(normal -> new Source(-1, normal)).toList() : sources;
+    }
 
     public static Result place(ShipDesign design, BakedPart part, Request request) {
         if (part.connectors().stream().anyMatch(connector -> !connector.allowsScale(part.scale()))) {
             return rejected(design, "connector_size");
         }
         if (design.nodes().isEmpty()) {
-            return part.types().contains(PartType.COMMAND_POD)
-                    ? new Result(new ShipDesign(List.of(Node.placed(part, PartPose.ROOT)), List.of(), design.stageCount()), null, 0)
-                    : rejected(design, "root");
+            if (!part.types().contains(PartType.COMMAND_POD)) {
+                return rejected(design, "root");
+            }
+            Node root = Node.placed(part, PartPose.ROOT);
+            return new Result(new ShipDesign(List.of(root), List.of(), design.stageCount()), null, 0, root);
         }
         if (design.nodes().size() == ShipDesign.MAX_PARTS) {
             return rejected(design, "part_limit");
@@ -75,16 +92,16 @@ public final class ShipPlacement {
         var pose = new PartPose(PartPose.snap(origin), rotation);
         Node first = Node.placed(part, pose);
         if (!pose.valid() || !surface && pose.position().distanceToSqr(origin) != 0) {
-            return rejected(design, "grid");
+            return new Result(design, "grid", 0, first);
         }
         if (overlaps(design.nodes(), first)) {
-            return rejected(design, "overlap");
+            return new Result(design, "overlap", 0, first);
         }
         var nodes = new ArrayList<>(design.nodes());
         var links = new ArrayList<>(design.links());
         Link link = match(nodes, links, request.target(), request.targetMarker(), first, request.partMarker(), source);
         if (link == null) {
-            return rejected(design, surface ? "surface_fit" : "stack_fit");
+            return new Result(design, surface ? "surface_fit" : "stack_fit", 0, first);
         }
         nodes.add(first);
         links.add(link);
@@ -112,11 +129,11 @@ public final class ShipPlacement {
             nodes.add(mirror);
             links.add(mirroredLink);
         }
-        return new Result(new ShipDesign(nodes, links, design.stageCount()), null, skipped);
+        return new Result(new ShipDesign(nodes, links, design.stageCount()), null, skipped, first);
     }
 
     private static Result rejected(ShipDesign design, String reason) {
-        return new Result(design, reason, 0);
+        return new Result(design, reason, 0, null);
     }
 
     private static boolean overlaps(List<Node> nodes, Node candidate) {

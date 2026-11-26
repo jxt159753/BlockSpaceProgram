@@ -1,5 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import java.util.ArrayList;
@@ -80,11 +81,8 @@ public final class LaunchPadBlock extends Block {
             }
         }
 
-        AssembledShipEntity ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
-        ship.setBlueprint(blueprint);
-        ship.setPos(origin);
-        if (!ship.prepareLaunch(level) || !level.addFreshEntity(ship)) {
-            ship.discard();
+        AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, origin, OctahedralGroup.IDENTITY);
+        if (ship == null) {
             return reject(player, "spawn");
         }
         // Entity-join listeners run inline and may change inventory before the spawn returns.
