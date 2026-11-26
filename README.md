@@ -4,6 +4,8 @@ BlockSpaceProgram 是一个受《坎巴拉太空计划》启发的 Minecraft 模
 
 近地飞行选用 Sable，让飞船能与星球上的机械动力（Create）移动机构发生碰撞。实测中，Create 活塞平台把一个自由放置的 Sable 刚体托高了 8 格。整船飞行将在 #10 接入。[飞行物理决策记录](experiments/physics-drop/README.md) · [飞船实体与飞行物理 #10](https://github.com/jxt159753/BlockSpaceProgram/issues/10)
 
+方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge 和 Minecraft 开发所需的依赖。

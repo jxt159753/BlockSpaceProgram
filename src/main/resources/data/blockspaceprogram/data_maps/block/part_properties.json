@@ -1,0 +1,10 @@
+{
+  "values": {
+    "#minecraft:planks": {
+      "mass": 40.0
+    },
+    "minecraft:iron_block": {
+      "mass": 200.0
+    }
+  }
+}
