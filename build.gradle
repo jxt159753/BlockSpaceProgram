@@ -80,3 +80,7 @@ tasks.withType(JavaCompile).configureEach {
 tasks.named('jar', Jar) {
     from 'LICENSE', 'TEMPLATE_LICENSE.txt'
 }
+
+if (providers.gradleProperty('physicsDrop').isPresent()) {
+    apply from: 'experiments/physics-drop/physics-drop.gradle'
+}
