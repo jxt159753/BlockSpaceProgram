@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.client;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import java.util.List;
@@ -119,21 +120,20 @@ final class AssemblyViewport {
         Lighting.setupForEntityInInventory();
         RenderSystem.enableDepthTest();
         var buffers = graphics.bufferSource();
-        for (ShipDesign.Branch branch : design.tree(Set.of())) {
+        var tree = design.tree(Set.of());
+        for (ShipDesign.Branch branch : tree) {
             var node = design.nodes().get(branch.node());
             renderPart(node, pose, buffers, LightTexture.FULL_BRIGHT);
         }
         buffers.endBatch();
         var lines = buffers.getBuffer(RenderType.lines());
         if (showPorts) {
-            for (ShipDesign.Branch branch : design.tree(Set.of())) {
+            for (ShipDesign.Branch branch : tree) {
                 ShipDesign.Node node = design.nodes().get(branch.node());
                 for (int marker = 0; marker < node.part().connectors().size(); marker++) {
                     PartConnector connector = node.part().connectors().get(marker);
                     if (connector.kind().isStack() && !design.isMarkerUsed(branch.node(), marker)) {
-                        Direction normal = node.pose().rotation().rotate(connector.normal());
-                        AABB box = node.transform(connector.modelFace()).move(Vec3.atLowerCornerOf(normal.getNormal()).scale(0.012));
-                        LevelRenderer.renderLineBox(pose, lines, box.inflate(0.002), 0.3F, 0.83F, 1.0F, 1);
+                        renderConnector(pose, lines, node, connector);
                     }
                 }
             }
@@ -143,12 +143,22 @@ final class AssemblyViewport {
                     1, 0.82F, 0.36F, 1);
         }
         for (int i = design.nodes().size(); i < preview.nodes().size(); i++) {
-            LevelRenderer.renderLineBox(pose, lines, preview.nodes().get(i).bounds().inflate(0.008), 0.42F, 1, 0.56F, 1);
+            ShipDesign.Node node = preview.nodes().get(i);
+            LevelRenderer.renderLineBox(pose, lines, node.bounds().inflate(0.008), 0.42F, 1, 0.56F, 1);
+            for (PartConnector connector : node.part().connectors()) {
+                renderConnector(pose, lines, node, connector);
+            }
         }
         buffers.endBatch();
         Lighting.setupFor3DItems();
         pose.popPose();
         graphics.disableScissor();
+    }
+
+    private static void renderConnector(PoseStack pose, VertexConsumer lines, ShipDesign.Node node, PartConnector connector) {
+        Direction normal = node.pose().rotation().rotate(connector.normal());
+        AABB face = node.transform(connector.modelFace()).move(Vec3.atLowerCornerOf(normal.getNormal()).scale(0.012));
+        LevelRenderer.renderLineBox(pose, lines, face.inflate(0.002), 0.3F, 0.83F, 1.0F, 1);
     }
 
     static void renderPart(ShipDesign.Node node, PoseStack pose, MultiBufferSource buffers, int light) {

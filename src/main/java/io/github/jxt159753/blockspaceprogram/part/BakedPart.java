@@ -35,8 +35,9 @@ public record BakedPart(
 
     static final int MAX_SIDE = 9;
     private static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
-    private static final List<Float> ASSEMBLY_SCALES = List.of(1.0F, 0.5F, 0.25F);
-    private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F);
+    private static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
+    private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F)
+            .xmap(BakedPart::migrateScale, scale -> scale);
 
     public static final Codec<BakedPart> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Geometry.CODEC.fieldOf("blocks").forGetter(BakedPart::geometry),
@@ -88,11 +89,12 @@ public record BakedPart(
     });
 
     public BakedPart {
-        if (!(scale > 0.0F && scale <= 1.0F)) {
-            throw new IllegalArgumentException("Part scale must be in (0, 1]");
+        if (!SCALES.contains(scale)) {
+            throw new IllegalArgumentException("Part scale must be 1, 1/2 or 1/4");
         }
         types = Set.copyOf(types);
-        connectors = List.copyOf(connectors);
+        // Derive the stored size for older items and whenever an item changes scale.
+        connectors = connectors.stream().map(connector -> connector.atScale(scale)).toList();
     }
 
     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
@@ -108,15 +110,17 @@ public record BakedPart(
         return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors);
     }
 
-    public boolean isAssemblyScale() {
-        return ASSEMBLY_SCALES.contains(scale);
+    private static float migrateScale(float scale) {
+        if (scale == 1.0F) {
+            return 1.0F;
+        }
+        return scale >= 0.5F ? 0.5F : 0.25F;
     }
 
     float nextScale() {
-        float preferred = scale > 0.5F ? 0.5F : scale > 0.25F ? 0.25F : 1.0F;
-        int first = ASSEMBLY_SCALES.indexOf(preferred);
-        for (int offset = 0; offset < ASSEMBLY_SCALES.size(); offset++) {
-            float candidate = ASSEMBLY_SCALES.get((first + offset) % ASSEMBLY_SCALES.size());
+        int current = SCALES.indexOf(scale);
+        for (int offset = 1; offset < SCALES.size(); offset++) {
+            float candidate = SCALES.get((current + offset) % SCALES.size());
             if (connectors.stream().allMatch(connector -> connector.allowsScale(candidate))) {
                 return candidate;
             }
@@ -144,9 +148,14 @@ public record BakedPart(
                 .toList());
         List<StructureBlock> blocks = geometry.blocks();
         List<PartConnector> connectors = PartConnector.scan(structure, origin);
-        float scale = ASSEMBLY_SCALES.stream()
-                .filter(candidate -> connectors.stream().allMatch(connector -> connector.allowsScale(candidate)))
-                .findFirst().orElseThrow(() -> new PartConnector.InvalidConnector(origin, "size"));
+        List<Float> scales = SCALES;
+        for (PartConnector connector : connectors) {
+            scales = scales.stream().filter(connector::allowsScale).toList();
+            if (scales.isEmpty()) {
+                BlockPos marker = BlockPos.containing(connector.center().relative(connector.normal(), -0.5));
+                throw new PartConnector.InvalidConnector(origin.offset(marker), "size");
+            }
+        }
         List<BlockPartProperties> contributions = blocks.stream()
                 .map(block -> BlockPartProperties.get(block.state())).toList();
 
@@ -212,7 +221,7 @@ public record BakedPart(
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
                 drag, Double.isFinite(heat) ? heat : 0, electricCapacity);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
-                PartType.classify(structure.values()), scale, connectors));
+                PartType.classify(structure.values()), scales.getFirst(), connectors));
     }
 
     private static boolean finite(double... values) {
