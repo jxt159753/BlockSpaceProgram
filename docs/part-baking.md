@@ -21,7 +21,7 @@
 2. 对方块表面右击可放置静止的零件，再右击放置好的零件可将其收回。背包和手持预览会将过大的模型适配到物品显示区域。
 3. 直接编辑零件数据时，`part_data` 的 `scale` 接受 `(0, 1]` 内的浮点数。缺省为 `1.0`，适用于已有零件。
 
-世界模型和包围盒在最小角处统一缩放。后续装配可用 `BakedPart.modelToLocal` 将烘焙坐标中的连接点转为缩放后的局部坐标。质量、推力和容量沿用烘焙值。 [装配 #9](https://github.com/jxt159753/BlockSpaceProgram/issues/9) · [飞船 #10](https://github.com/jxt159753/BlockSpaceProgram/issues/10)
+世界模型、连接接口和包围盒在最小角处统一缩放。装配台使用 `BakedPart.modelToLocal` 将烘焙坐标中的连接点转为缩放后的局部坐标。质量、推力和容量沿用烘焙值。 [装配与发射](vab.md) · [飞船 #10](https://github.com/jxt159753/BlockSpaceProgram/issues/10)
 
 ## 简化碰撞与调试显示
 

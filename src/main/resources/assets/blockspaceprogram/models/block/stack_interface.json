@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "minecraft:block/polished_andesite",
+    "north": "minecraft:block/lodestone_top",
+    "east": "minecraft:block/polished_andesite",
+    "south": "minecraft:block/polished_andesite",
+    "west": "minecraft:block/polished_andesite",
+    "up": "minecraft:block/polished_andesite",
+    "down": "minecraft:block/polished_andesite"
+  }
+}

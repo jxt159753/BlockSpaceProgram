@@ -6,6 +6,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
 
+用装配台在 3D 界面接合零件、编排分级并查看每级 Δv。保存蓝图后，把完整的零件套件带到发射台生成飞船。 [装配与发射](docs/vab.md)
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft 和 Sable 的编译依赖。

@@ -15,7 +15,8 @@ public enum PartType implements StringRepresentable {
     STRUCTURAL,
     ENGINE,
     COMMAND_POD,
-    FUEL_TANK;
+    FUEL_TANK,
+    SEPARATOR;
 
     static final StringRepresentable.EnumCodec<PartType> CODEC = StringRepresentable.fromEnum(PartType::values);
 
@@ -41,6 +42,9 @@ public enum PartType implements StringRepresentable {
             }
             if (block.is(COMMAND_SEATS)) {
                 types.add(COMMAND_POD);
+            }
+            if (block.getBlock() instanceof PartConnectorBlock marker && marker.kind().separable()) {
+                types.add(SEPARATOR);
             }
             if (BlockPartProperties.get(block).fuelCapacity().values().stream().anyMatch(capacity -> capacity > 0)) {
                 types.add(FUEL_TANK);
