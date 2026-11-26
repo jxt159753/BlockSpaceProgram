@@ -1,6 +1,6 @@
 # BlockSpaceProgram
 
-BlockSpaceProgram 是一个受《坎巴拉太空计划》启发的 Minecraft 模组。项目计划让玩家把方块结构制成零件，组装飞船，并在天体附近的飞行模拟与轨道传播之间切换。当前版本提供可构建和加载的工程骨架。 [项目路线图](https://github.com/jxt159753/BlockSpaceProgram/issues/24)
+BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753/BlockSpaceProgram-Modpack)的自制模组。整合包受《坎巴拉太空计划》启发，让玩家把方块结构制成零件，组装飞船，并在天体附近的飞行模拟与轨道传播之间切换。工业、物理、任务和地形交给整合包里的现有模组，本模组补齐它们覆盖不到的部分：零件烘焙、飞船装配与飞行、轨道层、再入和天空渲染。 [项目路线图](https://github.com/jxt159753/BlockSpaceProgram/issues/24) · [整合包仓库](https://github.com/jxt159753/BlockSpaceProgram-Modpack)
 
 近地飞行选用 Sable，让飞船能与星球上的机械动力（Create）移动机构发生碰撞。实测中，Create 活塞平台把一个自由放置的 Sable 刚体托高了 8 格。整船飞行将在 #10 接入。[飞行物理决策记录](experiments/physics-drop/README.md) · [飞船实体与飞行物理 #10](https://github.com/jxt159753/BlockSpaceProgram/issues/10)
 
@@ -30,4 +30,4 @@ Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspacep
 
 ## 许可证
 
-项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。当前模组的运行依赖为 Minecraft 和 NeoForge。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt)
+项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。当前模组的运行依赖为 Minecraft 和 NeoForge，飞船模块接入时再声明对 Sable 的依赖。整合包内其他模组的许可证在整合包仓库记录。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt)
