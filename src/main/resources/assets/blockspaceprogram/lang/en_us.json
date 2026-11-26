@@ -9,7 +9,9 @@
   "block.blockspaceprogram.baking_table.protected": "The structure contains a block you cannot remove.",
   "block.blockspaceprogram.baking_table.changed": "The structure changed during baking. Try again.",
   "item.blockspaceprogram.baked_part": "Baked Part",
+  "item.blockspaceprogram.baked_part.scale": "Scale %s×",
   "item.blockspaceprogram.baked_part.mass": "Dry mass %s kg",
   "item.blockspaceprogram.baked_part.fuel": "%s capacity %s kg",
-  "fuel.blockspaceprogram.liquid_fuel": "Liquid fuel"
+  "fuel.blockspaceprogram.liquid_fuel": "Liquid fuel",
+  "entity.blockspaceprogram.placed_part": "Baked Part"
 }

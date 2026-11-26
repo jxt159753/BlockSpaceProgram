@@ -1,7 +1,9 @@
 package io.github.jxt159753.blockspaceprogram.part;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,30 +12,53 @@ import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /** Snapshot of a module in local block coordinates, with its origin at the minimum occupied corner. */
 public record BakedPart(
-        List<StructureBlock> blocks,
+        Geometry geometry,
         BlockPartProperties properties,
         Vec3 centerOfMass,
         InertiaTensor inertia,
-        Set<PartType> types) {
+        Set<PartType> types,
+        float scale) {
 
     static final int MAX_SIDE = 9;
+    private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F);
 
     public static final Codec<BakedPart> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-            StructureBlock.CODEC.listOf(1, MAX_SIDE * MAX_SIDE * MAX_SIDE).fieldOf("blocks").forGetter(BakedPart::blocks),
+            Geometry.CODEC.fieldOf("blocks").forGetter(BakedPart::geometry),
             BlockPartProperties.CODEC.fieldOf("properties").forGetter(BakedPart::properties),
             Vec3.CODEC.fieldOf("center_of_mass").forGetter(BakedPart::centerOfMass),
             InertiaTensor.CODEC.fieldOf("inertia").forGetter(BakedPart::inertia),
             PartType.CODEC.listOf().xmap(Set::copyOf, types -> types.stream().sorted().toList())
-                    .fieldOf("types").forGetter(BakedPart::types)
+                    .fieldOf("types").forGetter(BakedPart::types),
+            SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale)
     ).apply(instance, BakedPart::new));
 
     public BakedPart {
-        blocks = List.copyOf(blocks);
+        if (!(scale > 0.0F && scale <= 1.0F)) {
+            throw new IllegalArgumentException("Part scale must be in (0, 1]");
+        }
         types = Set.copyOf(types);
+    }
+
+    public List<StructureBlock> blocks() {
+        return geometry.blocks();
+    }
+
+    public BakedPart withScale(float newScale) {
+        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale);
+    }
+
+    /** Converts a point in the baked model, such as a connector, to scaled local coordinates. */
+    public Vec3 modelToLocal(Vec3 point) {
+        return point.scale(scale);
+    }
+
+    public AABB localBounds() {
+        return new AABB(Vec3.ZERO, modelToLocal(geometry.size()));
     }
 
     static Optional<BakedPart> bake(Map<BlockPos, BlockState> structure) {
@@ -108,8 +133,8 @@ public record BakedPart(
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
                 drag, Double.isFinite(heat) ? heat : 0, electricCapacity);
-        return Optional.of(new BakedPart(blocks, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
-                PartType.classify(structure.values())));
+        return Optional.of(new BakedPart(new Geometry(blocks), properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
+                PartType.classify(structure.values()), 1.0F));
     }
 
     private static boolean finite(double... values) {
@@ -122,13 +147,61 @@ public record BakedPart(
     }
 
     public record StructureBlock(BlockPos pos, BlockState state) {
+        private static final Codec<BlockPos> LOCAL_POS_CODEC = BlockPos.CODEC.validate(pos ->
+                pos.getX() >= 0 && pos.getX() < MAX_SIDE && pos.getY() >= 0 && pos.getY() < MAX_SIDE
+                        && pos.getZ() >= 0 && pos.getZ() < MAX_SIDE
+                        ? DataResult.success(pos) : DataResult.error(() -> "Block is outside the part's local bounds: " + pos));
         private static final Codec<StructureBlock> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                BlockPos.CODEC.fieldOf("pos").forGetter(StructureBlock::pos),
+                LOCAL_POS_CODEC.fieldOf("pos").forGetter(StructureBlock::pos),
                 BlockState.CODEC.fieldOf("state").forGetter(StructureBlock::state)
         ).apply(instance, StructureBlock::new));
 
         public StructureBlock {
             pos = pos.immutable();
+        }
+    }
+
+    /** The unscaled model is shared by all instances of the same structure. */
+    public static final class Geometry {
+        private static final Codec<Geometry> CODEC = StructureBlock.CODEC.listOf(1, MAX_SIDE * MAX_SIDE * MAX_SIDE)
+                .validate(blocks -> blocks.stream().map(StructureBlock::pos).distinct().count() == blocks.size()
+                        ? DataResult.success(blocks) : DataResult.error(() -> "Duplicate block positions in part"))
+                .xmap(Geometry::new, Geometry::blocks);
+
+        private final List<StructureBlock> blocks;
+        private final Vec3 size;
+        private final int hash;
+
+        private Geometry(List<StructureBlock> blocks) {
+            this.blocks = blocks.stream().sorted(Comparator.comparing(StructureBlock::pos)).toList();
+            int width = 0;
+            int height = 0;
+            int depth = 0;
+            for (StructureBlock block : this.blocks) {
+                width = Math.max(width, block.pos().getX() + 1);
+                height = Math.max(height, block.pos().getY() + 1);
+                depth = Math.max(depth, block.pos().getZ() + 1);
+            }
+            this.size = new Vec3(width, height, depth);
+            this.hash = this.blocks.hashCode();
+        }
+
+        public List<StructureBlock> blocks() {
+            return blocks;
+        }
+
+        public Vec3 size() {
+            return size;
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof Geometry geometry && hash == geometry.hash && blocks.equals(geometry.blocks);
         }
     }
 

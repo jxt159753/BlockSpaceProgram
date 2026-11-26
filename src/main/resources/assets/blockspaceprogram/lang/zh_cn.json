@@ -9,7 +9,9 @@
   "block.blockspaceprogram.baking_table.protected": "结构中有你无权移除的方块。",
   "block.blockspaceprogram.baking_table.changed": "结构在烘焙时发生了变化，请重试。",
   "item.blockspaceprogram.baked_part": "烘焙零件",
+  "item.blockspaceprogram.baked_part.scale": "比例 %s×",
   "item.blockspaceprogram.baked_part.mass": "干质量 %s kg",
   "item.blockspaceprogram.baked_part.fuel": "%s容量 %s kg",
-  "fuel.blockspaceprogram.liquid_fuel": "液体燃料"
+  "fuel.blockspaceprogram.liquid_fuel": "液体燃料",
+  "entity.blockspaceprogram.placed_part": "烘焙零件"
 }
