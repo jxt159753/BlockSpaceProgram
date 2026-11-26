@@ -53,6 +53,24 @@ bspship verify
 
 约 420 tick 后查看控制台或 `runs/shipRigidBody/logs/latest.log`。全部通过时打印 `SHIP PASS all checks`。再次复测需准备初始未伸出的活塞和空出的马达位置。
 
+## 零件碰撞通道
+
+使用同一运行配置，在无重力测试维度中造两道石墙。内侧平面分别位于 X=8 和 X=9，通道宽 1 格，沿 Z=24 至 Z=28 延伸。`bsppartcollision` 依次取同一件烘焙零件的原尺寸和 1/4 尺寸，从 Z=20 居中向正 Z 方向释放。
+
+```mcfunction
+execute in blockspaceprogram:ship_test_void run forceload add 8 24
+execute in blockspaceprogram:ship_test_void run fill 7 79 24 7 82 27 minecraft:stone
+execute in blockspaceprogram:ship_test_void run fill 9 79 24 9 82 27 minecraft:stone
+bsppartcollision
+```
+
+| 比例 | 模型和碰撞体宽度（格） | 碰撞格数 | 烘焙质量与 Sable 读数（kg） | 60 tick 后的零件原点 Z |
+| --- | ---: | ---: | ---: | ---: |
+| 原尺寸 | 4 | 4 | 800 | 23.000，停在入口 |
+| 1/4 | 1 | 1 | 800 | 32.001，通过开口 |
+
+成功时专用服打印 `PART COLLISION PASS one-block opening`。若要在客户端观察，先切为旁观者并进入测试维度，在两轮试验开始前定位到 `8.5 86 18`，朝向 `0°`、俯角 `42°`。可按 F8 查看碰撞格。
+
 ## 后续接入
 
 碰撞格由零件图生成。原型的物性修正存在内存中，正式接入时需要随零件图恢复。Sable 默认会按方块连通性拆分子层级，飞船接入时需要确保零件图决定何时拆分。此次交接实测覆盖服务器物理，零件模型和客户端插值随 #10 接入，分离和对接的完整动量交接随 #12、#35 验证。

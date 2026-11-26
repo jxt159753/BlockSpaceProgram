@@ -1,5 +1,6 @@
-package io.github.jxt159753.blockspaceprogram.experiment.ship;
+package io.github.jxt159753.blockspaceprogram.collision;
 
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.level.BlockGetter;
@@ -12,13 +13,13 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
-final class CollisionCellBlock extends Block {
+public final class CollisionCellBlock extends Block {
     private static final EnumProperty<Span> X = EnumProperty.create("x_span", Span.class);
     private static final EnumProperty<Span> Y = EnumProperty.create("y_span", Span.class);
     private static final EnumProperty<Span> Z = EnumProperty.create("z_span", Span.class);
 
-    CollisionCellBlock() {
-        super(Properties.of().noOcclusion().noLootTable());
+    public CollisionCellBlock(Properties properties) {
+        super(properties);
     }
 
     @Override
@@ -26,7 +27,7 @@ final class CollisionCellBlock extends Block {
         builder.add(X, Y, Z);
     }
 
-    BlockState state(ShipBody.Cell cell) {
+    BlockState state(Cell cell) {
         return defaultBlockState()
                 .setValue(X, Span.between(cell.min().getX(), cell.max().getX()))
                 .setValue(Y, Span.between(cell.min().getY(), cell.max().getY()))

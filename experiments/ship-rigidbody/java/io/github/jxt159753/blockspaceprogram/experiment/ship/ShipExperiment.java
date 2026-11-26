@@ -1,8 +1,11 @@
 package io.github.jxt159753.blockspaceprogram.experiment.ship;
 
 import com.mojang.logging.LogUtils;
+import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
 import io.github.jxt159753.blockspaceprogram.experiment.ship.ShipBody.Motion;
-import io.github.jxt159753.blockspaceprogram.experiment.ship.ShipBody.PartBox;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
@@ -21,7 +24,6 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.neoforged.neoforge.registries.RegisterEvent;
 import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
@@ -46,7 +48,6 @@ public final class ShipExperiment {
     private static final PartBox LEFT = new PartBox(new BlockPos(-4, 1, 0), new BlockPos(2, 3, 4), 2);
     private static final PartBox RIGHT = new PartBox(new BlockPos(2, 1, 0), new BlockPos(8, 3, 4), 6);
 
-    static CollisionCellBlock COLLISION_CELL;
     private static ShipExperiment active;
 
     private ShipBody ground;
@@ -57,15 +58,6 @@ public final class ShipExperiment {
     private double midOffset;
     private double midY;
     private int elapsed;
-
-    @SubscribeEvent
-    public static void registerBlock(RegisterEvent event) {
-        event.register(Registries.BLOCK, registry -> {
-            COLLISION_CELL = new CollisionCellBlock();
-            registry.register(ResourceLocation.fromNamespaceAndPath("blockspaceprogram", "ship_collision_cell"),
-                    COLLISION_CELL);
-        });
-    }
 
     @SubscribeEvent
     public static void registerCommands(RegisterCommandsEvent event) {
@@ -128,15 +120,16 @@ public final class ShipExperiment {
     private void checkCells() {
         var state = ground.subLevel().getPlot().getEmbeddedLevelAccessor().getBlockState(BlockPos.ZERO);
         var shape = state.getCollisionShape(ground.subLevel().getLevel(), ground.plotOrigin());
-        int states = COLLISION_CELL.getStateDefinition().getPossibleStates().size();
+        var collisionCell = BlockSpaceProgram.SHIP_COLLISION_CELL.get();
+        int states = collisionCell.getStateDefinition().getPossibleStates().size();
         check(states == 1000
-                && state.is(COLLISION_CELL) && state.getRenderShape() == RenderShape.INVISIBLE
+                && state.is(collisionCell) && state.getRenderShape() == RenderShape.INVISIBLE
                 && shape.bounds().equals(new AABB(0.25, 0.25, 0.25, 0.75, 0.75, 0.75)), "collision cell state");
 
-        var cells = ShipBody.rasterize(List.of(LEFT,
+        var cells = ShipCollisionLayout.rasterize(List.of(LEFT,
                 new PartBox(new BlockPos(2, 1, 0), new BlockPos(8, 2, 4), 6)));
         check(cells.size() == 3 && cells.get(new BlockPos(-1, 0, 0)).mass() == 1
-                && cells.get(BlockPos.ZERO).equals(new ShipBody.Cell(new BlockPos(0, 1, 0), new BlockPos(4, 3, 4), 4)),
+                && cells.get(BlockPos.ZERO).equals(new Cell(new BlockPos(0, 1, 0), new BlockPos(4, 3, 4), 4)),
                 "negative cell coordinate or shared cell bounds/mass");
         LOG.info("SHIP PASS allocation and quarter cells states={} shape={}", states, shape.bounds());
     }

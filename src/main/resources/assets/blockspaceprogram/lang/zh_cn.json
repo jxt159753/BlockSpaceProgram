@@ -13,5 +13,9 @@
   "item.blockspaceprogram.baked_part.mass": "干质量 %s kg",
   "item.blockspaceprogram.baked_part.fuel": "%s容量 %s kg",
   "fuel.blockspaceprogram.liquid_fuel": "液体燃料",
-  "entity.blockspaceprogram.placed_part": "烘焙零件"
+  "entity.blockspaceprogram.placed_part": "烘焙零件",
+  "key.categories.blockspaceprogram": "BlockSpaceProgram",
+  "key.blockspaceprogram.collision": "切换零件碰撞盒显示",
+  "debug.blockspaceprogram.collision.on": "已显示零件碰撞盒",
+  "debug.blockspaceprogram.collision.off": "已隐藏零件碰撞盒"
 }

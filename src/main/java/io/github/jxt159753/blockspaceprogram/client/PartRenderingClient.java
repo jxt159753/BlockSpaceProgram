@@ -109,6 +109,7 @@ public final class PartRenderingClient {
             var part = entity.part();
             if (part != null) {
                 PartMeshRenderer.render(part, poses, buffers, light);
+                CollisionDebugClient.renderPlacedPart(part, poses, buffers);
             }
             super.render(entity, yaw, partialTick, poses, buffers, light);
         }

@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram;
 
 import com.mojang.logging.LogUtils;
+import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakedPartItem;
 import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
@@ -33,6 +34,9 @@ public final class BlockSpaceProgram {
 
     public static final DeferredBlock<BakingTableBlock> BAKING_TABLE = BLOCKS.registerBlock(
             "baking_table", BakingTableBlock::new, BlockBehaviour.Properties.of().strength(2.5F));
+    public static final DeferredBlock<CollisionCellBlock> SHIP_COLLISION_CELL = BLOCKS.registerBlock(
+            "ship_collision_cell", CollisionCellBlock::new,
+            BlockBehaviour.Properties.of().strength(-1.0F, 3_600_000.0F).noOcclusion().noLootTable());
     public static final DeferredItem<BakedPartItem> BAKED_PART = ITEMS.registerItem(
             "baked_part", BakedPartItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<BakedPart>> PART_DATA =
