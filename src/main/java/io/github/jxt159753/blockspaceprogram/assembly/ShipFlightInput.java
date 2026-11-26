@@ -18,7 +18,8 @@ public record ShipFlightInput(int shipId, int keys) implements CustomPacketPaylo
     public static final int THROTTLE_UP = 1 << 6;
     public static final int THROTTLE_DOWN = 1 << 7;
     public static final int CUTOFF = 1 << 8;
-    private static final int KEY_MASK = (CUTOFF << 1) - 1;
+    public static final int STAGE = 1 << 9;
+    private static final int KEY_MASK = (STAGE << 1) - 1;
     private static final Type<ShipFlightInput> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "ship_flight_input"));
     private static final StreamCodec<FriendlyByteBuf, ShipFlightInput> CODEC = StreamCodec.of((buf, input) -> {

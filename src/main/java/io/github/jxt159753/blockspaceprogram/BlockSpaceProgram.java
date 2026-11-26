@@ -8,6 +8,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyTableBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.LaunchPadBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.SableCollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipBlueprintItem;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipDebrisConfig;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
@@ -28,8 +29,10 @@ import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -71,6 +74,9 @@ public final class BlockSpaceProgram {
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> SHIP_DESIGN =
             COMPONENTS.registerComponentType("ship_design", builder -> builder.persistent(ShipDesign.CODEC)
                     .networkSynchronized(ShipDesign.STREAM_CODEC));
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> FLIGHT_LAYOUT =
+            COMPONENTS.registerComponentType("flight_layout", builder -> builder.persistent(ShipDesign.FLIGHT_CODEC)
+                    .networkSynchronized(ShipDesign.STREAM_CODEC));
     public static final DeferredHolder<EntityType<?>, EntityType<PlacedPartEntity>> PLACED_PART = ENTITIES.register(
             "placed_part", id -> EntityType.Builder.of(PlacedPartEntity::new, MobCategory.MISC)
                     .sized(1.0F, 1.0F).clientTrackingRange(10).build(id.toString()));
@@ -86,7 +92,8 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(LAUNCH_PAD);
     }
 
-    public BlockSpaceProgram(IEventBus modBus) {
+    public BlockSpaceProgram(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.SERVER, ShipDebrisConfig.SPEC);
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
         ENTITIES.register(modBus);

@@ -55,7 +55,8 @@ public final class ShipFlightClient {
             keys = flag(options.keyUp, PITCH_UP) | flag(options.keyDown, PITCH_DOWN)
                     | flag(options.keyLeft, YAW_LEFT) | flag(options.keyRight, YAW_RIGHT)
                     | flag(ROLL_LEFT_KEY, ROLL_LEFT) | flag(ROLL_RIGHT_KEY, ROLL_RIGHT)
-                    | flag(THROTTLE_UP_KEY, THROTTLE_UP) | flag(THROTTLE_DOWN_KEY, THROTTLE_DOWN) | flag(CUTOFF_KEY, CUTOFF);
+                    | flag(THROTTLE_UP_KEY, THROTTLE_UP) | flag(THROTTLE_DOWN_KEY, THROTTLE_DOWN) | flag(CUTOFF_KEY, CUTOFF)
+                    | flag(options.keyJump, STAGE);
         }
         PacketDistributor.sendToServer(new ShipFlightInput(ship.getId(), keys));
     }
@@ -73,6 +74,9 @@ public final class ShipFlightClient {
                             && game.player.getVehicle() instanceof AssembledShipEntity ship && ship.isFlyingShip()) {
                         var status = Component.translatable("flight.blockspaceprogram.status", ship.throttle(),
                                 String.format(Locale.ROOT, "%.1f", ship.fuel()));
+                        int stage = ship.activeStage();
+                        status.append("   ").append(stage < 0 ? Component.translatable("flight.blockspaceprogram.stage_waiting")
+                                : Component.translatable("flight.blockspaceprogram.stage", stage + 1));
                         int damagedParts = ship.damagedPartCount();
                         if (damagedParts > 0) {
                             status.append("   ").append(Component.translatable("flight.blockspaceprogram.damage", damagedParts)
