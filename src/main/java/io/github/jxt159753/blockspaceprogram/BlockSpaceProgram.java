@@ -8,6 +8,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyTableBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.LaunchPadBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipBlueprintItem;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakedPartItem;
@@ -91,6 +92,8 @@ public final class BlockSpaceProgram {
         modBus.addListener(BlockPartProperties::register);
         modBus.addListener(PartConnector::register);
         modBus.addListener(AssemblyNetworking::register);
+        modBus.addListener(ShipFlightInput::register);
+        AssembledShipEntity.registerFlight();
         modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
     }

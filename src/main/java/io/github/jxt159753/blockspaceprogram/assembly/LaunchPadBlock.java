@@ -22,6 +22,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
+import net.neoforged.fml.ModList;
 import org.jetbrains.annotations.Nullable;
 
 public final class LaunchPadBlock extends Block {
@@ -70,9 +71,11 @@ public final class LaunchPadBlock extends Block {
                 || !level.getWorldBorder().isWithinBounds(worldBounds) || !level.hasChunksAt(min, max)) {
             return reject(player, "blocked");
         }
+        boolean hasSable = ModList.get().isLoaded("sable");
         for (ShipDesign.Node node : design.nodes()) {
             AABB box = node.bounds().move(origin);
-            if (!level.noCollision(box) || !level.isUnobstructed(null, Shapes.create(box))) {
+            if (!level.noCollision(box) || !level.isUnobstructed(null, Shapes.create(box))
+                    || (hasSable && SableShipFlight.obstructs(level, box))) {
                 return reject(player, "blocked");
             }
         }
@@ -80,7 +83,8 @@ public final class LaunchPadBlock extends Block {
         AssembledShipEntity ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
         ship.setBlueprint(blueprint);
         ship.setPos(origin);
-        if (!level.addFreshEntity(ship)) {
+        if (!ship.prepareLaunch(level) || !level.addFreshEntity(ship)) {
+            ship.discard();
             return reject(player, "spawn");
         }
         // Entity-join listeners run inline and may change inventory before the spawn returns.

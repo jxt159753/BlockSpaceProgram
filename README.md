@@ -2,7 +2,7 @@
 
 BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753/BlockSpaceProgram-Modpack)的自制模组。整合包受《坎巴拉太空计划》启发，让玩家把方块结构制成零件，组装飞船，并在天体附近的飞行模拟与轨道传播之间切换。工业、物理、任务和地形交给整合包里的现有模组，本模组补齐它们覆盖不到的部分：零件烘焙、飞船装配与飞行、轨道层、再入和天空渲染。 [项目路线图](https://github.com/jxt159753/BlockSpaceProgram/issues/24) · [整合包仓库](https://github.com/jxt159753/BlockSpaceProgram-Modpack)
 
-近地飞行选用 Sable，让飞船能与星球上的机械动力（Create）移动机构发生碰撞。实测中，Create 活塞平台把一个自由放置的 Sable 刚体托高了 8 格。整船飞行将在 #10 接入。[飞行物理决策记录](experiments/physics-drop/README.md) · [飞船实体与飞行物理 #10](https://github.com/jxt159753/BlockSpaceProgram/issues/10)
+近地飞行使用 Sable 解算整船刚体。玩家可从发射台登船，操控节流阀和反作用轮。飞船与机械动力（Create）机构共用 Sable 的碰撞层，原型中的活塞平台曾将测试刚体托高 8 格。 [飞船驾驶](docs/flight.md) · [飞行物理决策记录](experiments/physics-drop/README.md)
 
 方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
 
@@ -32,4 +32,4 @@ Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspacep
 
 ## 许可证
 
-项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。烘焙、缩放和静态放置需要 Minecraft 和 NeoForge。生成飞船碰撞格需要可选依赖 Sable 2.0.6。整合包内其他模组的许可证在整合包仓库记录。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt) · [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)
+项目使用 MIT 许可证，并保留 NeoForge MDK 的许可证声明。烘焙、缩放和静态放置需要 Minecraft 和 NeoForge。驾驶飞船需要在服务端和客户端安装可选依赖 Sable 2.0.6。整合包内其他模组的许可证在整合包仓库记录。引入其他模组的代码前需确认其许可证、再分发条件和著佐权条款是否与 MIT 兼容。 [项目许可证](LICENSE) · [MDK 许可证](TEMPLATE_LICENSE.txt) · [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)

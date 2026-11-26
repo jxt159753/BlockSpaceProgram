@@ -1,0 +1,79 @@
+package io.github.jxt159753.blockspaceprogram.client;
+
+import com.mojang.blaze3d.platform.InputConstants;
+import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
+import java.util.Locale;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
+import net.neoforged.neoforge.network.PacketDistributor;
+import org.lwjgl.glfw.GLFW;
+
+import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
+
+@EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
+public final class ShipFlightClient {
+    private static final KeyMapping ROLL_LEFT_KEY = key("roll_left", GLFW.GLFW_KEY_Z);
+    private static final KeyMapping ROLL_RIGHT_KEY = key("roll_right", GLFW.GLFW_KEY_C);
+    private static final KeyMapping THROTTLE_UP_KEY = key("throttle_up", GLFW.GLFW_KEY_R);
+    private static final KeyMapping THROTTLE_DOWN_KEY = key("throttle_down", GLFW.GLFW_KEY_V);
+    private static final KeyMapping CUTOFF_KEY = key("cutoff", GLFW.GLFW_KEY_X);
+
+    private static KeyMapping key(String name, int keyCode) {
+        return new KeyMapping("key.blockspaceprogram." + name, InputConstants.Type.KEYSYM, keyCode, "key.categories.blockspaceprogram");
+    }
+
+    @SubscribeEvent
+    public static void registerKeys(RegisterKeyMappingsEvent event) {
+        event.register(ROLL_LEFT_KEY);
+        event.register(ROLL_RIGHT_KEY);
+        event.register(THROTTLE_UP_KEY);
+        event.register(THROTTLE_DOWN_KEY);
+        event.register(CUTOFF_KEY);
+    }
+
+    @SubscribeEvent
+    public static void sendInput(ClientTickEvent.Post event) {
+        var game = Minecraft.getInstance();
+        if (game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship) || !ship.isFlyingShip()) {
+            return;
+        }
+        var options = game.options;
+        int keys = 0;
+        if (game.screen == null) {
+            keys = flag(options.keyUp, PITCH_UP) | flag(options.keyDown, PITCH_DOWN)
+                    | flag(options.keyLeft, YAW_LEFT) | flag(options.keyRight, YAW_RIGHT)
+                    | flag(ROLL_LEFT_KEY, ROLL_LEFT) | flag(ROLL_RIGHT_KEY, ROLL_RIGHT)
+                    | flag(THROTTLE_UP_KEY, THROTTLE_UP) | flag(THROTTLE_DOWN_KEY, THROTTLE_DOWN) | flag(CUTOFF_KEY, CUTOFF);
+        }
+        PacketDistributor.sendToServer(new ShipFlightInput(ship.getId(), keys));
+    }
+
+    private static int flag(KeyMapping mapping, int key) {
+        return mapping.isDown() ? key : 0;
+    }
+
+    @SubscribeEvent
+    public static void registerHud(RegisterGuiLayersEvent event) {
+        event.registerAbove(VanillaGuiLayers.HOTBAR, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "flight_status"),
+                (graphics, tick) -> {
+                    var game = Minecraft.getInstance();
+                    if (!game.options.hideGui && game.player != null
+                            && game.player.getVehicle() instanceof AssembledShipEntity ship && ship.isFlyingShip()) {
+                        Component status = Component.translatable("flight.blockspaceprogram.status", ship.throttle(),
+                                String.format(Locale.ROOT, "%.1f", ship.fuel()));
+                        graphics.drawCenteredString(game.font, status, graphics.guiWidth() / 2, graphics.guiHeight() - 85, 0xFFFFFF);
+                    }
+                });
+    }
+}

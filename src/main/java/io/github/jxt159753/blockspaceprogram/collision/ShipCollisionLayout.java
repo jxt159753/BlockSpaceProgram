@@ -39,6 +39,10 @@ public final class ShipCollisionLayout {
             return new PartBox(minimum(originInQuarters, opposite), maximum(originInQuarters, opposite),
                     part.properties().mass());
         }
+
+        public Iterable<BlockPos> coveredCells() {
+            return BlockPos.betweenClosed(cellContaining(min), cellContaining(max.offset(-1, -1, -1)));
+        }
     }
 
     public static boolean isRotation(OctahedralGroup rotation) {
@@ -68,7 +72,7 @@ public final class ShipCollisionLayout {
             BlockPos last = cellContaining(part.max.offset(-1, -1, -1));
             double count = (last.getX() - first.getX() + 1.0) * (last.getY() - first.getY() + 1.0)
                     * (last.getZ() - first.getZ() + 1.0);
-            for (BlockPos pos : BlockPos.betweenClosed(first, last)) {
+            for (BlockPos pos : part.coveredCells()) {
                 BlockPos lower = pos.multiply(QUARTERS);
                 BlockPos min = maximum(part.min, lower).subtract(lower);
                 BlockPos max = minimum(part.max, lower.offset(QUARTERS, QUARTERS, QUARTERS)).subtract(lower);

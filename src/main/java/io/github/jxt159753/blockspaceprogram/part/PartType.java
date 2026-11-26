@@ -20,9 +20,9 @@ public enum PartType implements StringRepresentable {
 
     static final StringRepresentable.EnumCodec<PartType> CODEC = StringRepresentable.fromEnum(PartType::values);
 
-    private static final TagKey<Block> ENGINE_NOZZLES = TagKey.create(
+    public static final TagKey<Block> ENGINE_NOZZLES = TagKey.create(
             Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "engine_nozzles"));
-    private static final TagKey<Block> COMMAND_SEATS = TagKey.create(
+    public static final TagKey<Block> COMMAND_SEATS = TagKey.create(
             Registries.BLOCK, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "command_seats"));
 
     @Override

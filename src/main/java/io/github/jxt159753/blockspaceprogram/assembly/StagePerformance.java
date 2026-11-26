@@ -37,13 +37,13 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
                 int index = branch.node();
                 var node = design.nodes().get(index);
                 var properties = node.part().properties();
-                int tankGroup = branch.link() < 0 || design.links().get(branch.link()).separable() ? index : group[branch.parent()];
+                int tankGroup = tankGroup(design, branch, group);
                 group[index] = tankGroup;
                 capacity[tankGroup] += fuel[index];
                 wetMass += properties.mass() + fuel[index];
                 if (node.engineStage() == stage && properties.vacuumSpecificImpulse() > 0 && properties.thrust() > 0) {
                     thrust[tankGroup] += properties.thrust();
-                    flow[tankGroup] += properties.thrust() / (STANDARD_GRAVITY * properties.vacuumSpecificImpulse());
+                    flow[tankGroup] += fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
                 }
             }
 
@@ -57,6 +57,14 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             }
         }
         return List.copyOf(performance);
+    }
+
+    static int tankGroup(ShipDesign design, ShipDesign.Branch branch, int[] groups) {
+        return branch.link() < 0 || design.links().get(branch.link()).separable() ? branch.node() : groups[branch.parent()];
+    }
+
+    static double fuelFlow(double thrust, double isp) {
+        return thrust / (STANDARD_GRAVITY * isp);
     }
 
     private static StagePerformance burn(double mass, double[] thrust, double[] flow, double[] fuel) {
