@@ -13,6 +13,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.joml.Vector3d;
 
 final class SableHullInteractions {
@@ -33,6 +34,7 @@ final class SableHullInteractions {
     static void register() {
         NeoForge.EVENT_BUS.addListener(SableHullInteractions::onBreak);
         NeoForge.EVENT_BUS.addListener(SableHullInteractions::onPlace);
+        NeoForge.EVENT_BUS.addListener(SableHullInteractions::onPlayerTick);
     }
 
     private static void onBreak(BlockEvent.BreakEvent event) {
@@ -58,5 +60,14 @@ final class SableHullInteractions {
 
     private static void notifyPlayer(ServerPlayer player) {
         player.displayClientMessage(Component.translatable("flight.blockspaceprogram.hull_edit_locked"), true);
+    }
+
+    private static void onPlayerTick(PlayerTickEvent.Post event) {
+        if (event.getEntity() instanceof ServerPlayer player && player.fallDistance > 0
+                && !player.isPassenger() && Sable.HELPER.getTrackingSubLevel(player) instanceof ServerSubLevel hull
+                && SableShipFlight.hasHullAt(player.serverLevel(), hull.getPlot().getCenterBlock())) {
+            // Sable tracks this player's supporting surface. Its world descent is not a player fall.
+            player.resetFallDistance();
+        }
     }
 }
