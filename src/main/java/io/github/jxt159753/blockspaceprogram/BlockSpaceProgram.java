@@ -22,6 +22,7 @@ import io.github.jxt159753.blockspaceprogram.compat.ftbteams.FtbTeamsFacilityOwn
 import io.github.jxt159753.blockspaceprogram.facility.FacilityCommands;
 import io.github.jxt159753.blockspaceprogram.facility.FacilityLevels;
 import io.github.jxt159753.blockspaceprogram.facility.FacilityOwnerResolver;
+import io.github.jxt159753.blockspaceprogram.orbit.BenchmarkNetworking;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
@@ -104,6 +105,9 @@ public final class BlockSpaceProgram {
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> FLIGHT_LAYOUT =
             COMPONENTS.registerComponentType("flight_layout", builder -> builder.persistent(ShipDesign.FLIGHT_CODEC)
                     .networkSynchronized(ShipDesign.STREAM_CODEC));
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> BENCHMARK_LAYOUT =
+            COMPONENTS.registerComponentType("benchmark_layout",
+                    builder -> builder.networkSynchronized(ShipDesign.BENCHMARK_STREAM_CODEC));
     public static final DeferredHolder<EntityType<?>, EntityType<PlacedPartEntity>> PLACED_PART = ENTITIES.register(
             "placed_part", id -> EntityType.Builder.of(PlacedPartEntity::new, MobCategory.MISC)
                     .sized(1.0F, 1.0F).clientTrackingRange(10).build(id.toString()));
@@ -139,6 +143,7 @@ public final class BlockSpaceProgram {
         modBus.addListener(PartConnector::register);
         modBus.addListener(AssemblyNetworking::register);
         modBus.addListener(ShipFlightInput::register);
+        modBus.addListener(BenchmarkNetworking::register);
         OrbitalNetworking.register(modBus);
         AssembledShipEntity.registerFlight();
         if (ModList.get().isLoaded("computercraft")) {

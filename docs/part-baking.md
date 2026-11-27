@@ -53,4 +53,4 @@ Create 6.0.10 所带的 Flywheel 1.0.6 提供 `EntityVisualizer` 和 `Transforme
 | 20 个静止盔甲架 | 0.369 | 0.645 | +0.072 | +0.099 |
 | 20 个烘焙零件 | 0.409 | 0.693 | +0.112 | +0.147 |
 
-正式 M1 验收待按锁定清单生成整合包实例后复测。 [M1 基准 #22](https://github.com/jxt159753/BlockSpaceProgram/issues/22) · [整合包清单 #1](https://github.com/jxt159753/BlockSpaceProgram-Modpack/issues/1)
+正式 M1 验收见 #22，复测使用 `/bsp_bench render all`。 [M1 基准 #22](https://github.com/jxt159753/BlockSpaceProgram/issues/22) · [性能基准命令](benchmark.md)
