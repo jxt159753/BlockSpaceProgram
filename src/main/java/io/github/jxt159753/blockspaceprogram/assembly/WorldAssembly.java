@@ -154,7 +154,7 @@ public final class WorldAssembly extends SavedData {
 
         ItemStack blueprint = new ItemStack(BlockSpaceProgram.SHIP_BLUEPRINT.get());
         blueprint.set(BlockSpaceProgram.SHIP_DESIGN, snapshot.design());
-        AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, snapshot.origin(), snapshot.rotation());
+        AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, snapshot.origin(), snapshot.rotation(), player.getUUID());
         if (ship == null) {
             return "world_spawn";
         }

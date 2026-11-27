@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 import com.mojang.logging.LogUtils;
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import java.util.List;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -50,7 +51,14 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.LONG);
     private static final EntityDataAccessor<Integer> ACTIVE_STAGE = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> ATTITUDE_MODE = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> THROTTLE_MODE = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.INT);
 
+    private final ShipFlightControls flightControls = new ShipFlightControls();
+    @Nullable
+    private UUID owner;
     @Nullable
     private SableShipFlight flight;
     @Nullable
@@ -74,6 +82,8 @@ public final class AssembledShipEntity extends Entity {
         builder.define(FUEL, 0.0F);
         builder.define(DAMAGED_PARTS, 0L);
         builder.define(ACTIVE_STAGE, -1);
+        builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
+        builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
     }
 
     @Nullable
@@ -98,8 +108,9 @@ public final class AssembledShipEntity extends Entity {
     }
 
     @Nullable
-    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation) {
+    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation, UUID owner) {
         var ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
+        ship.owner = owner;
         ship.setBlueprint(blueprint);
         ship.entityData.set(LAUNCH_ROTATION, (byte) rotation.ordinal());
         ship.setPos(origin);
@@ -140,6 +151,29 @@ public final class AssembledShipEntity extends Entity {
     @Nullable
     public SableShipFlight activeFlight() {
         return flight != null && flight.isActive() ? flight : null;
+    }
+
+    @Nullable
+    public ShipFlightControl flightControl() {
+        var active = activeFlight();
+        return active != null && !active.isDebris() ? active : null;
+    }
+
+    @Nullable
+    public UUID owner() {
+        return owner;
+    }
+
+    void inheritOwner(AssembledShipEntity primary) {
+        owner = primary.owner;
+    }
+
+    ShipFlightControls flightControls() {
+        return flightControls;
+    }
+
+    static List<AssembledShipEntity> ownedFlights(ServerLevel level, UUID owner) {
+        return ModList.get().isLoaded("sable") ? SableShipFlight.ownedShips(level, owner) : List.of();
     }
 
     public CompoundTag orbitSnapshot() {
@@ -262,10 +296,20 @@ public final class AssembledShipEntity extends Entity {
         entityData.set(DAMAGED_PARTS, damage);
     }
 
-    void setFlightStatus(int throttle, float fuel, int stage) {
-        entityData.set(THROTTLE, throttle);
+    public ShipFlightControl.AttitudeMode attitudeMode() {
+        return ShipFlightControl.AttitudeMode.values()[entityData.get(ATTITUDE_MODE)];
+    }
+
+    public ShipFlightControl.ThrottleMode throttleMode() {
+        return ShipFlightControl.ThrottleMode.values()[entityData.get(THROTTLE_MODE)];
+    }
+
+    void setFlightStatus(float fuel, int stage) {
+        entityData.set(THROTTLE, (int) Math.round(100 * flightControls.throttle()));
         entityData.set(FUEL, fuel);
         entityData.set(ACTIVE_STAGE, stage);
+        entityData.set(ATTITUDE_MODE, flightControls.attitudeMode().ordinal());
+        entityData.set(THROTTLE_MODE, flightControls.throttleMode().ordinal());
     }
 
     void acceptFlightInput(ServerPlayer pilot, int keys) {
@@ -414,6 +458,7 @@ public final class AssembledShipEntity extends Entity {
     protected void readAdditionalSaveData(CompoundTag tag) {
         entityData.set(LAUNCH_ROTATION, tag.getByte("LaunchRotation"));
         setBlueprint(ItemStack.parseOptional(registryAccess(), tag.getCompound("Blueprint")));
+        owner = tag.hasUUID("ShipOwner") ? tag.getUUID("ShipOwner") : null;
         if (tag.hasUUID("FlightBody")) {
             bodyId = tag.getUUID("FlightBody");
             savedFuel = tag.getList("Fuel", Tag.TAG_DOUBLE);
@@ -428,6 +473,9 @@ public final class AssembledShipEntity extends Entity {
     protected void addAdditionalSaveData(CompoundTag tag) {
         tag.put("Blueprint", entityData.get(BLUEPRINT).saveOptional(registryAccess()));
         tag.putByte("LaunchRotation", entityData.get(LAUNCH_ROTATION));
+        if (owner != null) {
+            tag.putUUID("ShipOwner", owner);
+        }
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
             tag.put("Fuel", flight == null ? savedFuel : flight.saveFuel());

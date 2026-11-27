@@ -22,11 +22,16 @@ repositories {
         url = 'https://maven.ryanhcode.dev/releases'
         content { includeGroup 'dev.ryanhcode.sable-companion' }
     }
+    maven {
+        url = 'https://maven.squiddev.cc'
+        content { includeGroup 'cc.tweaked' }
+    }
 }
 
 dependencies {
     compileOnly 'maven.modrinth:T9PomCSv:fg9dTRz9' // Sable NeoForge 2.0.6
     compileOnly 'dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0'
+    compileOnly "cc.tweaked:cc-tweaked-1.21.1-forge-api:${cc_tweaked_version}"
     testImplementation 'junit:junit:4.13.2'
 }
 
@@ -80,6 +85,7 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
     var properties = [
             minecraft_version_range: minecraft_version_range,
             neo_version            : neo_version,
+            cc_tweaked_version     : cc_tweaked_version,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,

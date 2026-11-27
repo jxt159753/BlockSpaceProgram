@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "blockspaceprogram:block/flight_terminal"
+    }
+  }
+}
