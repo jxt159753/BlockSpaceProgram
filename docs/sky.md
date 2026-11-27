@@ -8,4 +8,4 @@
 
 ## 轨道空间
 
-局部物理区在玩家进入或参考轨道重定基准后，调用 `SkyNetworking.sendOrbitalView(player, regionOrigin, referenceOrbit)`。客户端用同一个轨道时刻传播参考轨道，并加上相机相对物理区原点的偏移。维度内的 `(x, y, z)` 偏移映射到惯性系的 `(x, -z, y)`，两边单位均为米。同维度内退出物理区时调用 `clearOrbitalView`。 [局部物理区 #34](https://github.com/jxt159753/BlockSpaceProgram/issues/34)
+进入轨道局部物理区后，天空使用参考轨道与相机在区内的偏移。星球随飞船在轨道上的位置改变。物理区重定基准时，服务端同步新的参考轨道。维度内的 `(x, y, z)` 偏移映射到惯性系的 `(x, -z, y)`，两边单位均为米。 [轨道局部物理区](flight.md#轨道局部物理区) · [局部物理区 #34](https://github.com/jxt159753/BlockSpaceProgram/issues/34)

@@ -70,6 +70,21 @@ final class ShipFlightControls {
         setAttitudeMode(AttitudeMode.HOLD, orientation);
     }
 
+    void inheritForHandoff(ShipFlightControls source, Quaterniondc rotation, Quaterniondc orientation) {
+        if (source.remote != null) {
+            // Flight terminals can only control ships in their own dimension.
+            disconnect(orientation);
+            return;
+        }
+        attitudeMode = source.attitudeMode;
+        throttleMode = source.throttleMode;
+        throttleTarget = source.throttleTarget;
+        pilotThrottle = source.pilotThrottle;
+        throttle = source.throttle;
+        directAxes.set(source.directAxes);
+        heading.set(rotation).mul(source.heading);
+    }
+
     void tickPilot(int keys) {
         if ((keys & CUTOFF) != 0) {
             cutThrottle();

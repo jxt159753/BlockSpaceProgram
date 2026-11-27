@@ -95,6 +95,20 @@ public final class OrbitalSystem {
         return bodyState(orbit.center(), seconds).add(relativeState(orbit, seconds));
     }
 
+    CelestialBody centerAt(Vec3 absolutePosition, double seconds) {
+        var center = bodies.values().iterator().next();
+        while (true) {
+            var child = children.getOrDefault(center.id(), List.of()).stream().filter(candidate -> {
+                double radius = sphereOfInfluence(candidate.id());
+                return absolutePosition.distanceToSqr(bodyState(candidate.id(), seconds).position()) < radius * radius;
+            }).findFirst().orElse(null);
+            if (child == null) {
+                return center;
+            }
+            center = child;
+        }
+    }
+
     /** Apply each SOI crossing in order and return the conic valid at the end of the interval. */
     public Orbit advance(Orbit orbit, double fromSeconds, double toSeconds) {
         return advance(orbit, fromSeconds, toSeconds, ignored -> {});

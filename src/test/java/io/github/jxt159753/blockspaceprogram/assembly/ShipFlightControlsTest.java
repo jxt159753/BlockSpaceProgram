@@ -63,6 +63,44 @@ public class ShipFlightControlsTest {
     }
 
     @Test
+    public void handoffKeepsPilotThrottleAndRotatesHeldHeading() {
+        var source = new ShipFlightControls();
+        var heading = ShipFlightControls.heading(15, 5, -8);
+        source.setAttitudeMode(HOLD, heading);
+        source.tickPilot(THROTTLE_UP);
+        var rotation = new Quaterniond().rotationY(1.2);
+        var targetHeading = new Quaterniond(rotation).mul(heading);
+        var target = new ShipFlightControls();
+        target.inheritForHandoff(source, rotation, targetHeading);
+
+        assertEquals(HOLD, target.attitudeMode());
+        assertEquals(0.05, target.resolveThrottle(0, 0, 0, 0, 0), 1e-9);
+        var still = new Vector3d();
+        assertEquals(0, target.resolveAxes(0, targetHeading, still, still).lengthSquared(), 0);
+        var disturbed = new Quaterniond(targetHeading).rotateX(0.1);
+        assertTrue(target.resolveAxes(0, disturbed, still, still).x() < 0);
+    }
+
+    @Test
+    public void handoffFromRemoteControlCutsThrottleAndHoldsArrivalAttitude() {
+        var source = new ShipFlightControls();
+        source.connect(() -> true);
+        source.setThrottle(DIRECT, 0.8);
+        source.resolveThrottle(0, 0, 0, 0, 0);
+        var rotation = new Quaterniond().rotationY(1.2);
+        var arrivalAttitude = new Quaterniond().rotationX(0.7);
+        var target = new ShipFlightControls();
+        target.inheritForHandoff(source, rotation, arrivalAttitude);
+
+        assertNull(target.remote());
+        assertEquals(MANUAL, target.throttleMode());
+        assertEquals(0, target.resolveThrottle(0, 0, 0, 0, 0), 0);
+        assertEquals(HOLD, target.attitudeMode());
+        var still = new Vector3d();
+        assertEquals(0, target.resolveAxes(0, arrivalAttitude, still, still).lengthSquared(), 0);
+    }
+
+    @Test
     public void throttleCompensatesForGravityAndDragAndSaturatesAtAvailableThrust() {
         var controls = new ShipFlightControls();
         controls.setThrottle(VERTICAL_SPEED, 20);

@@ -27,14 +27,17 @@ import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.flag.FeatureFlags;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
@@ -50,6 +53,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 @Mod(BlockSpaceProgram.MOD_ID)
 public final class BlockSpaceProgram {
     public static final String MOD_ID = "blockspaceprogram";
+    public static final ResourceKey<Level> ORBITAL_SPACE = ResourceKey.create(Registries.DIMENSION,
+            ResourceLocation.fromNamespaceAndPath(MOD_ID, "orbital_space"));
 
     private static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MOD_ID);
     private static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MOD_ID);

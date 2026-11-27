@@ -150,6 +150,9 @@ public final class PartRenderingClient {
                 for (var node : design.nodes()) {
                     AssemblyViewport.renderPart(node, poses, buffers, light);
                 }
+                if (entity.level().dimension().equals(BlockSpaceProgram.ORBITAL_SPACE)) {
+                    OrbitalRegionClient.shipRendered(entity.getUUID());
+                }
                 poses.popPose();
             }
             super.render(entity, yaw, partialTick, poses, buffers, light);

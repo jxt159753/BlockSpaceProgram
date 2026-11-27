@@ -1,4 +1,5 @@
 {
+  "orbit.blockspaceprogram.contact_distance": "飛船 · %s 公尺",
   "fml.menu.mods.info.description.blockspaceprogram": "用方塊搭建飛船並飛向軌道的 Minecraft 模組。",
   "block.blockspaceprogram.assembly_table": "組裝台",
   "block.blockspaceprogram.launch_pad": "發射台",

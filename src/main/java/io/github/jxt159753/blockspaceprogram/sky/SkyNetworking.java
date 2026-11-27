@@ -4,9 +4,11 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.client.PlanetSkyClient;
 import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.WeakHashMap;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -15,17 +17,22 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.OnDatapackSyncEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 public final class SkyNetworking {
+    private static final Map<ServerPlayer, Orbit> VIEWS = new WeakHashMap<>();
+
     private SkyNetworking() {}
 
     public static void register(IEventBus modBus) {
         modBus.addListener(SkyNetworking::registerPayloads);
         NeoForge.EVENT_BUS.addListener(SkyNetworking::syncAtmospheres);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOW, SkyNetworking::syncOrbitalViews);
     }
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
@@ -39,6 +46,19 @@ public final class SkyNetworking {
     private static void syncAtmospheres(OnDatapackSyncEvent event) {
         var payload = new Atmospheres(PlanetFlightProperties.all());
         event.getRelevantPlayers().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
+    }
+
+    private static void syncOrbitalViews(ServerTickEvent.Post event) {
+        for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
+            Orbit reference = OrbitalRegion.referenceFor(player);
+            if (reference == null) {
+                if (VIEWS.remove(player) != null) {
+                    clearOrbitalView(player);
+                }
+            } else if (VIEWS.put(player, reference) != reference) {
+                sendOrbitalView(player, OrbitalRegion.ORIGIN, reference);
+            }
+        }
     }
 
     /** Sends the local physics region's origin and reference conic after entry or rebasing. */

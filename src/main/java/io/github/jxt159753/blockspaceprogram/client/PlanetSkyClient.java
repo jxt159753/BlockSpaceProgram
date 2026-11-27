@@ -82,7 +82,7 @@ public final class PlanetSkyClient {
     }
 
     @Nullable
-    private static OrbitalView orbitalViewIn(ClientLevel level) {
+    static OrbitalView orbitalViewIn(ClientLevel level) {
         if (orbitalLevel != level) {
             orbitalLevel = null;
             orbitalView = null;

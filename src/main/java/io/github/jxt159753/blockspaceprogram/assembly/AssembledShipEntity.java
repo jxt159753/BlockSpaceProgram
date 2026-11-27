@@ -178,7 +178,9 @@ public final class AssembledShipEntity extends Entity {
 
     public CompoundTag orbitSnapshot() {
         var tag = new CompoundTag();
-        if (!saveAsPassenger(tag) || snapshotSize(tag) != getSelfAndPassengers().count()) {
+        // Players keep their own data and cross dimensions as the same server-side entity.
+        if (!saveAsPassenger(tag) || snapshotSize(tag) != getSelfAndPassengers()
+                .filter(member -> !(member instanceof Player)).count()) {
             throw new IllegalArgumentException("The ship and all of its passengers must be serializable");
         }
         return tag;
@@ -400,6 +402,9 @@ public final class AssembledShipEntity extends Entity {
         super.removePassenger(passenger);
         if (flight != null) {
             flight.clearInput();
+            if (passenger instanceof ServerPlayer player && flight.isActive()) {
+                flight.inheritDismountVelocity(player);
+            }
         }
     }
 

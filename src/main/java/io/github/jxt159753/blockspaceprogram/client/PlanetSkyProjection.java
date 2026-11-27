@@ -2,6 +2,7 @@ package io.github.jxt159753.blockspaceprogram.client;
 
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.orbit.CelestialBody;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking.OrbitalView;
@@ -33,7 +34,7 @@ final class PlanetSkyProjection {
         Vec3 offset = camera.subtract(view.regionOrigin());
         Vec3 reference = OrbitalSystem.M3.absoluteState(view.reference().orElseThrow(), seconds).position();
         // Minecraft's Y-up region coordinates become Z-up in the inertial frame.
-        return new Observer(reference.add(offset.x, -offset.z, offset.y), new Vec3(1, 0, 0), NORTH_POLE,
+        return new Observer(reference.add(OrbitalRegion.toInertial(offset)), new Vec3(1, 0, 0), NORTH_POLE,
                 new Vec3(0, -1, 0));
     }
 

@@ -6,6 +6,7 @@ import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.ticket.SubLevelLoadingTicketType;
 import dev.ryanhcode.sable.companion.math.BoundingBox3d;
 import dev.ryanhcode.sable.companion.math.Pose3d;
+import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import dev.ryanhcode.sable.neoforge.event.ForgeSablePostPhysicsTickEvent;
 import dev.ryanhcode.sable.neoforge.event.ForgeSablePrePhysicsTickEvent;
 import dev.ryanhcode.sable.neoforge.event.ForgeSableSubLevelContainerReadyEvent;
@@ -22,22 +23,27 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
+import java.util.function.UnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Unit;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.portal.DimensionTransition;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
@@ -96,7 +102,7 @@ public final class SableShipFlight implements ShipFlightControl {
         NeoForge.EVENT_BUS.addListener((ForgeSableSubLevelContainerReadyEvent event) -> {
             if (event.getLevel() instanceof ServerLevel level) {
                 // The running Sable pipeline keeps the base gravity it received at initialization.
-                LEVELS.put(level, new Flights(DimensionPhysicsData.getGravity(level), new IdentityHashMap<>()));
+                LEVELS.put(level, new Flights(DimensionPhysicsData.getGravity(level)));
             }
         });
         NeoForge.EVENT_BUS.addListener((LevelEvent.Unload event) -> LEVELS.remove(event.getLevel()));
@@ -206,6 +212,9 @@ public final class SableShipFlight implements ShipFlightControl {
 
     void attach() {
         flights.active.put(body.subLevel(), this);
+        if (isInSpace()) {
+            body.container().addForceLoadTicket(body.subLevel(), HANDOFF_TICKET, Unit.INSTANCE);
+        }
         if (isDebris()) {
             body.container().addForceLoadTicket(body.subLevel(), DEBRIS_TICKET, Unit.INSTANCE);
         }
@@ -275,11 +284,170 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     public boolean carriesPlayer() {
-        var subLevel = body.subLevel();
         return ship.getSelfAndPassengers().anyMatch(Player.class::isInstance)
-                || subLevel.getLevel().players().stream().anyMatch(player ->
-                        Sable.HELPER.getTrackingOrVehicleSubLevel(player) == subLevel
-                                || Sable.HELPER.getContaining(player) == subLevel);
+                || body.subLevel().getLevel().players().stream().anyMatch(this::carries);
+    }
+
+    public boolean carries(ServerPlayer player) {
+        var subLevel = body.subLevel();
+        return player.getRootVehicle() == ship || Sable.HELPER.getTrackingOrVehicleSubLevel(player) == subLevel
+                || Sable.HELPER.getContaining(player) == subLevel;
+    }
+
+    private boolean isInSpace() {
+        return ship.level().dimension().equals(BlockSpaceProgram.ORBITAL_SPACE);
+    }
+
+    public static List<AssembledShipEntity> activeShips(ServerLevel level) {
+        var flights = LEVELS.get(level);
+        return flights == null ? List.of() : flights.active.values().stream().filter(SableShipFlight::isActive)
+                .map(flight -> flight.ship).toList();
+    }
+
+    public static void setOrbitalGravity(ServerLevel level, @Nullable UnaryOperator<Vec3> gravity) {
+        var flights = LEVELS.get(level);
+        if (flights != null) {
+            flights.orbitalGravity = gravity;
+        }
+    }
+
+    public static void rebase(ServerLevel level, Vec3 displacement, Vec3 velocityChange) {
+        var moving = new ArrayList<Entity>();
+        for (Entity entity : level.getAllEntities()) {
+            if (!entity.isPassenger() && Sable.HELPER.getContaining(entity) == null) {
+                moving.add(entity);
+            }
+        }
+        for (var ship : activeShips(level)) {
+            var flight = ship.activeFlight();
+            var before = flight.motion();
+            flight.setMotion(new Motion(before.center().add(displacement), before.velocity().add(velocityChange),
+                    before.orientation(), before.angularVelocity()));
+            ship.getPassengers().forEach(ship::positionRider);
+        }
+        Vec3 perTick = velocityChange.scale(1.0 / 20);
+        for (Entity entity : moving) {
+            if (entity instanceof ServerPlayer player) {
+                player.teleportRelative(displacement.x, displacement.y, displacement.z);
+                setPlayerVelocity(player, player.getKnownMovement().add(perTick));
+            } else {
+                entity.setPos(entity.position().add(displacement));
+                entity.setDeltaMovement(entity.getDeltaMovement().add(perTick));
+                entity.hurtMarked = true;
+            }
+        }
+    }
+
+    public static Vec3 worldPosition(Entity entity) {
+        return vec(Sable.HELPER.projectOutOfSubLevel(entity.level(), vector(entity.position())));
+    }
+
+    public static void clearTracking(ServerPlayer player) {
+        ((EntityMovementExtension) player).sable$setTrackingSubLevel(null);
+    }
+
+    private Vec3 seatPosition(ServerPlayer player) {
+        return vec(body.subLevel().logicalPose().transformPosition(vector(ship.getPassengerRidingPosition(player))));
+    }
+
+    public Vec3 velocityAt(Vec3 position) {
+        var motion = motion();
+        return motion.velocity().add(motion.angularVelocity().cross(position.subtract(motion.center())));
+    }
+
+    public void inheritDismountVelocity(ServerPlayer player) {
+        if (isInSpace()) {
+            setPlayerVelocity(player, velocityAt(worldPosition(player)).scale(1.0 / 20));
+        }
+    }
+
+    public static void setPlayerVelocity(ServerPlayer player, Vec3 perTick) {
+        player.setDeltaMovement(perTick);
+        player.setKnownMovement(perTick);
+        if (player.connection != null) {
+            player.connection.send(new ClientboundSetEntityMotionPacket(player));
+        }
+    }
+
+    public static boolean movePlayer(ServerPlayer player, ServerLevel level, Vec3 position, Vec3 velocity,
+            float yaw, float pitch) {
+        if (player.serverLevel() == level) {
+            player.connection.teleport(position.x, position.y, position.z, yaw, pitch);
+        } else if (player.changeDimension(new DimensionTransition(level, position, velocity.scale(1.0 / 20),
+                yaw, pitch, DimensionTransition.PLACE_PORTAL_TICKET)) == null) {
+            return false;
+        }
+        clearTracking(player);
+        setPlayerVelocity(player, velocity.scale(1.0 / 20));
+        return true;
+    }
+
+    public boolean board(ServerPlayer player) {
+        return player.getVehicle() == ship || ship.getFirstPassenger() == null
+                && movePlayer(player, body.subLevel().getLevel(), seatPosition(player),
+                        Vec3.ZERO, player.getYRot(), player.getXRot()) && mount(player);
+    }
+
+    private boolean mount(ServerPlayer player) {
+        if (!player.startRiding(ship, true)) {
+            return false;
+        }
+        ship.positionRider(player);
+        return true;
+    }
+
+    /** Rebuild the body before moving its occupants, and leave the source intact if travel is rejected. */
+    @Nullable
+    public AssembledShipEntity transfer(ServerLevel target, Motion after, Quaterniondc rotation, boolean reentry) {
+        var before = motion();
+        var source = body.subLevel().getLevel();
+        List<Crew> crew = source.players().stream().filter(this::carries).map(player -> {
+            Vec3 position = worldPosition(player);
+            return new Crew(player, player.getRootVehicle() == ship, position, velocityAt(position),
+                    player.getYRot(), player.getXRot());
+        }).toList();
+        var replacement = AssembledShipEntity.restoreFromOrbit(target, ship.getUUID(), ship.orbitSnapshot(), after, reentry);
+        if (replacement == null) {
+            return null;
+        }
+        var next = replacement.activeFlight();
+        next.keys = keys;
+        next.pressedKeys = pressedKeys;
+        next.stageRequested = stageRequested;
+        next.controls.inheritForHandoff(controls, rotation, after.orientation());
+        if (inputExpiresAt > source.getGameTime()) {
+            next.inputExpiresAt = target.getGameTime() + inputExpiresAt - source.getGameTime();
+        }
+        var moved = new ArrayList<Crew>();
+        for (var member : crew) {
+            var player = member.player();
+            Vec3 position = member.seated() ? next.seatPosition(player)
+                    : after.center().add(vec(rotation.transform(vector(member.position().subtract(before.center())))));
+            if (movePlayer(player, target, position, next.velocityAt(position), member.yaw(), member.pitch())) {
+                moved.add(member);
+                if (!member.seated() || next.mount(player)) {
+                    continue;
+                }
+            }
+            for (var previous : moved.reversed()) {
+                if (movePlayer(previous.player(), source, previous.position(), previous.velocity(),
+                        previous.yaw(), previous.pitch()) && previous.seated()) {
+                    mount(previous.player());
+                }
+            }
+            next.removeForOrbit();
+            return null;
+        }
+        next.syncStatus();
+        // A client that changed levels can reuse the source plot's network address in its new level.
+        moved.forEach(member -> body.subLevel().getTrackingPlayers().remove(member.player().getUUID()));
+        removeForOrbit();
+        return replacement;
+    }
+
+    public void removeForOrbit() {
+        ship.getSelfAndPassengers().filter(entity -> !(entity instanceof Player)).toList().reversed().forEach(Entity::discard);
+        removeBodyNow();
     }
 
     boolean isActive() {
@@ -309,7 +477,7 @@ public final class SableShipFlight implements ShipFlightControl {
         subLevel.updateBoundingBox();
         previousHandoffY = motion.center().y;
         // A high-altitude handoff can happen far from every player. Let Sable keep its flight and terrain loaded.
-        if (motion.center().y >= subLevel.getLevel().getMaxBuildHeight()) {
+        if (isInSpace() || motion.center().y >= subLevel.getLevel().getMaxBuildHeight()) {
             body.container().addForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
         } else {
             body.container().removeForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
@@ -401,7 +569,7 @@ public final class SableShipFlight implements ShipFlightControl {
         var planet = PlanetFlightProperties.in(level);
         var motion = motion();
         double y = motion.center().y;
-        double gravity = planet == null ? flights.baseGravity.length() : planet.gravityAt(y);
+        double gravity = gravityAt(planet, subLevel.logicalPose().position()).length();
         double mass = subLevel.getMassTracker().getMass();
         var angles = motion.orientation().getEulerAnglesYXZ(new Vector3d());
         var attitude = new Attitude(Math.toDegrees(angles.x), Math.toDegrees(angles.y), Math.toDegrees(angles.z));
@@ -621,7 +789,7 @@ public final class SableShipFlight implements ShipFlightControl {
         if (flights == null) {
             return;
         }
-        int distance = ShipServerConfig.DISTANCE.get();
+        int distance = level.dimension().equals(BlockSpaceProgram.ORBITAL_SPACE) ? 0 : ShipServerConfig.DISTANCE.get();
         long lifetime = ShipServerConfig.LIFETIME.get() * 20L;
         double rangeSquared = (double) distance * distance;
         var debris = flights.active.values().stream().filter(flight -> flight.isDebris() && !flight.body.subLevel().isRemoved())
@@ -650,6 +818,13 @@ public final class SableShipFlight implements ShipFlightControl {
         }
     }
 
+    private Vector3dc gravityAt(@Nullable PlanetFlightProperties planet, Vector3dc position) {
+        if (flights.orbitalGravity != null) {
+            return vector(flights.orbitalGravity.apply(vec(position)));
+        }
+        return planet == null ? flights.baseGravity : new Vector3d(0, -planet.gravityAt(position.y()), 0);
+    }
+
     private void step(double seconds) {
         var subLevel = body.subLevel();
         var pipeline = body.pipeline();
@@ -661,7 +836,8 @@ public final class SableShipFlight implements ShipFlightControl {
         double pressure = planet == null ? Math.max(0, DimensionPhysicsData.getAirPressure(subLevel.getLevel(), pose.position()))
                 : planet.relativeDensityAt(y);
         double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
-        double gravity = planet == null ? flights.baseGravity.length() : planet.gravityAt(y);
+        var gravityVector = gravityAt(planet, pose.position());
+        double gravity = gravityVector.length();
         double mass = subLevel.getMassTracker().getMass();
         var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
         var drag = new Vector3d();
@@ -677,8 +853,7 @@ public final class SableShipFlight implements ShipFlightControl {
         double maxThrustToWeight = 0;
         if (controls.needsThrustEstimate()) {
             var available = orientation.transform(state.availableThrust());
-            hoverAcceleration = (planet == null ? -flights.baseGravity.y() : gravity)
-                    - orientation.transform(drag, new Vector3d()).y / mass;
+            hoverAcceleration = -gravityVector.y() - orientation.transform(drag, new Vector3d()).y / mass;
             maxUpAcceleration = available.y / mass;
             maxThrustToWeight = gravity > 0 ? available.length() / (mass * gravity) : 0;
         }
@@ -705,9 +880,10 @@ public final class SableShipFlight implements ShipFlightControl {
             moment.fma(seconds, wheel);
         }
         boolean powered = impulse.lengthSquared() > 0 || moment.lengthSquared() > 0;
-        if (planet != null) {
+        if (flights.orbitalGravity != null || planet != null) {
             // Apply only the difference from Sable's gravity, in the body's axes.
-            var correction = new Vector3d(0, -gravity, 0).sub(flights.baseGravity);
+            var correction = gravityVector.sub(flights.baseGravity, new Vector3d());
+            powered |= flights.orbitalGravity != null && correction.lengthSquared() > 0;
             impulse.fma(massData.getMass() * seconds, orientation.transformInverse(correction));
         }
         landingGear.addImpulse(body, state.damagedParts(), center, linearVelocity, gravity, seconds, impulse, moment);
@@ -747,5 +923,15 @@ public final class SableShipFlight implements ShipFlightControl {
 
     public record Motion(Vec3 center, Vec3 velocity, Quaterniond orientation, Vec3 angularVelocity) {}
 
-    private record Flights(Vector3dc baseGravity, Map<ServerSubLevel, SableShipFlight> active) {}
+    private record Crew(ServerPlayer player, boolean seated, Vec3 position, Vec3 velocity, float yaw, float pitch) {}
+
+    private static final class Flights {
+        final Vector3dc baseGravity;
+        final Map<ServerSubLevel, SableShipFlight> active = new IdentityHashMap<>();
+        @Nullable UnaryOperator<Vec3> orbitalGravity;
+
+        Flights(Vector3dc baseGravity) {
+            this.baseGravity = baseGravity;
+        }
+    }
 }
