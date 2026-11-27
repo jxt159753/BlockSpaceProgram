@@ -99,10 +99,17 @@ public final class OrbitalRegionClient {
                 continue;
             }
             var clip = projection.transform(new Vector4f((float) delta.x, (float) delta.y, (float) delta.z, 1));
+            long metres = Math.round(distance);
             if (clip.w <= 0 || Math.abs(clip.x) >= clip.w || Math.abs(clip.y) >= clip.w) {
+                if (distance <= MODEL_RANGE) {
+                    // Use the bearing before perspective division so contacts behind the camera keep the right side.
+                    float edge = Math.max(Math.abs(clip.x), Math.abs(clip.y));
+                    next.add(edge > 1e-5F ? new Marker(0.9F * clip.x / edge, 0.9F * clip.y / edge, metres)
+                            : new Marker(0, -0.9F, metres));
+                }
                 continue;
             }
-            next.add(new Marker(clip.x / clip.w, clip.y / clip.w, Math.round(distance)));
+            next.add(new Marker(clip.x / clip.w, clip.y / clip.w, metres));
             if (distance <= MODEL_RANGE) {
                 drawModel(event, game, delta, distance);
             }
