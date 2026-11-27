@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Rotation;
@@ -123,6 +124,10 @@ public final class HullRegion {
                 .map(material -> new Material(material.state().rotate(rotation), material.mass())).toList();
         return new HullRegion(new Storage(palette, LongList.of(positions), storage.indices()),
                 PartPose.rotateBounds(axes, bounds), mass);
+    }
+
+    boolean positionsMatch(Predicate<BlockPos> predicate) {
+        return storage.positions().longStream().mapToObj(BlockPos::of).allMatch(predicate);
     }
 
     void forEach(BiConsumer<BlockPos, Material> consumer) {

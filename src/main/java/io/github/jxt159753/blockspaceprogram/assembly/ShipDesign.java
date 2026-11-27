@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 
 /** Blueprints start at their root command pod. Flight layouts may also describe detached parts. */
 public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
-    // With the blueprint in hand, the main inventory and offhand can supply 36 unstackable parts.
+    // Keep the original blueprint part limit. Hull nodes have their own limit.
     public static final int MAX_PARTS = 36;
     public static final int MAX_HULL_NODES = 27;
     static final int MAX_NODES = MAX_PARTS + MAX_HULL_NODES;
@@ -261,7 +261,11 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     private boolean hasBlueprintRoot() {
-        return !hasHull() && !nodes.isEmpty() && nodes.getFirst().pose().equals(PartPose.ROOT) && nodes.getFirst().isCommandPod()
+        if (hasHull()) {
+            // Hull layouts retain their whole-block origin and may include docking links.
+            return nodes.stream().anyMatch(Node::isCommandPod);
+        }
+        return !nodes.isEmpty() && nodes.getFirst().pose().equals(PartPose.ROOT) && nodes.getFirst().isCommandPod()
                 && links.stream().noneMatch(Link::docking);
     }
 
