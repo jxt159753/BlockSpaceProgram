@@ -84,6 +84,7 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
             mod_version            : mod_version,
     ]
     inputs.properties properties
+    filteringCharset = 'UTF-8'
     expand properties
     from 'src/main/templates'
     into layout.buildDirectory.dir('generated/sources/modMetadata')
@@ -104,6 +105,8 @@ tasks.withType(JavaCompile).configureEach {
 tasks.named('jar', Jar) {
     from 'LICENSE', 'TEMPLATE_LICENSE.txt'
 }
+
+apply from: 'gradle/check-lang.gradle'
 
 if (providers.gradleProperty('physicsDrop').isPresent()) {
     apply from: 'experiments/physics-drop/physics-drop.gradle'
