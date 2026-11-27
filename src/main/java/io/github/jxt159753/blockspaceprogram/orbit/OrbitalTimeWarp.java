@@ -10,6 +10,7 @@ import java.util.function.DoubleFunction;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -35,7 +36,11 @@ final class OrbitalTimeWarp {
 
     private static boolean canUse(ServerPlayer player) {
         var server = player.serverLevel().getServer();
-        return server.isSingleplayer() && !server.isPublished() && server.isSingleplayerOwner(player.getGameProfile());
+        return isPrivateWorld(server) && server.isSingleplayerOwner(player.getGameProfile());
+    }
+
+    static boolean isPrivateWorld(MinecraftServer server) {
+        return server.isSingleplayer() && !server.isPublished();
     }
 
     private static int changeRate(ServerPlayer player, int change) {
@@ -69,7 +74,6 @@ final class OrbitalTimeWarp {
         if (gear == 0) {
             return 1;
         }
-        var server = space.getServer();
         var owner = space.players().stream().filter(ServerPlayer::isAlive).filter(OrbitalTimeWarp::canUse)
                 .findFirst().orElse(null);
         var reference = owner == null ? null : OrbitalRegion.referenceFor(owner);

@@ -11,12 +11,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.util.Mth;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /** The server's star system, last authoritative orbit time and current ship conics. */
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
@@ -25,8 +24,8 @@ public final class ClientOrbitalState {
     private static OrbitalSystem system = OrbitalSystem.legacy();
     private static long orbitTicks;
     private static boolean hasClock;
-    private static ClientLevel clockLevel;
-    private static long clockGameTime;
+    private static int elapsedTicks;
+    private static int roundTripMillis;
 
     private ClientOrbitalState() {}
 
@@ -47,13 +46,14 @@ public final class ClientOrbitalState {
     }
 
     public static double orbitSeconds(float partialTick) {
-        if (clockLevel == null || clockLevel != Minecraft.getInstance().level) {
-            return orbitSeconds();
-        }
-        double elapsed = clockLevel.getGameTime() - clockGameTime + (double) partialTick;
-        // Interpolate within the server's one-second clock update interval.
-        double ticks = Mth.clamp(elapsed, 0, OrbitalSavedData.TICKS_PER_SECOND);
-        return orbitSeconds() + ticks / OrbitalSavedData.TICKS_PER_SECOND;
+        return hasClock ? interpolatedSeconds(orbitTicks, elapsedTicks, partialTick, roundTripMillis) : orbitSeconds();
+    }
+
+    static double interpolatedSeconds(long ticks, int elapsed, float partialTick, int pingMillis) {
+        int ticksPerSecond = OrbitalSavedData.TICKS_PER_SECOND;
+        double sinceSample = Math.clamp(elapsed + (double) partialTick, 0, ticksPerSecond);
+        double transit = Math.clamp(pingMillis / 2000.0 * ticksPerSecond, 0, ticksPerSecond);
+        return (ticks + sinceSample + transit) / ticksPerSecond;
     }
 
     public static Map<UUID, OrbitalShipView> ships() {
@@ -63,9 +63,19 @@ public final class ClientOrbitalState {
     public static void receiveClock(long ticks) {
         orbitTicks = ticks;
         hasClock = true;
+        elapsedTicks = 0;
         var minecraft = Minecraft.getInstance();
-        clockLevel = minecraft == null ? null : minecraft.level;
-        clockGameTime = clockLevel == null ? 0 : clockLevel.getGameTime();
+        var player = minecraft == null ? null : minecraft.player;
+        var info = player == null ? null : player.connection.getPlayerInfo(player.getUUID());
+        roundTripMillis = info == null ? 0 : info.getLatency();
+    }
+
+    @SubscribeEvent
+    public static void tickClock(ClientTickEvent.Pre event) {
+        // The orbital clock is shared across dimensions, including during a client-level replacement.
+        if (hasClock && elapsedTicks < OrbitalSavedData.TICKS_PER_SECOND && !Minecraft.getInstance().isPaused()) {
+            elapsedTicks++;
+        }
     }
 
     public static void receiveShip(UUID id, Optional<OrbitalShipView> ship) {
@@ -82,6 +92,7 @@ public final class ClientOrbitalState {
         system = OrbitalSystem.legacy();
         orbitTicks = 0;
         hasClock = false;
-        clockLevel = null;
+        elapsedTicks = 0;
+        roundTripMillis = 0;
     }
 }

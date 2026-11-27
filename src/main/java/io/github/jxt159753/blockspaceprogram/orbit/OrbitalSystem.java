@@ -102,7 +102,7 @@ public final class OrbitalSystem {
         return bodyState(orbit.center(), seconds).add(relativeState(orbit, seconds));
     }
 
-    CelestialBody centerAt(Vec3 absolutePosition, double seconds) {
+    public CelestialBody centerAt(Vec3 absolutePosition, double seconds) {
         var center = bodies.values().iterator().next();
         while (true) {
             var child = children.getOrDefault(center.id(), List.of()).stream().filter(candidate -> {
