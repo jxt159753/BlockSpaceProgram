@@ -11,8 +11,10 @@
     { "name": "LightDirection", "type": "float", "count": 3, "values": [0, 1, 0] },
     { "name": "BodyPole", "type": "float", "count": 3, "values": [0, 1, 0] },
     { "name": "PrimeMeridian", "type": "float", "count": 3, "values": [1, 0, 0] },
+    { "name": "SurfaceSeed", "type": "int", "count": 1, "values": [0] },
     { "name": "Density", "type": "float", "count": 1, "values": [0] },
     { "name": "Weather", "type": "float", "count": 1, "values": [0] },
+    { "name": "StarBrightness", "type": "float", "count": 1, "values": [0] },
     { "name": "Horizon", "type": "float", "count": 1, "values": [-1] }
   ]
 }

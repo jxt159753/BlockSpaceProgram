@@ -18,6 +18,15 @@ final class PlanetSkyProjection {
 
     private PlanetSkyProjection() {}
 
+    static int surfaceSeed(String bodyId) {
+        // FNV-1a over the ASCII characters in the body identifier.
+        int hash = 0x811c9dc5;
+        for (int i = 0; i < bodyId.length(); i++) {
+            hash = (hash ^ bodyId.charAt(i)) * 0x01000193;
+        }
+        return hash;
+    }
+
     static float solarAngle(Vec3 sun) {
         float angle = (float) (Math.acos(Mth.clamp(sun.y, -1, 1)) / (2 * Math.PI));
         return sun.x > 0 ? 1 - angle : angle;

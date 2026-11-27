@@ -45,6 +45,7 @@ public final class PlanetSkyClient {
     private static final int ROCKY_BODY = 1;
     private static final int ATMOSPHERIC_BODY = 2;
     private static final int STAR = 3;
+    private static final int LOCAL_ATMOSPHERIC_GLOBE = 4;
     private static final double SUN_RADIUS = Math.sin(Math.toRadians(1.5));
     private static final Vec3 NADIR = new Vec3(0, -1, 0);
     private static ClientLevel orbitalLevel;
@@ -212,9 +213,12 @@ public final class PlanetSkyClient {
         }
         Vec3 pole = observer == null ? new Vec3(0, 0, -1) : observer.toLocal(PlanetSkyProjection.NORTH_POLE);
         float weather = level.getRainLevel(partialTick);
+        float daylight = Mth.clamp(((float) sun.y + 0.18F) / 0.33F, 0, 1);
+        float starBrightness = 0.8F * (1 - density * daylight) * (1 - density * weather);
         shader.safeGetUniform("ClipToWorld").set(new Matrix4f(view).invert().mul(new Matrix4f(projection).invert()));
         shader.safeGetUniform("Density").set(density);
         shader.safeGetUniform("Weather").set(weather);
+        shader.safeGetUniform("StarBrightness").set(starBrightness);
         shader.safeGetUniform("Horizon").set(horizon);
         shader.safeGetUniform("LightDirection").set(sun.toVector3f());
         shader.safeGetUniform("BodyPole").set(pole.toVector3f());
@@ -226,9 +230,7 @@ public final class PlanetSkyClient {
         }
         RenderSystem.depthMask(false);
         try {
-            draw(BACKGROUND, Vec3.ZERO, 0, Vec3.ZERO);
-            float daylight = Mth.clamp(((float) sun.y + 0.18F) / 0.33F, 0, 1);
-            float starBrightness = 0.8F * (1 - density * daylight) * (1 - density * weather);
+            draw(BACKGROUND, Vec3.ZERO, 0, Vec3.ZERO, 0);
             if (stars != null && starBrightness > 0) {
                 var starView = observer == null ? view : new Matrix4f(view).mul(observer.starsToLocal());
                 RenderSystem.enableBlend();
@@ -238,16 +240,20 @@ public final class PlanetSkyClient {
                 stars.drawWithShader(starView, projection, GameRenderer.getPositionShader());
                 VertexBuffer.unbind();
                 RenderSystem.setShaderColor(1, 1, 1, 1);
-                RenderSystem.disableBlend();
-                RenderSystem.defaultBlendFunc();
             }
-            draw(STAR, sun, SUN_RADIUS, Vec3.ZERO);
+            // Disks cover stars, and the halo adds light outside the disk with zero opacity.
+            RenderSystem.enableBlend();
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+            draw(STAR, sun, SUN_RADIUS, Vec3.ZERO, 0);
             if (observer != null) {
-                renderBodies(system, observer, seconds, showGlobe || region != null ? null : dimension);
+                renderBodies(system, observer, seconds, region == null ? dimension : null, showGlobe);
             } else if (showGlobe) {
-                draw(planet.hasAtmosphere() ? ATMOSPHERIC_BODY : ROCKY_BODY, NADIR, ratio, new Vec3(0, 1, 0));
+                draw(planet.hasAtmosphere() ? LOCAL_ATMOSPHERIC_GLOBE : ROCKY_BODY, NADIR, ratio, new Vec3(0, 1, 0),
+                        PlanetSkyProjection.surfaceSeed(dimension.toString()));
             }
         } finally {
+            RenderSystem.disableBlend();
+            RenderSystem.defaultBlendFunc();
             RenderSystem.depthMask(true);
             if (afterShaderPack) {
                 GL11.glDepthRange(0, 1);
@@ -261,10 +267,11 @@ public final class PlanetSkyClient {
     }
 
     private static void renderBodies(OrbitalSystem system, PlanetSkyProjection.Observer observer, double seconds,
-                                     @Nullable ResourceLocation hidden) {
+                                     @Nullable ResourceLocation localDimension, boolean showGlobe) {
         var visible = new ArrayList<Disc>();
         for (var body : system.bodies()) {
-            if (body.id().equals(hidden)) {
+            boolean local = body.id().equals(localDimension);
+            if (local && !showGlobe) {
                 continue;
             }
             Vec3 displacement = system.bodyState(body.id(), seconds).position().subtract(observer.position());
@@ -272,25 +279,27 @@ public final class PlanetSkyClient {
             if (distance > body.radius()) {
                 var properties = PlanetFlightProperties.clientIn(body.id());
                 boolean atmospheric = properties == null ? body.id().equals(OrbitalSystem.MOTHER_PLANET) : properties.hasAtmosphere();
+                int mode = atmospheric ? (local ? LOCAL_ATMOSPHERIC_GLOBE : ATMOSPHERIC_BODY) : ROCKY_BODY;
+                int seed = atmospheric ? 0 : PlanetSkyProjection.surfaceSeed(body.id().toString());
                 Vec3 direction = observer.toLocal(displacement.scale(1 / distance));
                 Vec3 primeMeridian = observer.toLocal(PlanetFrame.primeMeridian(system, body, seconds));
-                visible.add(new Disc(atmospheric ? ATMOSPHERIC_BODY : ROCKY_BODY, direction,
-                        body.radius() / distance, primeMeridian, distance));
+                visible.add(new Disc(mode, direction, body.radius() / distance, primeMeridian, distance, seed));
             }
         }
         visible.sort(Comparator.comparingDouble(Disc::distance).reversed());
         for (var disc : visible) {
-            draw(disc.mode(), disc.direction(), disc.relativeRadius(), disc.primeMeridian());
+            draw(disc.mode(), disc.direction(), disc.relativeRadius(), disc.primeMeridian(), disc.seed());
         }
     }
 
-    private record Disc(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian, double distance) {}
+    private record Disc(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian, double distance, int seed) {}
 
-    private static void draw(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian) {
+    private static void draw(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian, int seed) {
         shader.safeGetUniform("Mode").set(mode);
         shader.safeGetUniform("BodyDirection").set(direction.toVector3f());
         shader.safeGetUniform("Radius").set((float) relativeRadius);
         shader.safeGetUniform("PrimeMeridian").set(primeMeridian.toVector3f());
+        shader.safeGetUniform("SurfaceSeed").set(seed);
         RenderSystem.setShader(() -> shader);
         var buffer = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION);
         buffer.addVertex(-1, -1, 0.9999F);
