@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -99,6 +100,10 @@ public final class HullRegion {
 
     boolean contains(BlockPos position) {
         return storage.positions().contains(position.asLong());
+    }
+
+    boolean positionsMatch(Predicate<BlockPos> predicate) {
+        return storage.positions().longStream().mapToObj(BlockPos::of).allMatch(predicate);
     }
 
     void forEach(BiConsumer<BlockPos, Material> consumer) {
