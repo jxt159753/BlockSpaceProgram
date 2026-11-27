@@ -29,6 +29,15 @@ public class PlanetSkyProjectionTest {
     }
 
     @Test
+    public void shaderWorldTimeUsesSolarAngleAndKeepsTheVanillaDay() {
+        long sameDay = 42_000;
+        assertEquals(47_215, PlanetSkyProjection.vanillaDayTime(sameDay, localSun(EQUATOR, 0)));
+        assertEquals(30_000, PlanetSkyProjection.vanillaDayTime(sameDay, localSun(EQUATOR, 300)));
+        assertEquals(36_785, PlanetSkyProjection.vanillaDayTime(sameDay, localSun(EQUATOR, 600)));
+        assertEquals(42_000, PlanetSkyProjection.vanillaDayTime(sameDay, localSun(EQUATOR, 900)));
+    }
+
+    @Test
     public void surfaceViewAccountsForParallaxAndAngularSize() {
         Vec3 moon = M3.bodyState(OrbitalSystem.MOON, 0).position();
         var observer = surface(EQUATOR, 0);
