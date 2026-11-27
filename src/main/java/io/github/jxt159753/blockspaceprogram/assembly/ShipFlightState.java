@@ -274,16 +274,31 @@ final class ShipFlightState {
         return tag;
     }
 
-    void burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
-            Vector3d impulse, Vector3d momentAboutOrigin) {
-        if (throttle == 0 || engines.isEmpty()) {
-            return;
-        }
+    private void collectGroupFuel() {
         Arrays.fill(groupFuel, 0);
-        Arrays.fill(demand, 0);
         for (Tank tank : tanks) {
             groupFuel[tank.group] += fuel[tank.part];
         }
+    }
+
+    Vector3d availableThrust() {
+        var thrust = new Vector3d();
+        collectGroupFuel();
+        for (Engine engine : engines) {
+            if (engine.stage == stage && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
+                thrust.fma(engine.properties.thrust(), engine.direction);
+            }
+        }
+        return thrust;
+    }
+
+    boolean burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
+            Vector3d impulse, Vector3d momentAboutOrigin) {
+        if (throttle == 0 || engines.isEmpty()) {
+            return false;
+        }
+        collectGroupFuel();
+        Arrays.fill(demand, 0);
         for (Engine engine : engines) {
             if (engine.stage != stage || isDamaged(engine.part)) {
                 continue;
@@ -295,8 +310,10 @@ final class ShipFlightState {
             demand[engine.group] += StagePerformance.fuelFlow(props.thrust(), isp) * throttle * seconds;
         }
         boolean burned = false;
+        boolean stillFed = false;
         for (int group = 0; group < groupFuel.length; group++) {
             burnFraction[group] = demand[group] > 0 ? Math.min(1, groupFuel[group] / demand[group]) : 0;
+            stillFed |= demand[group] > 0 && groupFuel[group] > demand[group];
         }
         for (Tank tank : tanks) {
             int group = tank.group;
@@ -315,6 +332,7 @@ final class ShipFlightState {
                 momentAboutOrigin.fma(magnitude, engine.moment);
             }
         }
+        return burned && !stillFed;
     }
 
     private boolean setFuel(Tank tank, double remaining, ShipCollisionBody body) {

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.UnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -40,6 +41,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.LevelEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
@@ -51,36 +53,46 @@ import org.slf4j.Logger;
 import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
 
 /** Binds a ship and its saved flight state to a single Sable plot. Loaded only with Sable present. */
-public final class SableShipFlight {
+public final class SableShipFlight implements ShipFlightControl {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String OWNER = "BlockSpaceProgramShip";
     private static final int INPUT_TIMEOUT = 10;
-    private static final int THROTTLE_STEP = 5;
-    private static final double WHEEL_ACCELERATION = 1.5;
     private static final double STANDARD_AIR_DENSITY = 1.225;
     private static final double SEPARATION_SPEED = 2;
+    private static final double LANDING_SPEED_SQUARED = 0.25;
+    private static final int LANDING_CONTACT_TICKS = 5;
     // Keep these bounded bodies loaded until the cleanup rules have removed them.
     private static final SubLevelLoadingTicketType<Unit> DEBRIS_TICKET = SubLevelLoadingTicketType.create(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "debris"), Unit.CODEC);
     private static final SubLevelLoadingTicketType<Unit> HANDOFF_TICKET = SubLevelLoadingTicketType.create(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "orbit_handoff"), Unit.CODEC);
+    private static final SubLevelLoadingTicketType<Unit> REMOTE_TICKET = SubLevelLoadingTicketType.create(
+            ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "remote_flight"), Unit.CODEC);
     private static final Map<ServerLevel, Flights> LEVELS = new IdentityHashMap<>();
 
     private final AssembledShipEntity ship;
     private final ShipCollisionBody body;
     private ShipFlightState state;
+    private final ShipFlightControls controls;
     private final ShipLandingGear landingGear;
     private final Flights flights;
     private double previousHandoffY;
     private int keys;
-    private int throttle;
+    private int pressedKeys;
     private boolean stageRequested;
     private long inputExpiresAt = Long.MIN_VALUE;
+    private boolean remoteTicket;
+    private double thrust;
+    private boolean fuelDepleted;
+    private long supportAt = Long.MIN_VALUE;
+    private boolean airborne;
+    private boolean landed;
 
     private SableShipFlight(AssembledShipEntity ship, ShipCollisionBody body, ShipFlightState state, ShipDesign design) {
         this.ship = ship;
         this.body = body;
         this.state = state;
+        this.controls = ship.flightControls();
         this.landingGear = new ShipLandingGear(design);
         this.flights = LEVELS.get(body.subLevel().getLevel());
         this.previousHandoffY = body.subLevel().logicalPose().position().y();
@@ -94,6 +106,8 @@ public final class SableShipFlight {
             }
         });
         NeoForge.EVENT_BUS.addListener((LevelEvent.Unload event) -> LEVELS.remove(event.getLevel()));
+        NeoForge.EVENT_BUS.addListener((ServerStoppingEvent event) ->
+                LEVELS.values().forEach(flights -> flights.active.values().forEach(flight -> flight.setRemoteTicket(false))));
         NeoForge.EVENT_BUS.addListener((LevelTickEvent.Post event) -> {
             if (event.getLevel() instanceof ServerLevel level && level.getGameTime() % 20 == 0) {
                 cleanupDebris(level);
@@ -128,6 +142,10 @@ public final class SableShipFlight {
             var flight = flights.active.get(Sable.HELPER.getContaining(level, cell));
             if (flight != null) {
                 flight.state.recordImpact(flight.body.plotOrigin(), cell, point, speed);
+                var pose = flight.body.subLevel().logicalPose();
+                if (pose.transformPosition(new Vector3d(point)).y < pose.position().y()) {
+                    flight.supportAt = level.getGameTime();
+                }
             }
         }
     }
@@ -200,19 +218,33 @@ public final class SableShipFlight {
         if (isDebris()) {
             body.container().addForceLoadTicket(body.subLevel(), DEBRIS_TICKET, Unit.INSTANCE);
         }
+        if (controls.remote() != null) {
+            setRemoteTicket(true);
+        } else {
+            // A persisted ticket from an unclean shutdown cannot still have a connected computer.
+            body.container().removeForceLoadTicket(body.subLevel(), REMOTE_TICKET, Unit.INSTANCE);
+        }
     }
 
     void detach() {
+        setRemoteTicket(false);
         flights.active.remove(body.subLevel(), this);
     }
 
     void discard() {
+        detach();
         if (isDebris()) {
             body.container().removeForceLoadTicket(body.subLevel(), DEBRIS_TICKET, Unit.INSTANCE);
         }
         body.container().removeForceLoadTicket(body.subLevel(), HANDOFF_TICKET, Unit.INSTANCE);
         body.subLevel().markRemoved();
-        detach();
+    }
+
+    static List<AssembledShipEntity> ownedShips(ServerLevel level, UUID owner) {
+        var flights = LEVELS.get(level);
+        return flights == null ? List.of() : flights.active.values().stream()
+                .filter(flight -> flight.isActive() && !flight.isDebris() && owner.equals(flight.ship.owner()))
+                .map(flight -> flight.ship).toList();
     }
 
     public void removeBodyNow() {
@@ -380,8 +412,9 @@ public final class SableShipFlight {
         }
         var next = replacement.activeFlight();
         next.keys = keys;
-        next.throttle = throttle;
+        next.pressedKeys = pressedKeys;
         next.stageRequested = stageRequested;
+        next.controls.inheritForHandoff(controls, rotation, after.orientation());
         if (inputExpiresAt > source.getGameTime()) {
             next.inputExpiresAt = target.getGameTime() + inputExpiresAt - source.getGameTime();
         }
@@ -468,36 +501,54 @@ public final class SableShipFlight {
     }
 
     void updateInput(int keys, long gameTime) {
-        stageRequested |= (keys & STAGE) != 0 && (this.keys & STAGE) == 0;
+        pressedKeys |= keys & ~this.keys;
         this.keys = keys;
         inputExpiresAt = gameTime + INPUT_TIMEOUT;
     }
 
     void clearInput() {
         keys = 0;
-        throttle = 0;
-        stageRequested = false;
+        pressedKeys = 0;
+        controls.clearPilot();
         inputExpiresAt = Long.MIN_VALUE;
     }
 
     void tickControls() {
+        if (!isActive()) {
+            return;
+        }
+        checkRemoteControl();
         if (!(ship.getFirstPassenger() instanceof ServerPlayer pilot) || pilot.isSpectator()
                 || !pilot.isAlive()) {
             clearInput();
         } else if (ship.level().getGameTime() >= inputExpiresAt) {
-            keys &= STAGE;
-            throttle = 0;
-            stageRequested = false;
-        } else if ((keys & CUTOFF) != 0) {
-            throttle = 0;
+            keys &= STAGE | CYCLE_ATTITUDE | CYCLE_THROTTLE;
+            pressedKeys = 0;
+            controls.clearPilot();
         } else {
-            throttle = Math.clamp(throttle + THROTTLE_STEP * axis(keys, THROTTLE_UP, THROTTLE_DOWN), 0, 100);
+            if ((pressedKeys & CYCLE_ATTITUDE) != 0) {
+                var modes = AttitudeMode.values();
+                setAttitudeMode(modes[(controls.attitudeMode().ordinal() + 1) % modes.length]);
+            }
+            if ((pressedKeys & CYCLE_THROTTLE) != 0) {
+                switch (controls.throttleMode()) {
+                    case MANUAL, DIRECT -> setThrottle(ThrottleMode.VERTICAL_SPEED, motion().velocity().y);
+                    case VERTICAL_SPEED -> setThrottle(ThrottleMode.THRUST_TO_WEIGHT, telemetry().thrustToWeight());
+                    case THRUST_TO_WEIGHT -> setThrottle(ThrottleMode.MANUAL, 0);
+                }
+            }
+            controls.tickPilot(keys | (pressedKeys & CUTOFF));
+            stageRequested |= (pressedKeys & STAGE) != 0;
+            pressedKeys = 0;
         }
         syncStatus();
+        updateFlightEvents();
         if (stageRequested) {
             stageRequested = false;
             try {
-                advanceStage();
+                if (advanceStage()) {
+                    postFlightEvent(ShipFlightEvent.Kind.STAGE_CHANGED, ship.activeStage());
+                }
             } catch (RuntimeException error) {
                 LOGGER.warn("Could not advance stage for {}", ship.getUUID(), error);
                 if (ship.getFirstPassenger() instanceof ServerPlayer pilot) {
@@ -508,14 +559,133 @@ public final class SableShipFlight {
     }
 
     void syncStatus() {
-        ship.setFlightStatus(throttle, (float) state.remainingFuel(), state.stage());
+        ship.setFlightStatus((float) state.remainingFuel(), state.stage());
     }
 
-    private void advanceStage() {
+    @Override
+    public Telemetry telemetry() {
+        var subLevel = body.subLevel();
+        var level = subLevel.getLevel();
+        var planet = PlanetFlightProperties.in(level);
+        var motion = motion();
+        double y = motion.center().y;
+        double gravity = gravityAt(planet, subLevel.logicalPose().position()).length();
+        double mass = subLevel.getMassTracker().getMass();
+        var angles = motion.orientation().getEulerAnglesYXZ(new Vector3d());
+        var attitude = new Attitude(Math.toDegrees(angles.x), Math.toDegrees(angles.y), Math.toDegrees(angles.z));
+        return new Telemetry(ship.getUUID(), level.dimension().location(), motion.center(), motion.velocity(),
+                y - (planet == null ? 0 : planet.seaLevel()), attitude, motion.angularVelocity(),
+                mass, state.remainingFuel(), thrust, state.availableThrust().length(), gravity,
+                gravity > 0 ? thrust / (mass * gravity) : 0, controls.throttle(), state.stage(),
+                controls.attitudeMode(), controls.throttleMode(), vec(controls.axes()), landed, planet);
+    }
+
+    @Override
+    public void setThrottle(ThrottleMode mode, double target) {
+        controls.setThrottle(mode, target);
+    }
+
+    @Override
+    public void setAxes(double pitch, double yaw, double roll) {
+        controls.setAxes(pitch, yaw, roll);
+    }
+
+    @Override
+    public void setAttitudeMode(AttitudeMode mode) {
+        controls.setAttitudeMode(mode, body.subLevel().logicalPose().orientation());
+    }
+
+    @Override
+    public void holdAttitude(double pitch, double yaw, double roll) {
+        controls.setAttitudeMode(AttitudeMode.HOLD, ShipFlightControls.heading(pitch, yaw, roll));
+    }
+
+    @Override
+    public boolean requestStage() {
+        if (state.stage() + 1 >= ship.design().stageCount()) {
+            return false;
+        }
+        stageRequested = true;
+        return true;
+    }
+
+    @Override
+    public RemoteResult claimRemote(BooleanSupplier connection) {
+        checkRemoteControl();
+        if (controls.remote() == connection) {
+            return RemoteResult.CONNECTED;
+        }
+        if (controls.remote() != null) {
+            return RemoteResult.BUSY;
+        }
+        long loaded = flights.active.values().stream().filter(flight -> flight.remoteTicket).count();
+        if (loaded >= ShipServerConfig.MAX_REMOTE_SHIPS.get()) {
+            return RemoteResult.TICKET_LIMIT;
+        }
+        controls.connect(connection);
+        setRemoteTicket(true);
+        return RemoteResult.CONNECTED;
+    }
+
+    @Override
+    public boolean releaseRemote(BooleanSupplier connection) {
+        if (controls.remote() != connection) {
+            return false;
+        }
+        controls.disconnect(body.subLevel().logicalPose().orientation());
+        setRemoteTicket(false);
+        return true;
+    }
+
+    private void checkRemoteControl() {
+        if (controls.checkConnection(body.subLevel().logicalPose().orientation())) {
+            setRemoteTicket(false);
+        }
+    }
+
+    private void setRemoteTicket(boolean active) {
+        if (remoteTicket == active) {
+            return;
+        }
+        if (active) {
+            body.container().addForceLoadTicket(body.subLevel(), REMOTE_TICKET, Unit.INSTANCE);
+        } else {
+            body.container().removeForceLoadTicket(body.subLevel(), REMOTE_TICKET, Unit.INSTANCE);
+        }
+        remoteTicket = active;
+    }
+
+    private void updateFlightEvents() {
+        if (isDebris()) {
+            return;
+        }
+        if (fuelDepleted) {
+            fuelDepleted = false;
+            postFlightEvent(ShipFlightEvent.Kind.FUEL_DEPLETED, state.stage());
+        }
+        boolean supported = ship.level().getGameTime() - LANDING_CONTACT_TICKS <= supportAt;
+        double speedSquared = body.pipeline().getLinearVelocity(body.subLevel(), new Vector3d()).lengthSquared();
+        if (!supported && speedSquared > LANDING_SPEED_SQUARED) {
+            airborne = true;
+            landed = false;
+        } else if (supported && speedSquared <= LANDING_SPEED_SQUARED) {
+            landed = true;
+            if (airborne) {
+                airborne = false;
+                postFlightEvent(ShipFlightEvent.Kind.LANDED, state.stage());
+            }
+        }
+    }
+
+    private void postFlightEvent(ShipFlightEvent.Kind kind, int stage) {
+        NeoForge.EVENT_BUS.post(new ShipFlightEvent(ship, kind, stage));
+    }
+
+    private boolean advanceStage() {
         ShipDesign design = ship.design();
         int stage = state.stage() + 1;
         if (stage >= design.stageCount() || body.subLevel().isRemoved()) {
-            return;
+            return false;
         }
         Set<Integer> cuts = new HashSet<>();
         for (int index = 0; index < design.links().size(); index++) {
@@ -538,6 +708,7 @@ public final class SableShipFlight {
                 split(design, cuts, components, stage);
             }
         }
+        return true;
     }
 
     private void split(ShipDesign design, Set<Integer> cuts, List<List<Integer>> components, int stage) {
@@ -555,6 +726,9 @@ public final class SableShipFlight {
                     componentForPart[part] = index;
                 }
                 var owner = index == 0 ? ship : new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
+                if (index != 0) {
+                    owner.inheritOwner(ship);
+                }
                 // Keep the layout aligned to the old collision grid and place the new entity inside its plot chunks.
                 BlockPos offset = index == 0 ? BlockPos.ZERO
                         : BlockPos.containing(design.nodes().get(members.getFirst()).bounds().getCenter());
@@ -600,11 +774,12 @@ public final class SableShipFlight {
 
         var primary = fragments.getFirst();
         primary.flight.keys = keys;
-        primary.flight.throttle = throttle;
         primary.flight.inputExpiresAt = inputExpiresAt;
+        primary.flight.airborne = airborne;
+        primary.flight.landed = landed;
         ship.useFlightFragment(primary.layout, primary.flight);
-        primary.flight.attach();
         detach();
+        primary.flight.attach();
         body.remove();
         cleanupDebris(level);
     }
@@ -643,28 +818,60 @@ public final class SableShipFlight {
         }
     }
 
+    private Vector3dc gravityAt(@Nullable PlanetFlightProperties planet, Vector3dc position) {
+        if (flights.orbitalGravity != null) {
+            return vector(flights.orbitalGravity.apply(vec(position)));
+        }
+        return planet == null ? flights.baseGravity : new Vector3d(0, -planet.gravityAt(position.y()), 0);
+    }
+
     private void step(double seconds) {
         var subLevel = body.subLevel();
         var pipeline = body.pipeline();
         var pose = subLevel.logicalPose();
+        var orientation = pose.orientation();
+        checkRemoteControl();
         double y = pose.position().y;
         var planet = PlanetFlightProperties.in(subLevel.getLevel());
         double pressure = planet == null ? Math.max(0, DimensionPhysicsData.getAirPressure(subLevel.getLevel(), pose.position()))
                 : planet.relativeDensityAt(y);
         double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
+        var gravityVector = gravityAt(planet, pose.position());
+        double gravity = gravityVector.length();
+        double mass = subLevel.getMassTracker().getMass();
+        var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
+        var drag = new Vector3d();
+        if (density > 0 && linearVelocity.lengthSquared() > 0) {
+            var velocity = orientation.transformInverse(linearVelocity, new Vector3d());
+            double speed = velocity.length();
+            velocity.div(speed);
+            double force = 0.5 * density * state.dragArea(velocity) * speed * speed;
+            drag.set(velocity).mul(-Math.min(force, mass * speed / seconds));
+        }
+        double hoverAcceleration = 0;
+        double maxUpAcceleration = 0;
+        double maxThrustToWeight = 0;
+        if (controls.needsThrustEstimate()) {
+            var available = orientation.transform(state.availableThrust());
+            hoverAcceleration = -gravityVector.y() - orientation.transform(drag, new Vector3d()).y / mass;
+            maxUpAcceleration = available.y / mass;
+            maxThrustToWeight = gravity > 0 ? available.length() / (mass * gravity) : 0;
+        }
         var impulse = new Vector3d();
         var moment = new Vector3d();
-        state.burn(throttle / 100.0, Math.min(1, pressure), seconds, body, impulse, moment);
+        double throttle = controls.resolveThrottle(keys, linearVelocity.y, hoverAcceleration, maxUpAcceleration, maxThrustToWeight);
+        fuelDepleted |= state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment);
+        thrust = impulse.length() / seconds;
 
         var massData = subLevel.getMassTracker();
         var origin = body.plotOrigin();
         var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
         moment.sub(center.cross(impulse, new Vector3d()));
-        var wheel = new Vector3d(axis(keys, PITCH_DOWN, PITCH_UP), axis(keys, YAW_LEFT, YAW_RIGHT),
-                axis(keys, ROLL_RIGHT, ROLL_LEFT));
+        var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
+        var axes = controls.resolveAxes(keys, orientation, linearVelocity, angularVelocity);
         double wheelTorque = state.wheelTorque();
-        if (wheelTorque > 0 && wheel.lengthSquared() > 0) {
-            wheel.normalize(WHEEL_ACCELERATION);
+        if (wheelTorque > 0 && axes.lengthSquared() > 0) {
+            var wheel = new Vector3d(axes).mul(ShipFlightControls.WHEEL_ACCELERATION / Math.max(1, axes.length()));
             massData.getInertiaTensor().transform(wheel);
             double magnitude = wheel.length();
             if (magnitude > wheelTorque) {
@@ -673,29 +880,14 @@ public final class SableShipFlight {
             moment.fma(seconds, wheel);
         }
         boolean powered = impulse.lengthSquared() > 0 || moment.lengthSquared() > 0;
-        double mass = massData.getMass();
-        var orientation = pose.orientation();
-        Vec3 orbitalGravity = flights.orbitalGravity == null ? null : flights.orbitalGravity.apply(vec(pose.position()));
-        double gravity = orbitalGravity != null ? orbitalGravity.length()
-                : planet == null ? flights.baseGravity.length() : planet.gravityAt(y);
-        if (orbitalGravity != null || planet != null) {
+        if (flights.orbitalGravity != null || planet != null) {
             // Apply only the difference from Sable's gravity, in the body's axes.
-            var correction = (orbitalGravity == null ? new Vector3d(0, -gravity, 0) : vector(orbitalGravity))
-                    .sub(flights.baseGravity);
-            powered |= orbitalGravity != null && correction.lengthSquared() > 0;
-            impulse.fma(mass * seconds, orientation.transformInverse(correction));
+            var correction = gravityVector.sub(flights.baseGravity, new Vector3d());
+            powered |= flights.orbitalGravity != null && correction.lengthSquared() > 0;
+            impulse.fma(massData.getMass() * seconds, orientation.transformInverse(correction));
         }
-        var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
         landingGear.addImpulse(body, state.damagedParts(), center, linearVelocity, gravity, seconds, impulse, moment);
-        if (density > 0) {
-            var velocity = orientation.transformInverse(linearVelocity);
-            double speed = velocity.length();
-            if (speed > 0) {
-                velocity.div(speed);
-                double drag = 0.5 * density * state.dragArea(velocity) * speed * speed;
-                impulse.fma(-Math.min(drag * seconds, mass * speed), velocity);
-            }
-        }
+        impulse.fma(seconds, drag);
         if (impulse.lengthSquared() > 0 || moment.lengthSquared() > 0) {
             pipeline.applyLinearAndAngularImpulse(subLevel, impulse, moment, powered);
         }

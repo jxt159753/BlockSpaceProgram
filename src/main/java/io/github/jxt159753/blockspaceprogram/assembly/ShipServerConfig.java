@@ -7,6 +7,7 @@ public final class ShipServerConfig {
     static final ModConfigSpec.IntValue MAX_DEBRIS;
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
+    static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_EXIT_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_SPEED;
@@ -21,6 +22,10 @@ public final class ShipServerConfig {
                 .defineInRange("distance", 256, 0, Integer.MAX_VALUE);
         LIFETIME = builder.comment("Maximum age of debris in seconds of game time. 0 disables this rule.")
                 .defineInRange("lifetimeSeconds", 300, 0, Integer.MAX_VALUE);
+        builder.pop();
+        builder.push("flight");
+        MAX_REMOTE_SHIPS = builder.comment("Maximum ships kept loaded by a remote flight controller per dimension.")
+                .defineInRange("maxRemoteShips", 8, 0, Integer.MAX_VALUE);
         builder.pop();
         builder.push("orbitalPhysics");
         ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres at which a nearby ship can enter local physics.")

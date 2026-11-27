@@ -2,7 +2,7 @@
 
 BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753/BlockSpaceProgram-Modpack)的自制模组。整合包受《坎巴拉太空计划》启发，让玩家把方块结构制成零件，组装飞船，并在天体附近的飞行模拟与轨道传播之间切换。工业、物理、任务和地形交给整合包里的现有模组，本模组补齐它们覆盖不到的部分：零件烘焙、飞船装配与飞行、轨道层、再入和天空渲染。 [项目路线图](https://github.com/jxt159753/BlockSpaceProgram/issues/24) · [整合包仓库](https://github.com/jxt159753/BlockSpaceProgram-Modpack)
 
-近地飞行使用 Sable 解算整船刚体。玩家可从发射台登船，操控节流阀和反作用轮。飞船与机械动力（Create）机构共用 Sable 的碰撞层，原型中的活塞平台曾将测试刚体托高 8 格。 [飞船驾驶](docs/flight.md) · [飞行物理决策记录](experiments/physics-drop/README.md)
+近地飞行使用 Sable 解算整船刚体。玩家可从发射台登船，手动驾驶或切换内置飞控。安装 CC:Tweaked 后，地面电脑可以通过飞控终端驾驶无人飞船。飞船与机械动力（Create）机构共用 Sable 的碰撞层，原型中的活塞平台曾将测试刚体托高 8 格。 [飞船驾驶](docs/flight.md) · [CC:Tweaked 飞控外设](docs/flight-computercraft.md) · [飞行物理决策记录](experiments/physics-drop/README.md)
 
 方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
 
@@ -10,7 +10,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ## 构建
 
-安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft 和 Sable 的编译依赖。
+安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft、Sable 和 CC:Tweaked 的编译依赖。
 
 ```sh
 ./gradlew build
