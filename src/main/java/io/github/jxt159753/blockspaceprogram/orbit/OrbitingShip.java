@@ -2,6 +2,7 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.CompoundTag;
@@ -12,7 +13,8 @@ import org.joml.Quaterniond;
  * On-rails ship and the state needed to hand it back to local physics.
  * Angular velocity is in inertial axes, in radians per second.
  */
-public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData) {
+public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData,
+                           Optional<ManeuverNode> maneuver) {
     private static final Codec<Quaterniond> ORIENTATION_CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.DOUBLE.fieldOf("x").forGetter(Quaterniond::x),
             Codec.DOUBLE.fieldOf("y").forGetter(Quaterniond::y),
@@ -24,8 +26,13 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
             Orbit.CODEC.fieldOf("orbit").forGetter(OrbitingShip::orbit),
             ORIENTATION_CODEC.fieldOf("orientation").forGetter(OrbitingShip::orientation),
             Vec3.CODEC.fieldOf("angular_velocity").forGetter(OrbitingShip::angularVelocity),
-            CompoundTag.CODEC.fieldOf("ship_data").forGetter(OrbitingShip::shipData)
+            CompoundTag.CODEC.fieldOf("ship_data").forGetter(OrbitingShip::shipData),
+            ManeuverNode.CODEC.optionalFieldOf("maneuver").forGetter(OrbitingShip::maneuver)
     ).apply(instance, OrbitingShip::new));
+
+    public OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData) {
+        this(id, orbit, orientation, angularVelocity, shipData, Optional.empty());
+    }
 
     public OrbitingShip {
         if (!orientation.isFinite() || !(orientation.lengthSquared() > 0)
@@ -48,6 +55,10 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
     }
 
     OrbitingShip withOrbit(Orbit next) {
-        return new OrbitingShip(id, next, orientation, angularVelocity, shipData);
+        return new OrbitingShip(id, next, orientation, angularVelocity, shipData, maneuver);
+    }
+
+    OrbitingShip withManeuver(Optional<ManeuverNode> next) {
+        return new OrbitingShip(id, orbit, orientation, angularVelocity, shipData, next);
     }
 }

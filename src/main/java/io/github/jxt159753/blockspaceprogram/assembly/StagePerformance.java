@@ -8,14 +8,11 @@ import java.util.Set;
 
 /** Vacuum estimates with full tanks at launch and no fuel flow across a separable link. */
 public record StagePerformance(double deltaV, double thrustToWeight, double burnTime) {
-    private static final double STANDARD_GRAVITY = 9.80665;
-
     public static List<StagePerformance> calculate(ShipDesign design) {
         int count = design.nodes().size();
         double[] fuel = new double[count];
         for (int i = 0; i < count; i++) {
-            fuel[i] = design.nodes().get(i).part().properties().fuelCapacity().values().stream()
-                    .mapToDouble(Double::doubleValue).sum();
+            fuel[i] = fuelCapacity(design.nodes().get(i));
         }
 
         Set<Integer> detached = new HashSet<>();
@@ -47,12 +44,13 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
                 }
             }
 
-            double[] remaining = capacity.clone();
-            performance.add(burn(wetMass, thrust, flow, remaining));
+            var propulsion = VacuumPropulsion.fromGroups(wetMass, Arrays.stream(capacity).sum(), capacity, thrust, flow);
+            var burn = propulsion.estimate(Double.POSITIVE_INFINITY);
+            performance.add(new StagePerformance(burn.deltaV(), propulsion.thrustToWeight(), burn.seconds()));
             for (int i = 0; i < count; i++) {
                 int tankGroup = group[i];
                 if (tankGroup >= 0 && capacity[tankGroup] > 0) {
-                    fuel[i] *= remaining[tankGroup] / capacity[tankGroup];
+                    fuel[i] *= VacuumPropulsion.fractionRemaining(capacity[tankGroup], flow[tankGroup], burn.seconds());
                 }
             }
         }
@@ -64,42 +62,10 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
     }
 
     static double fuelFlow(double thrust, double isp) {
-        return thrust / (STANDARD_GRAVITY * isp);
+        return thrust / (VacuumPropulsion.STANDARD_GRAVITY * isp);
     }
 
-    private static StagePerformance burn(double mass, double[] thrust, double[] flow, double[] fuel) {
-        double deltaV = 0;
-        double twr = 0;
-        double time = 0;
-        while (mass > 0) {
-            double interval = Double.POSITIVE_INFINITY;
-            double thrustSum = 0;
-            double flowSum = 0;
-            for (int i = 0; i < fuel.length; i++) {
-                if (fuel[i] > 0 && flow[i] > 0) {
-                    interval = Math.min(interval, fuel[i] / flow[i]);
-                    thrustSum += thrust[i];
-                    flowSum += flow[i];
-                }
-            }
-            if (!Double.isFinite(interval) || !Double.isFinite(flowSum) || !Double.isFinite(mass)) {
-                break;
-            }
-            if (time == 0) {
-                twr = thrustSum / (mass * STANDARD_GRAVITY);
-            }
-            double used = 0;
-            for (int i = 0; i < fuel.length; i++) {
-                if (fuel[i] > 0 && flow[i] > 0) {
-                    double amount = fuel[i] / flow[i] <= interval ? fuel[i] : interval * flow[i];
-                    fuel[i] -= amount;
-                    used += amount;
-                }
-            }
-            deltaV += thrustSum / flowSum * Math.log1p(used / (mass - used));
-            time += interval;
-            mass -= used;
-        }
-        return new StagePerformance(deltaV, twr, time);
+    static double fuelCapacity(ShipDesign.Node node) {
+        return node.part().properties().fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
     }
 }

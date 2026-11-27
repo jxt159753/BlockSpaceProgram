@@ -78,7 +78,11 @@ public final class AssembledShipEntity extends Entity {
 
     @Nullable
     public ShipDesign design() {
-        var stack = entityData.get(BLUEPRINT);
+        return design(entityData.get(BLUEPRINT));
+    }
+
+    @Nullable
+    static ShipDesign design(ItemStack stack) {
         ShipDesign layout = stack.get(BlockSpaceProgram.FLIGHT_LAYOUT);
         return layout == null ? stack.get(BlockSpaceProgram.SHIP_DESIGN) : layout;
     }
