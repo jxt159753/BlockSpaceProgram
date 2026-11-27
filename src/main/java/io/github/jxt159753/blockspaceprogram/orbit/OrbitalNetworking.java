@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.assembly.ShipOrbitHandoff;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
@@ -29,6 +28,9 @@ public final class OrbitalNetworking {
         modBus.addListener(OrbitalNetworking::registerPayloads);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogin);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::afterServerTick);
+        if (ModList.get().isLoaded("sable")) {
+            NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
+        }
     }
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {

@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;

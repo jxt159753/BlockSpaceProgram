@@ -5,7 +5,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.PartPose;
-import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
 import java.io.IOException;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;

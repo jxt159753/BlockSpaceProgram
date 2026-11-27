@@ -67,7 +67,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
     }
 
     @Nullable
-    static Profile profile(ResourceLocation dimension) {
+    public static Profile profile(ResourceLocation dimension) {
         return planets.get(dimension);
     }
 
@@ -95,7 +95,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
                 / Math.expm1(-atmosphereTop / scaleHeight);
     }
 
-    record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff) {
+    public record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff) {
         static final Codec<Profile> CODEC = RecordCodecBuilder.<Profile>create(instance -> instance.group(
                 PlanetFlightProperties.CODEC.forGetter(Profile::flight),
                 HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff)
@@ -110,7 +110,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
         });
     }
 
-    record HandoffHeights(double ascent, double descent) {
+    public record HandoffHeights(double ascent, double descent) {
         static final Codec<HandoffHeights> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 NONNEGATIVE.fieldOf("ascent_altitude").forGetter(HandoffHeights::ascent),
                 NONNEGATIVE.fieldOf("descent_altitude").forGetter(HandoffHeights::descent)

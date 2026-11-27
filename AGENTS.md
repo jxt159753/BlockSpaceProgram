@@ -25,19 +25,19 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ### 包结构与依赖方向
 
-| 包 | 内容 | 可依赖 |
-| --- | --- | --- |
-| `part` | 零件数据、烘焙台、连接接口 | 无 |
-| `orbit` | 天体、轨道根数、开普勒传播、轨道存档 | 无 |
-| `collision` | 零件碰撞体与碰撞格 | `part` |
-| `assembly` | 装配台、蓝图、飞船实体、飞行、着陆、分级、轨道交接 | `part`、`collision`、`orbit` |
-| `sky` | 天空数据同步 | `orbit`、`assembly` |
-| `client` | 界面、渲染、按键、客户端状态 | 以上全部 |
+| 包 | 内容 |
+| --- | --- |
+| `part` | 零件数据、烘焙台、连接接口 |
+| `collision` | 零件碰撞体与碰撞格 |
+| `assembly` | 装配台、世界内组装、蓝图、飞船实体、飞行、着陆、分级、推进计算 |
+| `orbit` | 天体、开普勒传播、轨道存档、机动节点、飞船与轨道层的交接 |
+| `sky` | 天空数据同步 |
+| `client` | 界面、渲染、按键、客户端状态 |
 
-所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
+包之间只允许依赖表中位置更靠前的包。所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
 
-- 新代码不得增加表中没有的依赖。现有的例外待清理：`part` 中的 `BakedPartItem` 和 `PlacedPartEntity` 引用了 `assembly`，`orbit.OrbitalNetworking` 引用了 `assembly.ShipOrbitHandoff`。
-- 客户端代码只放在 `client` 包。其他包只在注册网络包时引用 `client` 中的客户端处理入口。
+- 轨道层执行机动时需要读取飞船的推进数据，因此 `orbit` 位于 `assembly` 之后。
+- 客户端代码只放在 `client` 包。其他包中只有注册网络包的 `*Networking` 类可以引用 `client`，引用限于客户端处理入口。
 - 轨道力学、Δv 和投影这类纯计算不引用 Minecraft 类型，以便在 `src/test` 中直接写单元测试。
 
 ### 可选依赖
