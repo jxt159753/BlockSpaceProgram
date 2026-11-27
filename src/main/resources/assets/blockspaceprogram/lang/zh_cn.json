@@ -149,6 +149,7 @@
   "key.blockspaceprogram.cycle_attitude": "切换姿态模式",
   "key.blockspaceprogram.cycle_throttle": "切换节流模式",
   "flight.blockspaceprogram.modes": "姿态 %s   节流 %s",
+  "flight.blockspaceprogram.orbit_heights": "海拔 %s m   近点 %s m",
   "flight.blockspaceprogram.attitude.manual": "手动",
   "flight.blockspaceprogram.attitude.kill_rotation": "消除旋转",
   "flight.blockspaceprogram.attitude.hold": "保持航向",

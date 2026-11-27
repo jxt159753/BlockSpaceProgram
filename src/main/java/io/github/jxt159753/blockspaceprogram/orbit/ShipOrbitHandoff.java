@@ -7,12 +7,15 @@ import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight.Motion;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +25,9 @@ import org.slf4j.Logger;
 /** Moves ships between dimension-local Sable bodies and the shared orbit store on the server thread. */
 final class ShipOrbitHandoff {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final double DESCENT_LOOKAHEAD_SECONDS = 10;
+    private static final TicketType<ChunkPos> DESCENT_TICKET = TicketType.create(
+            "blockspaceprogram:descent", Comparator.comparingLong(ChunkPos::toLong), 3 * OrbitalSavedData.TICKS_PER_SECOND);
 
     private ShipOrbitHandoff() {}
 
@@ -64,7 +70,7 @@ final class ShipOrbitHandoff {
                 }
             }
         }
-        checkDescents(server, data);
+        checkDescents(server, data, previousSeconds);
     }
 
     static double timeWarpRadius(MinecraftServer server, CelestialBody body) {
@@ -78,7 +84,7 @@ final class ShipOrbitHandoff {
                 ? body.radius() + profile.flight().atmosphereTop() : 0;
     }
 
-    private static void checkDescents(MinecraftServer server, OrbitalSavedData data) {
+    private static void checkDescents(MinecraftServer server, OrbitalSavedData data, double previousSeconds) {
         var system = data.system();
         double now = data.orbitSeconds();
         boolean retry = data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0;
@@ -100,22 +106,28 @@ final class ShipOrbitHandoff {
             }
             double radius = body.radius() + boundary.descent();
             double crossing = elements.inwardCrossing(body.gravitationalParameter(), radius, elements.epochSeconds());
-            if (crossing > now || (!retry && crossing <= now - 1.0 / OrbitalSavedData.TICKS_PER_SECOND)) {
+            if (crossing > now + DESCENT_LOOKAHEAD_SECONDS || (!retry && crossing <= previousSeconds)) {
                 continue;
             }
             try {
+                // Use the boundary state even when a fast ship has passed through it during this tick.
+                var state = system.relativeState(orbit, crossing);
+                var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), state.position(), crossing);
+                if (!validPosition(level, frame.dimensionPosition())) {
+                    continue;
+                }
+                boolean ready = requestDescentChunks(level, frame.dimensionPosition());
+                if (crossing > now || !ready) {
+                    continue;
+                }
                 var tag = ship.shipData();
                 if (!tag.hasUUID("FlightBody")) {
                     continue;
                 }
-                // Use the boundary state even when a fast ship has passed through it during this tick.
-                var state = system.relativeState(orbit, crossing);
-                var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), state.position(), crossing);
                 var motion = toDimension(ship, frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()));
                 checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), crossing)
                         .toOrbit(motion.velocity()));
-                if (validPosition(level, motion.center())
-                        && AssembledShipEntity.restoreFromOrbit(level, ship.id(), tag, motion, true) != null) {
+                if (AssembledShipEntity.restoreFromOrbit(level, ship.id(), tag, motion, true) != null) {
                     landed.add(ship.id());
                 }
             } catch (RuntimeException error) {
@@ -185,28 +197,70 @@ final class ShipOrbitHandoff {
         flight.removeForOrbit();
     }
 
-    static boolean returnFromRegion(MinecraftServer server, OrbitalSystem system, AssembledShipEntity ship,
-                                     OrbitalState absolute, double now) {
+    @Nullable
+    static RegionDescent regionDescent(MinecraftServer server, OrbitalSystem system, OrbitalState absolute,
+            double now, boolean forecast) {
         var body = system.centerAt(absolute.position(), now);
         var level = server.getLevel(ResourceKey.create(Registries.DIMENSION, body.id()));
         var boundary = boundary(level, body);
         if (boundary == null) {
-            return false;
+            return null;
         }
         var state = absolute.subtract(system.bodyState(body.id(), now));
-        if (state.position().length() > body.radius() + boundary.descent() || state.position().dot(state.velocity()) >= 0) {
-            return false;
+        double radius = body.radius() + boundary.descent();
+        if (state.position().lengthSqr() > radius * radius || state.position().dot(state.velocity()) >= 0) {
+            if (forecast) {
+                preloadRegionDescent(level, system, body, boundary, state, now);
+            }
+            return null;
         }
-        var flight = ship.activeFlight();
-        var before = flight.motion();
         var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), state.position(), now);
-        var localToInertial = OrbitalRegion.toInertialRotation();
-        var motion = toDimension(frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()),
-                new Quaterniond(localToInertial).mul(before.orientation()), OrbitalRegion.toInertial(before.angularVelocity()));
-        checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), now)
-                .toOrbit(motion.velocity()));
-        return validPosition(level, motion.center()) && flight.transfer(level, motion,
-                frame.dimensionToInertialRotation().conjugate().mul(localToInertial), true) != null;
+        Vec3 velocity = frame.toDimensionVelocity(state.velocity());
+        checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), frame.dimensionPosition(), now)
+                .toOrbit(velocity));
+        return validPosition(level, frame.dimensionPosition()) ? new RegionDescent(level, frame, velocity) : null;
+    }
+
+    private static void preloadRegionDescent(ServerLevel level, OrbitalSystem system, CelestialBody body, Boundary boundary,
+            OrbitalState state, double now) {
+        double mu = body.gravitationalParameter();
+        OrbitElements path;
+        try {
+            path = OrbitElements.fromState(mu, state, now);
+        } catch (IllegalArgumentException error) {
+            // A radial trajectory can still hand off from its live state at the boundary.
+            return;
+        }
+        double crossing = path.inwardCrossing(mu, body.radius() + boundary.descent(), now);
+        if (crossing <= now + DESCENT_LOOKAHEAD_SECONDS) {
+            var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), path.stateAt(mu, crossing).position(), crossing);
+            if (validPosition(level, frame.dimensionPosition())) {
+                requestDescentChunks(level, frame.dimensionPosition());
+            }
+        }
+    }
+
+    private static boolean requestDescentChunks(ServerLevel level, Vec3 position) {
+        var chunk = new ChunkPos(BlockPos.containing(position));
+        var chunks = level.getChunkSource();
+        // Let vanilla schedule generation. Block-ticking readiness includes the surrounding 3x3 chunks.
+        chunks.addRegionTicket(DESCENT_TICKET, chunk, 2, chunk);
+        return chunks.isPositionTicking(chunk.toLong());
+    }
+
+    record RegionDescent(ServerLevel level, PlanetFrame frame, Vec3 velocity) {
+        boolean ready() {
+            return requestDescentChunks(level, frame.dimensionPosition());
+        }
+
+        boolean transfer(AssembledShipEntity ship) {
+            var flight = ship.activeFlight();
+            var before = flight.motion();
+            var localToInertial = OrbitalRegion.toInertialRotation();
+            var motion = toDimension(frame, frame.dimensionPosition(), velocity,
+                    new Quaterniond(localToInertial).mul(before.orientation()), OrbitalRegion.toInertial(before.angularVelocity()));
+            return flight.transfer(level, motion, frame.dimensionToInertialRotation().conjugate().mul(localToInertial), true) != null;
+        }
     }
 
     private static Motion toDimension(OrbitingShip ship, PlanetFrame frame, Vec3 position, Vec3 velocity) {

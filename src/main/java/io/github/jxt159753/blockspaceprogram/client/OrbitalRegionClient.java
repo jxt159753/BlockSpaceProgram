@@ -1,6 +1,8 @@
 package io.github.jxt159753.blockspaceprogram.client;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitElements;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking.RegionContacts;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
@@ -22,6 +24,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
@@ -32,13 +35,41 @@ public final class OrbitalRegionClient {
     private static final Set<UUID> RENDERED_SHIPS = new HashSet<>();
     private static ClientLevel contactsLevel;
     private static RegionContacts contacts;
+    @Nullable private static FlightOrbit flightOrbit;
     private static List<Marker> markers = List.of();
 
     private OrbitalRegionClient() {}
 
     public static void receiveContacts(RegionContacts snapshot) {
-        contactsLevel = Minecraft.getInstance().level;
+        var game = Minecraft.getInstance();
+        contactsLevel = game.level;
         contacts = snapshot;
+        flightOrbit = null;
+        var view = contactsLevel == null ? null : PlanetSkyClient.orbitalViewIn(contactsLevel);
+        if (view == null || game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship)) {
+            return;
+        }
+        var system = ClientOrbitalState.system();
+        var body = system.body(view.reference().orElseThrow().center());
+        double seconds = snapshot.orbitTicks() / (double) OrbitalSavedData.TICKS_PER_SECOND;
+        for (var contact : snapshot.ships()) {
+            if (contact.id().equals(ship.getUUID())) {
+                var relative = contact.state().subtract(system.bodyState(body.id(), seconds));
+                try {
+                    var elements = OrbitElements.fromState(body.gravitationalParameter(), relative, seconds);
+                    flightOrbit = new FlightOrbit(contact.id(), Math.round(relative.position().length() - body.radius()),
+                            Math.round(elements.periapsis() - body.radius()));
+                } catch (IllegalArgumentException error) {
+                    // A purely radial path has no representable conic to display.
+                }
+                break;
+            }
+        }
+    }
+
+    @Nullable
+    static FlightOrbit flightOrbit(ClientLevel level, UUID id) {
+        return level == contactsLevel && flightOrbit != null && flightOrbit.id().equals(id) ? flightOrbit : null;
     }
 
     static void shipRendered(UUID id) {
@@ -49,9 +80,12 @@ public final class OrbitalRegionClient {
     public static void onDisconnect(ClientPlayerNetworkEvent.LoggingOut event) {
         contactsLevel = null;
         contacts = null;
+        flightOrbit = null;
         markers = List.of();
         RENDERED_SHIPS.clear();
     }
+
+    record FlightOrbit(UUID id, long altitude, long periapsis) {}
 
     @SubscribeEvent
     public static void renderContacts(RenderLevelStageEvent event) {

@@ -149,6 +149,7 @@
   "key.blockspaceprogram.cycle_attitude": "Cycle attitude mode",
   "key.blockspaceprogram.cycle_throttle": "Cycle throttle mode",
   "flight.blockspaceprogram.modes": "Attitude %s   Throttle %s",
+  "flight.blockspaceprogram.orbit_heights": "Altitude %s m   Periapsis %s m",
   "flight.blockspaceprogram.attitude.manual": "Manual",
   "flight.blockspaceprogram.attitude.kill_rotation": "Kill rotation",
   "flight.blockspaceprogram.attitude.hold": "Hold heading",

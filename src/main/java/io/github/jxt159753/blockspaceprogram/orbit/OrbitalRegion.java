@@ -6,6 +6,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight.Motion;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +47,7 @@ public final class OrbitalRegion extends SavedData {
     public static final Vec3 ORIGIN = new Vec3(0, 4096, 0);
 
     private final Map<UUID, Entity> members = new LinkedHashMap<>();
+    private final Map<UUID, ShipOrbitHandoff.RegionDescent> pendingDescents = new HashMap<>();
     private final OrbitalTimeWarp timeWarp = new OrbitalTimeWarp();
     @Nullable private Orbit reference;
     @Nullable private UUID anchor;
@@ -111,7 +113,7 @@ public final class OrbitalRegion extends SavedData {
         benchmark = new BenchmarkOrbit(orbit, player.getUUID());
         members.put(player.getUUID(), player);
         // Use the orbital dimension's base physics without tidal forces for the controlled scene.
-        SableShipFlight.setOrbitalGravity(space, null);
+        SableShipFlight.setOrbitalFrame(space, null, Vec3.ZERO);
         return true;
     }
 
@@ -181,15 +183,30 @@ public final class OrbitalRegion extends SavedData {
         }
         var frame = new Frame(system, reference, now);
         if (warped) {
-            SableShipFlight.setOrbitalGravity(space, frame::gravity);
+            frame.configurePhysics(space);
             return;
         }
+        boolean checkContacts = data.orbitTicks() % CONTACT_INTERVAL == 0;
         for (Entity member : List.copyOf(members.values())) {
             if (member instanceof AssembledShipEntity ship) {
                 try {
-                    if (ShipOrbitHandoff.returnFromRegion(space.getServer(), system, ship,
-                            frame.absolute(localState(ship)), now)) {
-                        members.remove(ship.getUUID());
+                    var id = ship.getUUID();
+                    var descent = pendingDescents.get(id);
+                    if (descent == null) {
+                        descent = ShipOrbitHandoff.regionDescent(space.getServer(), system, frame.absolute(localState(ship)),
+                                now, checkContacts);
+                    }
+                    if (descent == null) {
+                        continue;
+                    }
+                    if (!descent.ready()) {
+                        // Keep the first crossing's position and velocity while the terrain finishes loading.
+                        pendingDescents.put(id, descent);
+                        continue;
+                    }
+                    pendingDescents.remove(id);
+                    if (descent.transfer(ship)) {
+                        members.remove(id);
                     }
                 } catch (RuntimeException error) {
                     LOGGER.warn("Could not return ship {} from orbital space", ship.getUUID(), error);
@@ -201,12 +218,11 @@ public final class OrbitalRegion extends SavedData {
             recycle(space, data);
             return;
         }
-        if (data.orbitTicks() % CONTACT_INTERVAL == 0) {
+        if (checkContacts) {
             exchangeShips(space, data, frame);
         }
         rebase(space, system, frame, now);
-        var gravityFrame = new Frame(system, reference, now);
-        SableShipFlight.setOrbitalGravity(space, gravityFrame::gravity);
+        new Frame(system, reference, now).configurePhysics(space);
     }
 
     private void syncMembers(ServerLevel space) {
@@ -222,6 +238,7 @@ public final class OrbitalRegion extends SavedData {
             }
         }
         members.keySet().retainAll(active);
+        pendingDescents.keySet().retainAll(active);
     }
 
     private void rebase(ServerLevel space, OrbitalSystem system, Frame frame, double now) {
@@ -257,7 +274,8 @@ public final class OrbitalRegion extends SavedData {
         // Take the exit decisions from one sample, including the original anchor.
         var justExited = new HashSet<UUID>();
         for (var entity : List.copyOf(members.values())) {
-            if (entity instanceof AssembledShipEntity ship && !ship.activeFlight().carriesPlayer()) {
+            if (entity instanceof AssembledShipEntity ship && !pendingDescents.containsKey(ship.getUUID())
+                    && !ship.activeFlight().carriesPlayer()) {
                 var state = states.get(ship.getUUID());
                 boolean isolated = states.entrySet().stream().noneMatch(peer -> !peer.getKey().equals(ship.getUUID())
                         && state.position().distanceToSqr(peer.getValue().position()) <= exit * exit);
@@ -323,7 +341,8 @@ public final class OrbitalRegion extends SavedData {
         if (allStored) {
             setReference(null, null);
             members.clear();
-            SableShipFlight.setOrbitalGravity(space, null);
+            pendingDescents.clear();
+            SableShipFlight.setOrbitalFrame(space, null, Vec3.ZERO);
         }
     }
 
@@ -517,10 +536,14 @@ public final class OrbitalRegion extends SavedData {
 
     private record BenchmarkOrbit(Orbit reference, UUID observer) {}
 
-    private record Frame(OrbitalState origin, Vec3 gravityOrigin, double mu, double seconds) {
+    private record Frame(OrbitalState origin, OrbitalState relativeOrigin, double mu, double seconds) {
         Frame(OrbitalSystem system, Orbit orbit, double seconds) {
-            this(system.absoluteState(orbit, seconds), system.relativeState(orbit, seconds).position(),
+            this(system.absoluteState(orbit, seconds), system.relativeState(orbit, seconds),
                     system.body(orbit.center()).gravitationalParameter(), seconds);
+        }
+
+        void configurePhysics(ServerLevel space) {
+            SableShipFlight.setOrbitalFrame(space, this::gravity, toLocal(relativeOrigin.velocity()));
         }
 
         OrbitalState absolute(OrbitalState local) {
@@ -540,6 +563,7 @@ public final class OrbitalRegion extends SavedData {
 
         Vec3 gravity(Vec3 position) {
             var offset = toInertial(position.subtract(ORIGIN));
+            var gravityOrigin = relativeOrigin.position();
             var delta = OrbitalGravity.difference(mu, new Vector3d(gravityOrigin.x, gravityOrigin.y, gravityOrigin.z),
                     new Vector3d(offset.x, offset.y, offset.z));
             return toLocal(new Vec3(delta.x, delta.y, delta.z));
