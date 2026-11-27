@@ -43,7 +43,6 @@ public final class PlanetSkyClient {
     private static final int STAR = 3;
     private static final double SUN_RADIUS = Math.sin(Math.toRadians(1.5));
     private static final Vec3 NADIR = new Vec3(0, -1, 0);
-    private static Map<ResourceLocation, PlanetFlightProperties> planets = Map.of();
     private static ClientLevel orbitalLevel;
     private static OrbitalView orbitalView;
     private static ShaderInstance shader;
@@ -58,7 +57,7 @@ public final class PlanetSkyClient {
     }
 
     public static void receiveAtmospheres(Map<ResourceLocation, PlanetFlightProperties> received) {
-        planets = Map.copyOf(received);
+        PlanetFlightProperties.setClientProperties(received);
     }
 
     public static void receiveOrbitalView(OrbitalView received) {
@@ -71,13 +70,13 @@ public final class PlanetSkyClient {
 
     @SubscribeEvent
     public static void disconnect(ClientPlayerNetworkEvent.LoggingOut event) {
-        planets = Map.of();
+        PlanetFlightProperties.setClientProperties(Map.of());
         orbitalView = null;
         orbitalLevel = null;
     }
 
     public static boolean vacuum(ClientLevel level, double cameraY) {
-        var planet = planets.get(level.dimension().location());
+        var planet = PlanetFlightProperties.clientIn(level.dimension().location());
         return orbitalViewIn(level) != null || planet != null && planet.relativeDensityAt(cameraY) == 0;
     }
 
@@ -120,7 +119,7 @@ public final class PlanetSkyClient {
 
     public static float solarTime(ClientLevel level, float partialTick) {
         var dimension = level.dimension().location();
-        var properties = planets.get(dimension);
+        var properties = PlanetFlightProperties.clientIn(dimension);
         var body = PlanetSkyProjection.bodyForDimension(dimension);
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
         if (properties == null || body == null || !ClientOrbitalState.hasClock()
@@ -137,7 +136,7 @@ public final class PlanetSkyClient {
     public static boolean render(ClientLevel level, Camera camera, float partialTick, Matrix4f view,
                                  Matrix4f projection, VertexBuffer stars, boolean isFoggy) {
         var dimension = level.dimension().location();
-        var planet = planets.get(dimension);
+        var planet = PlanetFlightProperties.clientIn(dimension);
         var region = orbitalViewIn(level);
         if (shader == null || planet == null && region == null
                 || camera.getFluidInCamera() != FogType.NONE || skyBlocked(camera)) {
@@ -220,7 +219,7 @@ public final class PlanetSkyClient {
             Vec3 displacement = OrbitalSystem.M3.bodyState(body.id(), seconds).position().subtract(observer.position());
             double distance = displacement.length();
             if (distance > body.radius()) {
-                var properties = planets.get(body.id());
+                var properties = PlanetFlightProperties.clientIn(body.id());
                 boolean atmospheric = properties == null ? body.id().equals(OrbitalSystem.MOTHER_PLANET) : properties.hasAtmosphere();
                 Vec3 direction = observer.toLocal(displacement.scale(1 / distance));
                 Vec3 primeMeridian = observer.toLocal(PlanetSkyProjection.primeMeridian(body, seconds));

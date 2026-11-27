@@ -3,8 +3,14 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import static io.github.jxt159753.blockspaceprogram.orbit.OrbitElementsTest.assertState;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.google.gson.JsonParser;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.Test;
 
@@ -13,6 +19,23 @@ public class OrbitalSystemTest {
     private static final CelestialBody MOTHER = SYSTEM.body(OrbitalSystem.MOTHER_PLANET);
     private static final CelestialBody MOON = SYSTEM.body(OrbitalSystem.MOON);
     private static final double MOON_SOI = SYSTEM.sphereOfInfluence(MOON.id());
+
+    @Test
+    public void builtInFlightParametersMatchM3() throws IOException {
+        for (var body : List.of(MOTHER, MOON)) {
+            var id = body.id();
+            String path = "/data/" + id.getNamespace() + "/ship_flight/" + id.getPath() + ".json";
+            try (var stream = OrbitalSystemTest.class.getResourceAsStream(path)) {
+                assertNotNull(path, stream);
+                var flight = JsonParser.parseReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).getAsJsonObject();
+                double radius = flight.get("radius").getAsDouble();
+                double mu = flight.get("surface_gravity").getAsDouble() * radius * radius;
+                assertEquals(path, body.radius(), radius, 0);
+                double relativeError = Math.abs(mu / body.gravitationalParameter() - 1);
+                assertTrue(path + " has relative error " + relativeError, relativeError < 1e-9);
+            }
+        }
+    }
 
     @Test
     public void m3BodiesSupportALowOrbitToMoonTransfer() {

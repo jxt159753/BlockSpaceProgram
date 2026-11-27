@@ -143,6 +143,7 @@ public final class AssembledShipEntity extends Entity {
             SableShipFlight.register();
         }
         NeoForge.EVENT_BUS.addListener(PlanetFlightProperties::register);
+        PlanetEntityGravity.register();
     }
 
     private boolean startFlight(ServerLevel level) {
