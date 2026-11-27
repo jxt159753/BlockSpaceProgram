@@ -59,7 +59,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ### 可选依赖
 
-- Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody` 和 `SableCollisionDebugRenderer`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
+- Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableHullInteractions`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody` 和 `SableCollisionDebugRenderer`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
 - 其他模组的联动放在 `compat/<模组 ID>` 包中，入口同样用 `isLoaded` 守住，不拆成单独的 JAR。已规划的有 CC:Tweaked（#42、#44）、Iris（#51、#52）和 FTB Teams（#21、#69）。
 - 上表中的包不能引用 `compat`。联动的实现由主类在 `isLoaded` 判断后接入。例如 `facility` 定义解析等级归属的接口，装了 FTB Teams 时，主类把它换成 `compat/ftbteams` 中的实现。
 - 新增依赖（包括 `compileOnly`）属于架构决策，须先在 issue 中定下。复制其他模组的源码，或把它打包进本模组的 JAR 之前，须确认其许可证与 MIT 兼容。只在编译期引用公开 API 的不受此限，例如 FTB Teams（All Rights Reserved）。

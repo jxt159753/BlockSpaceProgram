@@ -10,6 +10,7 @@ import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -242,6 +243,10 @@ public final class ShipPlacement {
                     ? tangent.getClockWise(axis.getAxis()) : tangent.getCounterClockWise(axis.getAxis());
         }
         return tangent;
+    }
+
+    static boolean coversHullFace(AABB part, BlockPos block, Direction outward) {
+        return contains(boxFace(part, outward.getOpposite()), boxFace(new AABB(block), outward));
     }
 
     private static AABB boxFace(AABB box, Direction normal) {

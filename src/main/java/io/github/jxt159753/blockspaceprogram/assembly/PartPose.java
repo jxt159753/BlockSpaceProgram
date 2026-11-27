@@ -44,7 +44,11 @@ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
 
     boolean valid() {
         return Math.abs((long) origin.getX()) <= MAX_OFFSET && Math.abs((long) origin.getY()) <= MAX_OFFSET
-                && Math.abs((long) origin.getZ()) <= MAX_OFFSET && ROTATIONS.contains(rotation);
+                && Math.abs((long) origin.getZ()) <= MAX_OFFSET && validRotation();
+    }
+
+    boolean validRotation() {
+        return ROTATIONS.contains(rotation);
     }
 
     public Vec3 position() {

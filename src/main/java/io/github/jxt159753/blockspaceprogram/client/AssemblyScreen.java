@@ -87,9 +87,12 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         viewBottom = menu.isWorldAssembly() ? height - LEFT - 35 : inventoryTop - 22;
         int viewWidth = stageLeft - LEFT - 6;
         viewport = new AssemblyViewport(LEFT, VIEW_TOP, viewWidth, viewBottom - VIEW_TOP);
+        shownDesign = null;
+        if (menu.readOnly()) {
+            return;
+        }
         addStage = button(width - LEFT - 39, TOOLS_Y, 18, "plus", "add_stage", () -> edit(Action.ADD_STAGE, -1, -1));
         removeStage = button(width - LEFT - 19, TOOLS_Y, 19, "minus", "remove_stage", () -> edit(Action.REMOVE_STAGE, -1, -1));
-        shownDesign = null;
         if (menu.isWorldAssembly()) {
             assemble = button(LEFT, height - LEFT - 20, viewWidth, "world_assemble", "world_assemble_tip",
                     () -> edit(Action.ASSEMBLE, -1, -1));
@@ -132,7 +135,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         graphics.fill(0, 0, width, height, 0xF4111721);
         graphics.fill(0, 0, width, 24, 0xFF263247);
         graphics.drawString(font, title, LEFT, 8, WHITE);
-        int partCount = design.nodes().size();
+        int partCount = design.partCount();
         int maximumParts = menu.maximumParts();
         Component count = text("parts", partCount, maximumParts);
         graphics.drawString(font, count, width - LEFT - font.width(count), 8, partCount > maximumParts ? OVER_LIMIT : MUTED);
@@ -141,7 +144,9 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         if (design.nodes().isEmpty() && !world) {
             graphics.drawCenteredString(font, text("first_part"), (LEFT + stageLeft - 6) / 2, (VIEW_TOP + viewBottom) / 2, WHITE);
         } else if (hover != null) {
-            graphics.drawString(font, text("part_number", hover.node() + 1), LEFT + 5, VIEW_TOP + 5, WHITE);
+            var hull = design.nodes().get(hover.node()).hull();
+            Component label = hull == null ? text("part_number", hover.node() + 1) : text("hull_blocks", hull.size());
+            graphics.drawString(font, label, LEFT + 5, VIEW_TOP + 5, WHITE);
             if (preview != null && preview.error() == null && request.partMarker() >= 0) {
                 var connector = part.connectors().get(request.partMarker());
                 graphics.drawString(font, text("preview_size", connector.width() * part.scale(),
@@ -155,7 +160,9 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             var facility = Facility.LAUNCH_PAD;
             graphics.drawString(font, text("world_mass", facility.quantity(wetMass), facility.maximum(maximumMass)),
                     LEFT, TOOLS_Y + 6, maximumMass > 0 && wetMass > maximumMass ? OVER_LIMIT : WHITE);
-            assemble.active = !design.nodes().isEmpty();
+            if (!menu.readOnly()) {
+                assemble.active = !design.nodes().isEmpty();
+            }
         } else {
             drawInventory(graphics, mouseX, mouseY);
             modeButton.setMessage(text(stackMode ? "stack" : "surface"));
@@ -173,8 +180,10 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             symmetryButton.setMessage(Component.literal(symmetry + "×"));
             updateBlueprintButtons();
         }
-        addStage.active = (!world || !design.nodes().isEmpty()) && design.stageCount() < ShipDesign.MAX_STAGES;
-        removeStage.active = design.stageCount() > 1 && design.lastStageEmpty();
+        if (!menu.readOnly()) {
+            addStage.active = (!world || !design.nodes().isEmpty()) && design.stageCount() < ShipDesign.MAX_STAGES;
+            removeStage.active = design.stageCount() > 1 && design.lastStageEmpty();
+        }
         super.render(graphics, mouseX, mouseY, partialTick);
 
         if (dragged != null) {
@@ -359,7 +368,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
                 return true;
             }
             StageCard card = stageAt(x, y);
-            if (card != null) {
+            if (card != null && !menu.readOnly()) {
                 int row = (int) y - (VIEW_TOP + card.top() - stageScroll) - STATS;
                 if (row >= 0 && row / CHIP < card.actions().size()) {
                     dragged = card.actions().get(row / CHIP);

@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody.SolidBlock;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
@@ -8,6 +9,7 @@ import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +37,7 @@ final class ShipFlightState {
     private final double[] burnFraction;
     private final ImpactPart[] impactParts;
     private final Map<BlockPos, Cell> cells;
+    private final Map<BlockPos, SolidBlock> hull;
     private final Vec3 seat;
     private final Vector3d projectedDragArea = new Vector3d();
     private final double weakestPart;
@@ -57,15 +60,23 @@ final class ShipFlightState {
         double weakest = Double.POSITIVE_INFINITY;
         long pods = 0;
         List<PartBox> wetParts = new ArrayList<>(count);
+        var hullBlocks = new LinkedHashMap<BlockPos, SolidBlock>();
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
             int index = branch.node();
             var node = design.nodes().get(index);
+            dryMass += node.dryMass();
+            if (node.hull() != null) {
+                BlockPos origin = node.hullOrigin();
+                node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
+                        new SolidBlock(material.state(), material.mass())));
+                damagedParts &= ~(1L << index);
+                continue;
+            }
             var part = node.part();
             var properties = part.properties();
             int group = groups[index];
             double capacity = StagePerformance.fuelCapacity(node);
             fuel[index] = initialFuel(savedFuel, count, index, capacity, isDamaged(index));
-            dryMass += properties.mass();
 
             var dry = PartBox.fromPart(part, node.pose().origin(), node.pose().rotation());
             wetParts.add(new PartBox(dry.min(), dry.max(), dry.mass() + fuel[index]));
@@ -93,10 +104,16 @@ final class ShipFlightState {
         }
         if (dryMass == 0) {
             // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
-            PartBox first = wetParts.getFirst();
-            wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + flightDryMass(dryMass)));
+            if (wetParts.isEmpty()) {
+                var first = hullBlocks.firstEntry();
+                hullBlocks.put(first.getKey(), new SolidBlock(first.getValue().state(), flightDryMass(dryMass)));
+            } else {
+                PartBox first = wetParts.getFirst();
+                wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + flightDryMass(dryMass)));
+            }
         }
         cells = ShipCollisionLayout.rasterize(wetParts);
+        hull = hullBlocks;
         seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
         weakestPart = weakest;
         commandPods = pods;
@@ -120,8 +137,11 @@ final class ShipFlightState {
     }
 
     static boolean hasEngine(ShipDesign.Node node) {
+        if (node.engineStage() < 0 || node.part() == null) {
+            return false;
+        }
         var props = node.part().properties();
-        return node.engineStage() >= 0 && props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
+        return props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
     }
 
     private static Engine engine(ShipDesign.Node node, int part, int group) {
@@ -194,6 +214,10 @@ final class ShipFlightState {
         return cells;
     }
 
+    Map<BlockPos, SolidBlock> hull() {
+        return hull;
+    }
+
     Vec3 seat() {
         return seat;
     }
@@ -250,7 +274,7 @@ final class ShipFlightState {
         long hits = 0;
         for (int i = 0; i < impactParts.length; i++) {
             ImpactPart part = impactParts[i];
-            if (!part.bounds.intersects(local.getX(), local.getY(), local.getZ(),
+            if (part == null || !part.bounds.intersects(local.getX(), local.getY(), local.getZ(),
                     local.getX() + 1, local.getY() + 1, local.getZ() + 1)) {
                 continue;
             }

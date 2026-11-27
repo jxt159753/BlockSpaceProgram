@@ -33,14 +33,14 @@ public final class OrbitalShipPropulsion {
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
             int index = branch.node();
             var node = design.nodes().get(index);
-            var properties = node.part().properties();
             int group = groups[index];
             boolean damaged = (damage & (1L << index)) != 0;
             partFuel[index] = ShipFlightState.initialFuel(savedFuel, count, index, StagePerformance.fuelCapacity(node), damaged);
             groupFuel[group] += partFuel[index];
             fuel += partFuel[index];
-            dryMass += properties.mass();
+            dryMass += node.dryMass();
             if (!damaged && node.engineStage() == stage && ShipFlightState.hasEngine(node)) {
+                var properties = node.part().properties();
                 thrust[group] += properties.thrust();
                 flow[group] += StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
             }

@@ -210,12 +210,16 @@ public final class WorldPartPlacement {
     }
 
     static boolean mayBuildIn(Player player, AABB box) {
-        for (BlockPos pos : BlockPos.betweenClosed(minBlock(box), maxBlock(box))) {
+        for (BlockPos pos : coveredBlocks(box)) {
             if (!player.level().mayInteract(player, pos)) {
                 return false;
             }
         }
         return true;
+    }
+
+    static Iterable<BlockPos> coveredBlocks(AABB box) {
+        return BlockPos.betweenClosed(minBlock(box), maxBlock(box));
     }
 
     @Nullable

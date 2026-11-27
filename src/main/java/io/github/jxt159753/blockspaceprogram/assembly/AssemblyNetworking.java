@@ -125,7 +125,7 @@ public final class AssemblyNetworking {
         private static final StreamCodec<RegistryFriendlyByteBuf, State> CODEC = StreamCodec.of((buffer, payload) -> {
             buffer.writeVarInt(payload.container());
             buffer.writeVarInt(payload.revision());
-            ShipDesign.STREAM_CODEC.encode(buffer, payload.design());
+            ShipDesign.FLIGHT_STREAM_CODEC.encode(buffer, payload.design());
             buffer.writeUtf(payload.message(), 64);
             buffer.writeVarInt(payload.count());
             if (payload.notice() != null) {
@@ -134,7 +134,7 @@ public final class AssemblyNetworking {
         }, buffer -> {
             int container = buffer.readVarInt();
             int revision = buffer.readVarInt();
-            var design = ShipDesign.STREAM_CODEC.decode(buffer);
+            var design = ShipDesign.FLIGHT_STREAM_CODEC.decode(buffer);
             String message = buffer.readUtf(64);
             int count = buffer.readVarInt();
             var notice = buffer.isReadable() ? ComponentSerialization.STREAM_CODEC.decode(buffer) : null;

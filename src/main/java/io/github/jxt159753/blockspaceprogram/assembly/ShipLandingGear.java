@@ -31,7 +31,7 @@ final class ShipLandingGear {
         long parts = 0;
         for (int i = 0; i < design.nodes().size(); i++) {
             var node = design.nodes().get(i);
-            if (node.part().types().contains(PartType.LANDING_LEG)) {
+            if (node.part() != null && node.part().types().contains(PartType.LANDING_LEG)) {
                 var size = node.part().geometry().size();
                 var foot = node.point(new Vec3(size.x / 2, 0, size.z / 2));
                 var up = node.pose().rotation().rotate(Direction.UP).getNormal();

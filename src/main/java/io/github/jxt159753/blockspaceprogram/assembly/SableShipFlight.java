@@ -119,6 +119,7 @@ public final class SableShipFlight implements ShipFlightControl {
             }
         });
         NeoForge.EVENT_BUS.addListener(ShipDockingCommands::register);
+        SableHullInteractions.register();
         NeoForge.EVENT_BUS.addListener((ForgeSablePrePhysicsTickEvent event) -> {
             var flights = LEVELS.get(event.getPhysicsSystem().getLevel());
             if (flights != null) {
@@ -157,7 +158,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     static SableShipFlight launch(AssembledShipEntity ship, ServerLevel level, ShipDesign design) {
-        if (design.nodes().stream().noneMatch(node -> node.part().properties().mass() > 0)) {
+        if (design.nodes().stream().noneMatch(node -> node.dryMass() > 0)) {
             throw new IllegalArgumentException("A flying ship needs positive dry mass");
         }
         var state = new ShipFlightState(design, new ListTag(), 0, ShipFlightState.initialStage(design));
@@ -170,7 +171,7 @@ public final class SableShipFlight implements ShipFlightControl {
 
     private static SableShipFlight spawn(AssembledShipEntity ship, ServerLevel level, ShipDesign design,
             ShipFlightState state, Vector3dc origin, Quaterniondc orientation) {
-        var body = ShipCollisionBody.spawn(level, ship.getName().getString(), state.cells(), origin, orientation);
+        var body = ShipCollisionBody.spawn(level, ship.getName().getString(), state.cells(), state.hull(), origin, orientation);
         var tag = new CompoundTag();
         tag.putUUID(OWNER, ship.getUUID());
         body.subLevel().setUserDataTag(tag);
@@ -200,9 +201,19 @@ public final class SableShipFlight implements ShipFlightControl {
         }
         var state = savedState(ship, design, savedFuel, savedStage);
         var body = new ShipCollisionBody(container, subLevel, origin);
-        body.assignMass(state.cells());
-        subLevel.updateLastPose();
+        if (state.hull().isEmpty()) {
+            body.assignMass(state.cells());
+            subLevel.updateLastPose();
+        } else {
+            body.restoreBlocks(state.cells(), state.hull());
+        }
         return new SableShipFlight(ship, body, state, design);
+    }
+
+    static boolean hasHullAt(ServerLevel level, BlockPos pos) {
+        var flights = LEVELS.get(level);
+        var flight = flights == null ? null : flights.active.get(Sable.HELPER.getContaining(level, pos));
+        return flight != null && flight.isActive() && !flight.state.hull().isEmpty();
     }
 
     static SableShipFlight rebuild(AssembledShipEntity ship, ServerLevel level, ShipDesign design, ListTag savedFuel,
@@ -436,11 +447,12 @@ public final class SableShipFlight implements ShipFlightControl {
     public AssembledShipEntity transfer(ServerLevel target, Motion after, Quaterniondc rotation, boolean reentry) {
         var before = motion();
         var source = body.subLevel().getLevel();
+        boolean hasHull = ship.design().hasHull();
         List<Crew> crew = source.players().stream().filter(this::carries).map(player -> {
             Vec3 position = worldPosition(player);
             int pod = player.getVehicle() == ship ? ship.assignedSeat(player) : -1;
             return new Crew(player, pod, position, velocityAt(position),
-                    player.getYRot(), player.getXRot());
+                    player.getYRot(), player.getXRot(), hasHull && !player.isPassenger());
         }).toList();
         var replacement = AssembledShipEntity.restoreFromOrbit(target, ship.getUUID(), ship.orbitSnapshot(), after, reentry);
         if (replacement == null) {
@@ -464,16 +476,24 @@ public final class SableShipFlight implements ShipFlightControl {
             var player = member.player();
             Vec3 position = member.pod() >= 0 ? next.seatPosition(player, member.pod())
                     : after.center().add(vec(rotation.transform(vector(member.position().subtract(before.center())))));
-            if (movePlayer(player, target, position, next.velocityAt(position), member.yaw(), member.pitch())) {
+            Vec3 velocity = member.standing() ? Vec3.ZERO : next.velocityAt(position);
+            if (movePlayer(player, target, position, velocity, member.yaw(), member.pitch())) {
                 moved.add(member);
+                if (member.standing()) {
+                    SableHullInteractions.awaitPlot(player, next.body.subLevel(), position);
+                }
                 if (member.pod() < 0 || next.mount(player, member.pod())) {
                     continue;
                 }
             }
             for (var previous : moved.reversed()) {
-                if (movePlayer(previous.player(), source, previous.position(), previous.velocity(),
-                        previous.yaw(), previous.pitch()) && previous.pod() >= 0) {
-                    mount(previous.player(), previous.pod());
+                Vec3 savedVelocity = previous.standing() ? Vec3.ZERO : previous.velocity();
+                if (movePlayer(previous.player(), source, previous.position(), savedVelocity, previous.yaw(), previous.pitch())) {
+                    if (previous.standing()) {
+                        SableHullInteractions.awaitPlot(previous.player(), body.subLevel(), previous.position());
+                    } else if (previous.pod() >= 0) {
+                        mount(previous.player(), previous.pod());
+                    }
                 }
             }
             next.removeForOrbit();
@@ -542,6 +562,38 @@ public final class SableShipFlight implements ShipFlightControl {
     private List<Rider> riders() {
         return ship.getPassengers().stream().filter(ServerPlayer.class::isInstance).map(ServerPlayer.class::cast)
                 .map(player -> new Rider(player, ship.assignedSeat(player))).toList();
+    }
+
+    private List<HullRider> hullRiders(ShipDesign design) {
+        if (!design.hasHull()) {
+            return List.of();
+        }
+        var result = new ArrayList<HullRider>();
+        for (ServerPlayer player : body.subLevel().getLevel().players()) {
+            if (player.isPassenger() || !carries(player)) {
+                continue;
+            }
+            var position = body.subLevel().logicalPose().transformPositionInverse(vector(worldPosition(player)));
+            Vec3 local = vec(position).subtract(plotPosition());
+            BlockPos floor = BlockPos.containing(local.add(0, -0.05, 0));
+            int hull = -1;
+            for (int index = 0; index < design.nodes().size(); index++) {
+                var node = design.nodes().get(index);
+                if (node.hull() != null) {
+                    if (node.hull().contains(floor.subtract(node.hullOrigin()))) {
+                        hull = index;
+                        break;
+                    }
+                    if (node.bounds().inflate(0.05).contains(local)) {
+                        hull = index;
+                    }
+                }
+            }
+            if (hull >= 0) {
+                result.add(new HullRider(player, hull, local));
+            }
+        }
+        return result;
     }
 
     private void moveRider(ServerPlayer player, int pod) {
@@ -826,6 +878,9 @@ public final class SableShipFlight implements ShipFlightControl {
     @Nullable
     private DockingShip dockingCandidate() {
         ShipDesign design = ship.design();
+        if (design.hasHull()) {
+            return null;
+        }
         var released = ship.dockingState().released();
         ShipDesign closed = ShipDocking.closeAlignedPorts(design, state.damagedParts(), released);
         if (closed != design) {
@@ -1007,6 +1062,7 @@ public final class SableShipFlight implements ShipFlightControl {
         var previous = motion();
         var angular = vector(previous.angularVelocity());
         var riders = riders();
+        var standing = hullRiders(design);
         int[] componentForPart = new int[design.nodes().size()];
         List<Fragment> fragments = new ArrayList<>(components.size());
         try {
@@ -1028,7 +1084,9 @@ public final class SableShipFlight implements ShipFlightControl {
                     }
                 }
                 // Released ships recover the axes of their original root. Other fragments keep the old grid.
-                var frame = original != null ? design.nodes().get(root).pose() : index == 0 ? PartPose.ROOT
+                boolean keepOrigin = index == 0 && (!design.hasHull()
+                        || members.stream().anyMatch(member -> design.nodes().get(member).hull() != null));
+                var frame = original != null ? design.nodes().get(root).pose() : keepOrigin ? PartPose.ROOT
                         : new PartPose(BlockPos.containing(design.nodes().get(root).bounds().getCenter()).multiply(4),
                                 PartPose.ROOT.rotation());
                 int[] indices = ShipDesign.indices(design.nodes().size(), members);
@@ -1038,7 +1096,7 @@ public final class SableShipFlight implements ShipFlightControl {
                         .mul(new Quaterniond(PartPose.orientation(frame.rotation()))).normalize();
                 var next = spawn(owner, level, layout, state.fragment(layout, members, projection.stage()),
                         vector(worldPoint(frame.position())), orientation);
-                fragments.add(new Fragment(next, layout, indices, projection.state()));
+                fragments.add(new Fragment(next, layout, indices, projection.state(), frame));
                 var center = next.body.subLevel().logicalPose().position();
                 var offset = center.sub(vector(previous.center()), new Vector3d());
                 var linear = angular.cross(offset, new Vector3d()).add(vector(previous.velocity()));
@@ -1092,6 +1150,14 @@ public final class SableShipFlight implements ShipFlightControl {
         for (var rider : riders) {
             var fragment = fragments.get(componentForPart[rider.pod()]);
             fragment.flight.moveRider(rider.player(), fragment.indices[rider.pod()]);
+        }
+        for (var rider : standing) {
+            var fragment = fragments.get(componentForPart[rider.node()]);
+            var player = rider.player();
+            Vec3 position = fragment.flight.worldPoint(fragment.frame.localPoint(rider.local()));
+            if (movePlayer(player, level, position, Vec3.ZERO, player.getYRot(), player.getXRot())) {
+                SableHullInteractions.awaitPlot(player, fragment.flight.body.subLevel(), position);
+            }
         }
         removeBodyNow();
         cleanupDebris(level);
@@ -1223,7 +1289,7 @@ public final class SableShipFlight implements ShipFlightControl {
         }
     }
 
-    private record Fragment(SableShipFlight flight, ShipDesign layout, int[] indices, ShipDockingState docking) {}
+    private record Fragment(SableShipFlight flight, ShipDesign layout, int[] indices, ShipDockingState docking, PartPose frame) {}
 
     private record DockingShip(SableShipFlight flight, ShipDesign layout, Motion motion, AABB bounds, List<WorldPort> ports) {}
 
@@ -1239,9 +1305,11 @@ public final class SableShipFlight implements ShipFlightControl {
 
     public record Motion(Vec3 center, Vec3 velocity, Quaterniond orientation, Vec3 angularVelocity) {}
 
-    private record Crew(ServerPlayer player, int pod, Vec3 position, Vec3 velocity, float yaw, float pitch) {}
+    private record Crew(ServerPlayer player, int pod, Vec3 position, Vec3 velocity, float yaw, float pitch, boolean standing) {}
 
     private record Rider(ServerPlayer player, int pod) {}
+
+    private record HullRider(ServerPlayer player, int node, Vec3 local) {}
 
     private static final class Flights {
         final Vector3dc baseGravity;

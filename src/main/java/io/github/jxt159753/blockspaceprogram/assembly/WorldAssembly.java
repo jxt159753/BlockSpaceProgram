@@ -172,10 +172,14 @@ public final class WorldAssembly extends SavedData {
             ship.discard();
             return Component.translatable("assembly.blockspaceprogram.world_group");
         }
-        data.replace(level, snapshot.group(), List.of());
-        snapshot.parts().forEach(PlacedPartEntity::discard);
+        data.consume(level, Set.of(snapshot.group()), snapshot.parts());
         player.displayClientMessage(Component.translatable("assembly.blockspaceprogram.world_assembled"), true);
         return null;
+    }
+
+    void consume(ServerLevel level, Set<Group> groups, List<PlacedPartEntity> parts) {
+        groups.forEach(group -> replace(level, group, List.of()));
+        parts.forEach(PlacedPartEntity::discard);
     }
 
     Inspection inspect(ServerLevel level, PlacedPartEntity target) {

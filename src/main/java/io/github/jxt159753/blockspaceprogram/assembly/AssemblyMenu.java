@@ -4,6 +4,7 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -22,6 +23,9 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     @Nullable
     private final PlacedPartEntity worldPod;
     @Nullable
+    private final AssembledShipEntity flightShip;
+    private final boolean readOnly;
+    @Nullable
     private WorldAssembly.Inspection worldView;
     private ShipDesign design = ShipDesign.EMPTY;
     private int revision;
@@ -29,11 +33,23 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     private Component message;
 
     AssemblyMenu(int id, Inventory inventory, ContainerLevelAccess access) {
-        this(id, inventory, BlockSpaceProgram.ASSEMBLY_MENU.get(), access, null, 0, 0);
+        this(id, inventory, BlockSpaceProgram.ASSEMBLY_MENU.get(), access, null, null, false, 0, 0);
     }
 
     AssemblyMenu(int id, Inventory inventory, PlacedPartEntity pod) {
-        this(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, pod, 0, 0);
+        this(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, pod, null, false, 0, 0);
+    }
+
+    static void openFlight(ServerPlayer player, AssembledShipEntity ship) {
+        int maximumParts = (int) ShipFacilityLimits.parts(player).maximum();
+        double maximumMass = ShipFacilityLimits.mass(player).maximum();
+        player.openMenu(new SimpleMenuProvider((id, inventory, owner) -> new AssemblyMenu(id, inventory,
+                BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, null, ship, true, 0, 0),
+                Component.translatable("assembly.blockspaceprogram.pod")), buffer -> {
+                    buffer.writeVarInt(maximumParts);
+                    buffer.writeDouble(maximumMass);
+                    buffer.writeBoolean(true);
+                });
     }
 
     public static AssemblyMenu tableClient(int id, Inventory inventory, @Nullable RegistryFriendlyByteBuf data) {
@@ -48,15 +64,19 @@ public final class AssemblyMenu extends AbstractContainerMenu {
             @Nullable RegistryFriendlyByteBuf data) {
         int parts = data != null && data.isReadable() ? data.readVarInt() : 0;
         double mass = data != null && data.isReadable() ? data.readDouble() : 0;
-        return new AssemblyMenu(id, inventory, type, ContainerLevelAccess.NULL, null, parts, mass);
+        boolean readOnly = data != null && data.isReadable() && data.readBoolean();
+        return new AssemblyMenu(id, inventory, type, ContainerLevelAccess.NULL, null, null, readOnly, parts, mass);
     }
 
     private AssemblyMenu(int id, Inventory inventory, MenuType<AssemblyMenu> type, ContainerLevelAccess access,
-            @Nullable PlacedPartEntity worldPod, int maximumParts, double maximumMass) {
+            @Nullable PlacedPartEntity worldPod, @Nullable AssembledShipEntity flightShip, boolean readOnly,
+            int maximumParts, double maximumMass) {
         super(type, id);
         this.access = access;
         this.inventory = inventory;
         this.worldPod = worldPod;
+        this.flightShip = flightShip;
+        this.readOnly = readOnly;
         this.maximumParts = maximumParts;
         this.maximumMass = maximumMass;
         if (isWorldAssembly()) {
@@ -84,6 +104,9 @@ public final class AssemblyMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(Player player) {
+        if (flightShip != null) {
+            return flightShip.isAlive() && flightShip.level() == player.level() && player.canInteractWithEntity(flightShip, 0);
+        }
         if (isWorldAssembly()) {
             return worldPod == null || WorldAssembly.canUse(player, worldPod);
         }
@@ -95,11 +118,22 @@ public final class AssemblyMenu extends AbstractContainerMenu {
         return getType() == BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get();
     }
 
+    public boolean readOnly() {
+        return readOnly;
+    }
+
     @Override
     public void broadcastChanges() {
         super.broadcastChanges();
         if (worldPod != null && inventory.player instanceof ServerPlayer player && stillValid(player)) {
             refreshWorld(player);
+        } else if (flightShip != null && inventory.player instanceof ServerPlayer player && stillValid(player)) {
+            ShipDesign layout = flightShip.design();
+            if (layout != null && !layout.equals(design)) {
+                design = layout;
+                revision++;
+                sync(player, "", 0);
+            }
         }
     }
 
@@ -175,6 +209,9 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     }
 
     void edit(ServerPlayer player, AssemblyNetworking.Edit payload) {
+        if (readOnly) {
+            return;
+        }
         var snapshot = worldView == null ? null : worldView.snapshot();
         if (worldPod != null) {
             switch (payload.action()) {

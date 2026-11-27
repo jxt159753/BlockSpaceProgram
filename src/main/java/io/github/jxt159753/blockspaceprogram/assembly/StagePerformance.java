@@ -33,12 +33,12 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             for (ShipDesign.Branch branch : design.tree(detached)) {
                 int index = branch.node();
                 var node = design.nodes().get(index);
-                var properties = node.part().properties();
                 int tankGroup = group[index];
                 attached[index] = true;
                 capacity[tankGroup] += fuel[index];
-                wetMass += properties.mass() + fuel[index];
-                if (node.engineStage() == stage && properties.vacuumSpecificImpulse() > 0 && properties.thrust() > 0) {
+                wetMass += node.dryMass() + fuel[index];
+                if (node.engineStage() == stage && ShipFlightState.hasEngine(node)) {
+                    var properties = node.part().properties();
                     thrust[tankGroup] += properties.thrust();
                     flow[tankGroup] += fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
                 }
@@ -78,6 +78,7 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
     }
 
     static double fuelCapacity(ShipDesign.Node node) {
-        return node.part().properties().fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
+        return node.part() == null ? 0
+                : node.part().properties().fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
     }
 }

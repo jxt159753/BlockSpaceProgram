@@ -20,7 +20,7 @@ final class ShipFacilityLimits {
 
     @Nullable
     static Component checkParts(ServerPlayer player, ShipDesign design) {
-        return Facility.ASSEMBLY_TABLE.rejection(parts(player), design.nodes().size());
+        return Facility.ASSEMBLY_TABLE.rejection(parts(player), design.partCount());
     }
 
     @Nullable

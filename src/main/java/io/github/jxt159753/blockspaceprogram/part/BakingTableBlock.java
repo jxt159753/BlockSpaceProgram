@@ -85,8 +85,7 @@ public final class BakingTableBlock extends Block {
 
         for (var entry : structure.entrySet()) {
             BlockPos pos = entry.getKey();
-            if (!level.mayInteract(player, pos)
-                    || CommonHooks.fireBlockBreak(level, player.gameMode.getGameModeForPlayer(), player, pos, entry.getValue()).isCanceled()) {
+            if (!canRemoveBlock(level, player, pos, entry.getValue())) {
                 return reject(player, "protected");
             }
         }
@@ -149,9 +148,7 @@ public final class BakingTableBlock extends Block {
         }
         for (var entry : structure.entrySet()) {
             BlockState state = entry.getValue();
-            if (state.hasBlockEntity() || !state.getFluidState().isEmpty()
-                    || state.getDestroySpeed(level, entry.getKey()) < 0
-                    || !(state.getBlock().asItem() instanceof BlockItem item) || item.getBlock() != state.getBlock()) {
+            if (!canCopyBlock(level, entry.getKey(), state)) {
                 reject(player, "unsupported", state.getBlock().getName());
                 return null;
             }
@@ -159,7 +156,17 @@ public final class BakingTableBlock extends Block {
         return structure;
     }
 
-    private static boolean removeStructure(ServerLevel level, Map<BlockPos, BlockState> structure) {
+    public static boolean canCopyBlock(Level level, BlockPos pos, BlockState state) {
+        return !state.hasBlockEntity() && state.getFluidState().isEmpty() && state.getDestroySpeed(level, pos) >= 0
+                && state.getBlock().asItem() instanceof BlockItem item && item.getBlock() == state.getBlock();
+    }
+
+    public static boolean canRemoveBlock(ServerLevel level, ServerPlayer player, BlockPos pos, BlockState state) {
+        return level.mayInteract(player, pos)
+                && !CommonHooks.fireBlockBreak(level, player.gameMode.getGameModeForPlayer(), player, pos, state).isCanceled();
+    }
+
+    public static boolean removeStructure(ServerLevel level, Map<BlockPos, BlockState> structure) {
         // Removing a support must not drop other members of the same batch as loot.
         List<Map.Entry<BlockPos, BlockState>> removed = new ArrayList<>(structure.size());
         for (var entry : structure.entrySet()) {

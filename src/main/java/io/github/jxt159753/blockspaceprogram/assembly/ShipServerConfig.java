@@ -11,6 +11,7 @@ public final class ShipServerConfig {
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
     static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
+    static final ModConfigSpec.IntValue MAX_HULL_BLOCKS;
     static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
     static final ModConfigSpec.DoubleValue DOCK_ANGLE;
     static final ModConfigSpec.DoubleValue DOCK_SPEED;
@@ -35,6 +36,10 @@ public final class ShipServerConfig {
         builder.push("flight");
         MAX_REMOTE_SHIPS = builder.comment("Maximum ships kept loaded by a remote flight controller per dimension.")
                 .defineInRange("maxRemoteShips", 8, 0, Integer.MAX_VALUE);
+        builder.pop();
+        builder.push("hull");
+        MAX_HULL_BLOCKS = builder.comment("Maximum blocks in the connected hull collected by a ship assembler.")
+                .defineInRange("maxBlocks", 8192, 1, Integer.MAX_VALUE);
         builder.pop();
         builder.push("docking");
         DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")
