@@ -3,9 +3,11 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalFlightControl.WarpResult;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.DoubleFunction;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -15,12 +17,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import org.jetbrains.annotations.Nullable;
 
 /** Session-only warp rate for the private integrated server. */
 final class OrbitalTimeWarp {
     private static final int[] RATES = { 1, 5, 10, 50, 100, 1_000, 10_000, 100_000 };
     private static final String MESSAGE = "orbit.blockspaceprogram.warp.";
     private int gear;
+    @Nullable private Target target;
 
     static void register(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("bsp_warp")
@@ -34,7 +38,7 @@ final class OrbitalTimeWarp {
                         .executes(context -> changeRate(context.getSource().getPlayerOrException(), -RATES.length))));
     }
 
-    private static boolean canUse(ServerPlayer player) {
+    static boolean canUse(ServerPlayer player) {
         var server = player.serverLevel().getServer();
         return isPrivateWorld(server) && server.isSingleplayerOwner(player.getGameProfile());
     }
@@ -63,6 +67,9 @@ final class OrbitalTimeWarp {
             }
         }
         if (space != null) {
+            if (change != 0) {
+                warp.target = null;
+            }
             warp.setGear(space, Math.clamp(warp.gear + change, 0, RATES.length - 1));
         }
         int rate = RATES[warp.gear];
@@ -70,14 +77,31 @@ final class OrbitalTimeWarp {
         return rate;
     }
 
+    WarpResult warpTo(ServerLevel space, OrbitalSavedData data, ServerPlayer owner, double seconds) {
+        double tick = Math.ceil(seconds * OrbitalSavedData.TICKS_PER_SECOND);
+        if (!(seconds > data.orbitSeconds() && tick > data.orbitTicks() && tick < Long.MAX_VALUE)) {
+            return WarpResult.INVALID_TIME;
+        }
+        if (OrbitalRegion.get(space.getServer()).benchmarking()) {
+            return WarpResult.BUSY;
+        }
+        if (!SableShipFlight.isCoasting(space)) {
+            return WarpResult.NOT_COASTING;
+        }
+        target = new Target(owner.getUUID(), (long) tick);
+        setGear(space, RATES.length - 1);
+        return WarpResult.STARTED;
+    }
+
     int nextStep(ServerLevel space, OrbitalSavedData data) {
         if (gear == 0) {
             return 1;
         }
-        var owner = space.players().stream().filter(ServerPlayer::isAlive).filter(OrbitalTimeWarp::canUse)
-                .findFirst().orElse(null);
-        var reference = owner == null ? null : OrbitalRegion.referenceFor(owner);
-        if (reference == null) {
+        var server = space.getServer();
+        var owner = target == null ? space.players().stream().filter(ServerPlayer::isAlive)
+                .filter(OrbitalTimeWarp::canUse).findFirst().orElse(null) : server.getPlayerList().getPlayer(target.owner());
+        var reference = OrbitalRegion.get(server).reference();
+        if (owner == null || !owner.isAlive() || !canUse(owner) || (target == null && reference == null)) {
             reset(space);
             return 1;
         }
@@ -86,18 +110,23 @@ final class OrbitalTimeWarp {
             return 1;
         }
 
-        int requested = RATES[gear];
+        long remaining = target == null ? Long.MAX_VALUE : target.tick() - data.orbitTicks();
+        int requested = (int) Math.min(RATES[gear], remaining);
         double from = data.orbitSeconds();
         double to = (data.orbitTicks() + requested) / (double) OrbitalSavedData.TICKS_PER_SECOND;
         var limit = firstLimit(space, data, reference, from, to);
-        if (limit.seconds() > to) {
-            return requested;
+        if (limit.seconds() <= to) {
+            stop(space, owner, limit.reason());
+            return stepBefore(data.orbitTicks(), requested, limit.seconds());
         }
-        stop(space, owner, limit.reason());
-        return stepBefore(data.orbitTicks(), requested, limit.seconds());
+        if (requested == remaining) {
+            reset(space);
+        }
+        return requested;
     }
 
     void reset(ServerLevel space) {
+        target = null;
         setGear(space, 0);
     }
 
@@ -123,7 +152,8 @@ final class OrbitalTimeWarp {
         return (int) Math.clamp(lastSafeTick - now, 1, requested);
     }
 
-    private static Limit firstLimit(ServerLevel space, OrbitalSavedData data, Orbit reference, double from, double to) {
+    private static Limit firstLimit(ServerLevel space, OrbitalSavedData data, @Nullable Orbit reference,
+            double from, double to) {
         var limit = new Limit(data.nextManeuverSeconds(), "burn");
         if (limit.seconds() <= from) {
             return limit;
@@ -133,14 +163,14 @@ final class OrbitalTimeWarp {
         for (var body : system.bodies()) {
             radii.put(body.id(), ShipOrbitHandoff.timeWarpRadius(space.getServer(), body));
         }
-        var members = OrbitalRegion.get(space.getServer()).warpMembers(space);
-        var referenceLegs = system.conics(reference, from, Math.min(to, limit.seconds()));
+        var members = reference == null ? List.<OrbitalState>of() : OrbitalRegion.get(space.getServer()).warpMembers(space);
+        var referenceLegs = reference == null ? List.<Orbit>of() : system.conics(reference, from, Math.min(to, limit.seconds()));
         for (var member : members) {
             double time = firstDescent(system, referenceLegs, radii, member.position(), from, Math.min(to, limit.seconds()));
             limit = limit.earlier(time, "descent");
         }
 
-        var origin = system.forecast(referenceLegs);
+        var origin = referenceLegs.isEmpty() ? null : system.forecast(referenceLegs);
         double originAcceleration = system.maxAcceleration(referenceLegs);
         double entry = ShipServerConfig.orbitEntryDistance();
         double speed = ShipServerConfig.orbitEntrySpeed();
@@ -151,6 +181,9 @@ final class OrbitalTimeWarp {
             var legs = system.conics(ship.orbit(), from, Math.min(to, limit.seconds()));
             double descent = firstDescent(system, legs, radii, Vec3.ZERO, from, Math.min(to, limit.seconds()));
             limit = limit.earlier(descent, "descent");
+            if (origin == null) {
+                continue;
+            }
             var target = system.forecast(legs);
             double acceleration = originAcceleration + system.maxAcceleration(legs);
             for (var member : members) {
@@ -162,6 +195,8 @@ final class OrbitalTimeWarp {
         }
         return limit;
     }
+
+    private record Target(UUID owner, long tick) {}
 
     static double firstDescent(OrbitalSystem system, List<Orbit> legs, Map<ResourceLocation, Double> radii, Vec3 offset,
                                double from, double to) {

@@ -161,7 +161,7 @@
   "flight.blockspaceprogram.throttle.thrust_to_weight": "推重比",
   "terminal.blockspaceprogram.target": "%s  （%s，%s，%s）",
   "terminal.blockspaceprogram.bound": "已绑定 %s",
-  "terminal.blockspaceprogram.bound_unavailable": "已绑定的飞船当前不可用",
+  "terminal.blockspaceprogram.bound_unavailable": "已绑定的飞船未在此列表中",
   "terminal.blockspaceprogram.unbound": "未绑定飞船",
   "terminal.blockspaceprogram.no_ships": "当前维度没有已加载的自有飞船。",
   "terminal.blockspaceprogram.unavailable": "这艘飞船当前不可用。",

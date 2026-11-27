@@ -21,6 +21,8 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
+import org.joml.Quaterniondc;
+import org.joml.Vector3d;
 import org.slf4j.Logger;
 
 /** Moves ships between dimension-local Sable bodies and the shared orbit store on the server thread. */
@@ -69,7 +71,7 @@ final class ShipOrbitHandoff {
                             continue;
                         }
                     } else {
-                        depart(data, ship, flight, frame, motion, orbit);
+                        storeFlight(data, ship, motion, orbit, frame.dimensionToInertialRotation());
                     }
                 } catch (RuntimeException error) {
                     LOGGER.warn("Could not put ship {} on orbit", ship.getUUID(), error);
@@ -96,7 +98,7 @@ final class ShipOrbitHandoff {
         var system = data.system();
         double now = data.orbitSeconds();
         boolean retry = data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0;
-        var landed = new ArrayList<UUID>();
+        var returned = new ArrayList<ShipOrbitEvent>();
         for (OrbitingShip ship : data.ships()) {
             var orbit = ship.orbit();
             var body = system.body(orbit.center());
@@ -128,21 +130,18 @@ final class ShipOrbitHandoff {
                 if (crossing > now || !ready) {
                     continue;
                 }
-                var tag = ship.shipData();
-                if (!tag.hasUUID("FlightBody")) {
-                    continue;
-                }
                 var motion = toDimension(ship, frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()));
                 checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), crossing)
                         .toOrbit(motion.velocity()));
-                if (AssembledShipEntity.restoreFromOrbit(level, ship.id(), tag, motion, true) != null) {
-                    landed.add(ship.id());
+                if (restoreFlight(data, level, ship, motion, frame.dimensionToInertialRotation().conjugate(), true) != null) {
+                    returned.add(ShipOrbitEvent.leftOrbit(ship.id(), ship.ownerId(), body.id(), orbit));
                 }
             } catch (RuntimeException error) {
                 LOGGER.warn("Could not return ship {} to {}", ship.id(), body.id(), error);
             }
         }
-        landed.forEach(data::remove);
+        returned.forEach(event -> data.remove(event.shipId()));
+        returned.forEach(NeoForge.EVENT_BUS::post);
     }
 
     static void placeInOrbit(ServerLevel level, UUID id, Orbit orbit) {
@@ -171,7 +170,7 @@ final class ShipOrbitHandoff {
         var departure = system.body(level.dimension().location());
         var motion = flight.motion();
         var frame = PlanetFrame.atDimension(system, departure, seaLevel(departure), motion.center(), data.orbitSeconds());
-        depart(data, ship, flight, frame, motion, orbit);
+        storeFlight(data, ship, motion, orbit, frame.dimensionToInertialRotation());
     }
 
     static void placeInDimension(ServerLevel level, UUID id, Vec3 position, Vec3 velocity) {
@@ -189,20 +188,40 @@ final class ShipOrbitHandoff {
             var body = system.body(level.dimension().location());
             var frame = PlanetFrame.atDimension(system, body, seaLevel(body), position, data.orbitSeconds());
             var motion = toDimension(existing, frame, position, velocity);
-            if (AssembledShipEntity.restoreFromOrbit(level, id, existing.shipData(), motion, false) == null) {
+            if (restoreFlight(data, level, existing, motion, frame.dimensionToInertialRotation().conjugate(), false) == null) {
                 throw new IllegalArgumentException("Unable to restore the saved ship in this dimension");
             }
             data.remove(id);
         }
     }
 
-    private static void depart(OrbitalSavedData data, AssembledShipEntity ship, SableShipFlight flight, PlanetFrame frame,
-            Motion motion, Orbit orbit) {
-        var orientation = frame.dimensionToInertialRotation().mul(motion.orientation());
-        var angular = frame.toInertialDirection(motion.angularVelocity());
-        var snapshot = new OrbitingShip(ship.getUUID(), orbit, orientation, angular, ship.orbitSnapshot());
-        data.put(snapshot);
+    static void storeFlight(OrbitalSavedData data, AssembledShipEntity ship, Motion motion, Orbit orbit,
+            Quaterniondc rotation) {
+        var orientation = new Quaterniond(rotation).mul(motion.orientation());
+        var angular = motion.angularVelocity();
+        var inertialAngular = rotation.transform(new Vector3d(angular.x, angular.y, angular.z));
+        var snapshot = new OrbitingShip(ship.getUUID(), orbit, orientation,
+                new Vec3(inertialAngular.x, inertialAngular.y, inertialAngular.z), ship.orbitSnapshot());
+        var flight = ship.activeFlight();
+        data.store(snapshot, flight.handoffControls(rotation, orientation));
         flight.removeForOrbit();
+    }
+
+    @Nullable
+    static AssembledShipEntity restoreFlight(OrbitalSavedData data, ServerLevel level, OrbitingShip ship, Motion motion,
+            Quaterniondc rotation, boolean reentry) {
+        var restored = AssembledShipEntity.restoreFromOrbit(level, ship.id(), ship.shipData(), motion, reentry);
+        var controls = data.handoffControls(ship.id());
+        if (restored != null && controls != null) {
+            var flight = restored.activeFlight();
+            try {
+                flight.inheritHandoffControls(controls, rotation);
+            } catch (RuntimeException error) {
+                flight.removeForOrbit();
+                throw error;
+            }
+        }
+        return restored;
     }
 
     @Nullable

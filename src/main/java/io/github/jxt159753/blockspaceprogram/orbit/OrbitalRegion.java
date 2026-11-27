@@ -65,6 +65,25 @@ public final class OrbitalRegion extends SavedData {
         return timeWarp;
     }
 
+    @Nullable
+    Orbit reference() {
+        return reference;
+    }
+
+    @Nullable
+    Orbit orbitFor(AssembledShipEntity ship, OrbitalSavedData data) {
+        if (reference == null || benchmark != null) {
+            return null;
+        }
+        var system = data.system();
+        double now = data.orbitSeconds();
+        try {
+            return fit(system, new Frame(system, reference, now).absolute(localState(ship)), now);
+        } catch (IllegalArgumentException error) {
+            return null;
+        }
+    }
+
     List<OrbitalState> warpMembers(ServerLevel space) {
         syncMembers(space);
         return members.values().stream().map(OrbitalRegion::localState)
@@ -214,6 +233,8 @@ public final class OrbitalRegion extends SavedData {
                     pendingDescents.remove(id);
                     if (descent.transfer(ship)) {
                         members.remove(id);
+                        NeoForge.EVENT_BUS.post(ShipOrbitEvent.leftOrbit(id, ship.owner(),
+                                descent.level().dimension().location(), reference));
                     }
                 } catch (RuntimeException error) {
                     LOGGER.warn("Could not return ship {} from orbital space", ship.getUUID(), error);
@@ -314,7 +335,7 @@ public final class OrbitalRegion extends SavedData {
             var state = data.system().absoluteState(ship.orbit(), frame.seconds());
             if (states.values().stream().anyMatch(peer -> state.position().distanceToSqr(peer.position()) < entry * entry
                     && state.velocity().distanceToSqr(peer.velocity()) <= speed * speed)) {
-                var restored = restoreShip(space, frame, ship, state);
+                var restored = restoreShip(space, data, frame, ship, state);
                 if (restored != null) {
                     members.put(restored.getUUID(), restored);
                     data.remove(ship.id());
@@ -328,9 +349,7 @@ public final class OrbitalRegion extends SavedData {
             var flight = ship.activeFlight();
             var motion = flight.motion();
             var orbit = fit(data.system(), absolute, data.orbitSeconds());
-            data.put(new OrbitingShip(ship.getUUID(), orbit, toInertialRotation().mul(motion.orientation()),
-                    toInertial(motion.angularVelocity()), ship.orbitSnapshot()));
-            flight.removeForOrbit();
+            ShipOrbitHandoff.storeFlight(data, ship, motion, orbit, toInertialRotation());
             members.remove(ship.getUUID());
             return true;
         } catch (RuntimeException error) {
@@ -340,13 +359,14 @@ public final class OrbitalRegion extends SavedData {
     }
 
     @Nullable
-    private static AssembledShipEntity restoreShip(ServerLevel level, Frame frame, OrbitingShip ship, OrbitalState state) {
+    private static AssembledShipEntity restoreShip(ServerLevel level, OrbitalSavedData data, Frame frame, OrbitingShip ship,
+            OrbitalState state) {
         var motion = frame.localMotion(state, ship.orientation(), ship.angularVelocity());
         if (!ShipOrbitHandoff.validPosition(level, motion.center())) {
             return null;
         }
         try {
-            return AssembledShipEntity.restoreFromOrbit(level, ship.id(), ship.shipData(), motion, false);
+            return ShipOrbitHandoff.restoreFlight(data, level, ship, motion, toInertialRotation().conjugate(), false);
         } catch (RuntimeException error) {
             LOGGER.warn("Could not restore ship {} in orbital space", ship.id(), error);
             return null;
@@ -437,7 +457,7 @@ public final class OrbitalRegion extends SavedData {
             if (ship != null) {
                 Orbit path = reference == null ? ship.orbit() : reference;
                 var frame = new Frame(data.system(), path, now);
-                var restored = restoreShip(space, frame, ship, data.system().absoluteState(ship.orbit(), now));
+                var restored = restoreShip(space, data, frame, ship, data.system().absoluteState(ship.orbit(), now));
                 if (restored != null) {
                     var flight = restored.activeFlight();
                     if (flight.board(player)) {

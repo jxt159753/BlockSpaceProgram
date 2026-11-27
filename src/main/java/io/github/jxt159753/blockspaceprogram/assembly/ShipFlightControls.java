@@ -11,7 +11,7 @@ import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.*
 import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
 
 /** Arbitrates the pilot and automation and resolves their setpoints into normalized actuator inputs. */
-final class ShipFlightControls {
+public final class ShipFlightControls {
     private static final double THROTTLE_STEP = 0.05;
     static final double WHEEL_ACCELERATION = 1.5;
     private static final double ATTITUDE_GAIN = 6;
@@ -31,11 +31,13 @@ final class ShipFlightControls {
     @Nullable
     private BooleanSupplier remote;
 
-    AttitudeMode attitudeMode() {
+    ShipFlightControls() {}
+
+    public AttitudeMode attitudeMode() {
         return attitudeMode;
     }
 
-    ThrottleMode throttleMode() {
+    public ThrottleMode throttleMode() {
         return throttleMode;
     }
 
@@ -56,8 +58,16 @@ final class ShipFlightControls {
         remote = connection;
     }
 
-    boolean checkConnection(Quaterniondc orientation) {
+    public boolean checkConnection(Quaterniondc orientation) {
         if (remote == null || remote.getAsBoolean()) {
+            return false;
+        }
+        disconnect(orientation);
+        return true;
+    }
+
+    public boolean releaseRemote(BooleanSupplier connection, Quaterniondc orientation) {
+        if (remote == null || remote != connection) {
             return false;
         }
         disconnect(orientation);
@@ -71,11 +81,7 @@ final class ShipFlightControls {
     }
 
     void inheritForHandoff(ShipFlightControls source, Quaterniondc rotation, Quaterniondc orientation) {
-        if (source.remote != null) {
-            // Flight terminals can only control ships in their own dimension.
-            disconnect(orientation);
-            return;
-        }
+        remote = source.remote;
         attitudeMode = source.attitudeMode;
         throttleMode = source.throttleMode;
         throttleTarget = source.throttleTarget;
@@ -83,6 +89,7 @@ final class ShipFlightControls {
         throttle = source.throttle;
         directAxes.set(source.directAxes);
         heading.set(rotation).mul(source.heading);
+        checkConnection(orientation);
     }
 
     void tickPilot(int keys) {
