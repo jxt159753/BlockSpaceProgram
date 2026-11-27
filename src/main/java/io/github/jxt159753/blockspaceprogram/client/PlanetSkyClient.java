@@ -46,6 +46,7 @@ public final class PlanetSkyClient {
     private static final int LOCAL_ATMOSPHERIC_GLOBE = 4;
     private static final double SUN_RADIUS = Math.sin(Math.toRadians(1.5));
     private static final double CLOUD_REVOLUTION_SECONDS = 72_000;
+    private static final double SKY_GRADIENT_FADE_DENSITY = 0.5;
     private static final Vec3 NADIR = new Vec3(0, -1, 0);
     private static ClientLevel orbitalLevel;
     private static OrbitalView orbitalView;
@@ -224,6 +225,10 @@ public final class PlanetSkyClient {
         shader.safeGetUniform("ClipToWorld").set(new Matrix4f(view).invert().mul(new Matrix4f(projection).invert()));
         shader.safeGetUniform("PixelPadding").set(4.0F / target.width, 4.0F / target.height);
         shader.safeGetUniform("Density").set(density);
+        // Let the globe's shell take over from the ground gradient as the air thins.
+        float skyDensity = showGlobe
+                ? (float) (density * Mth.smoothstep(Math.min(density / SKY_GRADIENT_FADE_DENSITY, 1.0))) : density;
+        shader.safeGetUniform("SkyDensity").set(skyDensity);
         shader.safeGetUniform("Weather").set(weather);
         shader.safeGetUniform("StarBrightness").set(starBrightness);
         shader.safeGetUniform("Horizon").set(horizon);

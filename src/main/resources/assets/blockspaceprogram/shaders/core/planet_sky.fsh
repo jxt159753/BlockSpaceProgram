@@ -9,6 +9,7 @@ uniform vec3 BodyPole;
 uniform vec3 PrimeMeridian;
 uniform int SurfaceSeed;
 uniform float Density;
+uniform float SkyDensity;
 uniform float Weather;
 uniform float StarBrightness;
 uniform float HaloRadius;
@@ -38,7 +39,7 @@ vec3 atmosphere(vec3 ray) {
     float twilight = max(0.0, 1.0 - abs(LightDirection.y) * 5.0);
     float towardSun = pow(max(0.0, dot(ray, LightDirection)), 4.0);
     vec3 glow = vec3(0.72, 0.25, 0.08) * twilight * towardSun * horizonGlow * (1.0 - Weather);
-    return Density * (day * daylight + glow);
+    return SkyDensity * (day * daylight + glow);
 }
 
 vec3 transmittance(vec3 ray) {
@@ -225,7 +226,7 @@ vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, fl
 }
 
 void main() {
-    if (Mode == 0 && Density <= 0.0) {
+    if (Mode == 0 && SkyDensity <= 0.0) {
         fragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
@@ -306,7 +307,7 @@ void main() {
         }
     }
 
-    vec3 sky = Mode == 4 || Density <= 0.0 ? vec3(0.0) : atmosphere(ray);
+    vec3 sky = Mode == 4 || SkyDensity <= 0.0 ? vec3(0.0) : atmosphere(ray);
     if (inShell) {
         Air air = traceAtmosphere(ray, alongRay, shellDiscriminant, distance, coverage);
         float opacity = 1.0 - (1.0 - coverage) * air.transmission.b;

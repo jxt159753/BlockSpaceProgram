@@ -13,6 +13,7 @@
     { "name": "PrimeMeridian", "type": "float", "count": 3, "values": [1, 0, 0] },
     { "name": "SurfaceSeed", "type": "int", "count": 1, "values": [0] },
     { "name": "Density", "type": "float", "count": 1, "values": [0] },
+    { "name": "SkyDensity", "type": "float", "count": 1, "values": [0] },
     { "name": "Weather", "type": "float", "count": 1, "values": [0] },
     { "name": "StarBrightness", "type": "float", "count": 1, "values": [0] },
     { "name": "HaloRadius", "type": "float", "count": 1, "values": [4] },
