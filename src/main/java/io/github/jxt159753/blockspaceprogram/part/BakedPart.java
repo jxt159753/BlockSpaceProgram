@@ -34,7 +34,7 @@ public record BakedPart(
         List<PartConnector> connectors) {
 
     public static final int MAX_SIDE = 9;
-    private static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
+    public static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
     private static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
     private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F)
             .xmap(BakedPart::migrateScale, scale -> scale);

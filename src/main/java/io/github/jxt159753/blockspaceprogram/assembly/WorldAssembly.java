@@ -125,30 +125,39 @@ public final class WorldAssembly extends SavedData {
     }
 
     public static void open(ServerPlayer player, PlacedPartEntity pod) {
+        int maximumParts = (int) ShipFacilityLimits.parts(player).maximum();
+        double maximumMass = ShipFacilityLimits.mass(player).maximum();
         player.openMenu(new SimpleMenuProvider((id, inventory, owner) -> new AssemblyMenu(id, inventory, pod),
-                Component.translatable("assembly.blockspaceprogram.pod")));
+                Component.translatable("assembly.blockspaceprogram.pod")), buffer -> {
+                    buffer.writeVarInt(maximumParts);
+                    buffer.writeDouble(maximumMass);
+                });
     }
 
     @Nullable
-    public static String assemble(ServerPlayer player, PlacedPartEntity target) {
+    public static Component assemble(ServerPlayer player, PlacedPartEntity target) {
         if (!canUse(player, target)) {
-            return "world_permission";
+            return Component.translatable("assembly.blockspaceprogram.world_permission");
         }
         ServerLevel level = player.serverLevel();
         WorldAssembly data = get(level);
         Inspection inspection = data.inspect(level, target);
         Snapshot snapshot = inspection.snapshot();
         if (snapshot == null) {
-            return inspection.error();
+            return Component.translatable("assembly.blockspaceprogram." + inspection.error());
         }
         if (!snapshot.canEdit(player)) {
-            return "world_permission";
+            return Component.translatable("assembly.blockspaceprogram.world_permission");
+        }
+        var rejection = ShipFacilityLimits.checkLaunch(player, snapshot.design());
+        if (rejection != null) {
+            return rejection;
         }
         Set<PlacedPartEntity> replaced = Set.copyOf(snapshot.parts());
         for (PlacedPartEntity part : snapshot.parts()) {
             String error = WorldPartPlacement.obstruction(level, part.getBoundingBox(), replaced);
             if (error != null) {
-                return error;
+                return Component.translatable("assembly.blockspaceprogram." + error);
             }
         }
 
@@ -156,12 +165,12 @@ public final class WorldAssembly extends SavedData {
         blueprint.set(BlockSpaceProgram.SHIP_DESIGN, snapshot.design());
         AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, snapshot.origin(), snapshot.rotation(), player.getUUID());
         if (ship == null) {
-            return "world_spawn";
+            return Component.translatable("assembly.blockspaceprogram.world_spawn");
         }
         // Entity-join listeners run inline. Commit only if the placed structure is still the one we inspected.
         if (!snapshot.equals(data.inspect(level, target).snapshot())) {
             ship.discard();
-            return "world_group";
+            return Component.translatable("assembly.blockspaceprogram.world_group");
         }
         data.replace(level, snapshot.group(), List.of());
         snapshot.parts().forEach(PlacedPartEntity::discard);

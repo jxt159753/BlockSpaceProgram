@@ -3,6 +3,9 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -116,16 +119,27 @@ public final class AssemblyNetworking {
         }
     }
 
-    public record State(int container, int revision, ShipDesign design, String message, int count) implements CustomPacketPayload {
+    public record State(int container, int revision, ShipDesign design, String message, int count,
+            @Nullable Component notice) implements CustomPacketPayload {
         private static final Type<State> TYPE = payloadType("assembly_state");
-        private static final StreamCodec<FriendlyByteBuf, State> CODEC = StreamCodec.of((buffer, payload) -> {
+        private static final StreamCodec<RegistryFriendlyByteBuf, State> CODEC = StreamCodec.of((buffer, payload) -> {
             buffer.writeVarInt(payload.container());
             buffer.writeVarInt(payload.revision());
             ShipDesign.STREAM_CODEC.encode(buffer, payload.design());
             buffer.writeUtf(payload.message(), 64);
             buffer.writeVarInt(payload.count());
-        }, buffer -> new State(buffer.readVarInt(), buffer.readVarInt(), ShipDesign.STREAM_CODEC.decode(buffer),
-                buffer.readUtf(64), buffer.readVarInt()));
+            if (payload.notice() != null) {
+                ComponentSerialization.STREAM_CODEC.encode(buffer, payload.notice());
+            }
+        }, buffer -> {
+            int container = buffer.readVarInt();
+            int revision = buffer.readVarInt();
+            var design = ShipDesign.STREAM_CODEC.decode(buffer);
+            String message = buffer.readUtf(64);
+            int count = buffer.readVarInt();
+            var notice = buffer.isReadable() ? ComponentSerialization.STREAM_CODEC.decode(buffer) : null;
+            return new State(container, revision, design, message, count, notice);
+        });
 
         @Override
         public Type<State> type() {

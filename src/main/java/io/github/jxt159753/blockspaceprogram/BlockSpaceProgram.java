@@ -18,6 +18,10 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.compat.computercraft.FlightPeripheral;
+import io.github.jxt159753.blockspaceprogram.compat.ftbteams.FtbTeamsFacilityOwnerResolver;
+import io.github.jxt159753.blockspaceprogram.facility.FacilityCommands;
+import io.github.jxt159753.blockspaceprogram.facility.FacilityLevels;
+import io.github.jxt159753.blockspaceprogram.facility.FacilityOwnerResolver;
 import io.github.jxt159753.blockspaceprogram.orbit.BenchmarkNetworking;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
@@ -32,7 +36,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
-import net.minecraft.world.flag.FeatureFlags;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
@@ -44,6 +47,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredBlock;
@@ -65,6 +69,7 @@ public final class BlockSpaceProgram {
     private static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, MOD_ID);
     private static final DeferredRegister.DataComponents COMPONENTS =
             DeferredRegister.createDataComponents(Registries.DATA_COMPONENT_TYPE, MOD_ID);
+    private static FacilityLevels facilities;
 
     public static final DeferredBlock<BakingTableBlock> BAKING_TABLE = BLOCKS.registerBlock(
             "baking_table", BakingTableBlock::new, BlockBehaviour.Properties.of().strength(2.5F));
@@ -110,9 +115,9 @@ public final class BlockSpaceProgram {
             "assembled_ship", id -> EntityType.Builder.of(AssembledShipEntity::new, MobCategory.MISC)
                     .sized(1.0F, 1.0F).clientTrackingRange(12).build(id.toString()));
     public static final DeferredHolder<MenuType<?>, MenuType<AssemblyMenu>> ASSEMBLY_MENU = MENUS.register(
-            "assembly", () -> new MenuType<>(AssemblyMenu::new, FeatureFlags.DEFAULT_FLAGS));
+            "assembly", () -> IMenuTypeExtension.create(AssemblyMenu::tableClient));
     public static final DeferredHolder<MenuType<?>, MenuType<AssemblyMenu>> WORLD_ASSEMBLY_MENU = MENUS.register(
-            "world_assembly", () -> new MenuType<>(AssemblyMenu::worldClient, FeatureFlags.DEFAULT_FLAGS));
+            "world_assembly", () -> IMenuTypeExtension.create(AssemblyMenu::worldClient));
     public static final DeferredHolder<MenuType<?>, MenuType<FlightTerminalMenu>> FLIGHT_TERMINAL_MENU = MENUS.register(
             "flight_terminal", () -> IMenuTypeExtension.create(FlightTerminalMenu::new));
 
@@ -125,6 +130,9 @@ public final class BlockSpaceProgram {
 
     public BlockSpaceProgram(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.SERVER, ShipServerConfig.SPEC);
+        facilities = new FacilityLevels(ShipServerConfig.FACILITY, ModList.get().isLoaded("ftbteams")
+                ? new FtbTeamsFacilityOwnerResolver() : FacilityOwnerResolver::personal);
+        NeoForge.EVENT_BUS.addListener(FacilityCommands::register);
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
         ENTITIES.register(modBus);
@@ -144,6 +152,10 @@ public final class BlockSpaceProgram {
         SkyNetworking.register(modBus);
         modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
+    }
+
+    public static FacilityLevels facilities() {
+        return facilities;
     }
 
     private void addCreativeTabItems(BuildCreativeModeTabContentsEvent event) {

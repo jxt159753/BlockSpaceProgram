@@ -131,9 +131,9 @@ public final class PlacedPartEntity extends Entity {
         }
         if (player instanceof ServerPlayer serverPlayer) {
             if (stack.is(BlockSpaceProgram.SHIP_ASSEMBLER.get())) {
-                String error = WorldAssembly.assemble(serverPlayer, this);
+                var error = WorldAssembly.assemble(serverPlayer, this);
                 if (error != null) {
-                    player.displayClientMessage(Component.translatable("assembly.blockspaceprogram." + error), true);
+                    player.displayClientMessage(error, true);
                     return InteractionResult.FAIL;
                 }
                 return InteractionResult.CONSUME;

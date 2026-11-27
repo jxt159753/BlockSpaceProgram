@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleMenuProvider;
@@ -23,9 +22,10 @@ public final class AssemblyTableBlock extends Block {
             if (!player.getAbilities().mayBuild || !level.mayInteract(player, pos)) {
                 return InteractionResult.FAIL;
             }
+            int maximumParts = (int) ShipFacilityLimits.parts(serverPlayer).maximum();
             serverPlayer.openMenu(new SimpleMenuProvider(
                     (id, inventory, owner) -> new AssemblyMenu(id, inventory, ContainerLevelAccess.create(level, pos)),
-                    getName()));
+                    getName()), buffer -> buffer.writeVarInt(maximumParts));
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
     }
