@@ -310,10 +310,11 @@ public final class SableShipFlight implements ShipFlightControl {
                 .map(flight -> flight.ship).toList();
     }
 
-    public static void setOrbitalGravity(ServerLevel level, @Nullable UnaryOperator<Vec3> gravity) {
+    public static void setOrbitalFrame(ServerLevel level, @Nullable UnaryOperator<Vec3> gravity, Vec3 referenceVelocity) {
         var flights = LEVELS.get(level);
         if (flights != null) {
             flights.orbitalGravity = gravity;
+            flights.orbitalVelocity = referenceVelocity;
         }
     }
 
@@ -1162,7 +1163,9 @@ public final class SableShipFlight implements ShipFlightControl {
         moment.sub(center.cross(impulse, new Vector3d()));
         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var podRotation = pilotRotation();
-        var axes = controls.resolveAxes(keys, new Quaterniond(orientation).mul(podRotation), linearVelocity, angularVelocity);
+        // The local physics velocity omits the orbital frame's translation around the planet.
+        var attitudeVelocity = flights.orbitalGravity == null ? linearVelocity : vector(flights.orbitalVelocity).add(linearVelocity);
+        var axes = controls.resolveAxes(keys, new Quaterniond(orientation).mul(podRotation), attitudeVelocity, angularVelocity);
         double wheelTorque = state.wheelTorque();
         if (wheelTorque > 0 && axes.lengthSquared() > 0) {
             var wheel = podRotation.transform(new Vector3d(axes))
@@ -1212,6 +1215,7 @@ public final class SableShipFlight implements ShipFlightControl {
         final Vector3dc baseGravity;
         final Map<ServerSubLevel, SableShipFlight> active = new IdentityHashMap<>();
         @Nullable UnaryOperator<Vec3> orbitalGravity;
+        Vec3 orbitalVelocity = Vec3.ZERO;
         boolean frozenForWarp;
         boolean pausedBeforeWarp;
 

@@ -145,6 +145,7 @@
   "key.blockspaceprogram.cycle_attitude": "切換姿態模式",
   "key.blockspaceprogram.cycle_throttle": "切換油門模式",
   "flight.blockspaceprogram.modes": "姿態 %s   油門 %s",
+  "flight.blockspaceprogram.orbit_heights": "海拔 %s m   近點 %s m",
   "flight.blockspaceprogram.attitude.manual": "手動",
   "flight.blockspaceprogram.attitude.kill_rotation": "消除旋轉",
   "flight.blockspaceprogram.attitude.hold": "保持航向",

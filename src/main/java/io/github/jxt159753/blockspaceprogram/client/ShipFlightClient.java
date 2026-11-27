@@ -97,6 +97,11 @@ public final class ShipFlightClient {
                                 Component.translatable("flight.blockspaceprogram.attitude." + ship.attitudeMode().id()),
                                 Component.translatable("flight.blockspaceprogram.throttle." + ship.throttleMode().id()));
                         graphics.drawCenteredString(game.font, modes, graphics.guiWidth() / 2, graphics.guiHeight() - 97, 0xFFFFFF);
+                        var orbit = OrbitalRegionClient.flightOrbit(game.level, ship.getUUID());
+                        if (orbit != null) {
+                            var heights = Component.translatable("flight.blockspaceprogram.orbit_heights", orbit.altitude(), orbit.periapsis());
+                            graphics.drawCenteredString(game.font, heights, graphics.guiWidth() / 2, graphics.guiHeight() - 109, 0xFFFFFF);
+                        }
                     }
                 });
     }
