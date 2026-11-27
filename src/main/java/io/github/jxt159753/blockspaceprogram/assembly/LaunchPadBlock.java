@@ -51,6 +51,11 @@ public final class LaunchPadBlock extends Block {
         if (design == null || !design.isValid()) {
             return reject(player, "blueprint");
         }
+        var rejection = ShipFacilityLimits.checkLaunch(player, design);
+        if (rejection != null) {
+            player.displayClientMessage(rejection, true);
+            return false;
+        }
         Inventory inventory = player.getInventory();
         Map<BakedPart, Integer> required = new HashMap<>();
         for (ShipDesign.Node node : design.nodes()) {

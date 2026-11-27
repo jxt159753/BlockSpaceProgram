@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 public class PackageDependenciesTest {
     private static final String PACKAGE_PREFIX = "io.github.jxt159753.blockspaceprogram.";
     private static final String MOD_CLASS = PACKAGE_PREFIX + "BlockSpaceProgram";
-    private static final List<String> LAYERS = List.of("part", "collision", "assembly", "orbit", "sky", "client");
+    private static final List<String> LAYERS = List.of("facility", "part", "collision", "assembly", "orbit", "sky", "client");
 
     @Test
     public void importsFollowLayerOrder() throws IOException {

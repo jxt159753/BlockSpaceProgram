@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.part;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.facility.Facility;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -64,6 +65,12 @@ public final class BakingTableBlock extends Block {
     private static boolean bake(ServerLevel level, BlockPos table, ServerPlayer player, ItemStack material) {
         Map<BlockPos, BlockState> structure = scan(level, table, player);
         if (structure == null) {
+            return false;
+        }
+        var facility = Facility.BAKING_TABLE;
+        var rejection = facility.rejection(BlockSpaceProgram.facilities().limit(player, facility), structure.size());
+        if (rejection != null) {
+            player.displayClientMessage(rejection, true);
             return false;
         }
         BakedPart part;
