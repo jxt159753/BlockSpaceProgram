@@ -30,7 +30,6 @@ import org.joml.Vector4f;
 
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class OrbitalRegionClient {
-    private static final double MODEL_RANGE = 4_000;
     private static final int COLOR = 0xFFA6E8FF;
     private static final Set<UUID> RENDERED_SHIPS = new HashSet<>();
     private static ClientLevel contactsLevel;
@@ -45,15 +44,15 @@ public final class OrbitalRegionClient {
         contactsLevel = game.level;
         contacts = snapshot;
         flightOrbit = null;
-        var view = contactsLevel == null ? null : PlanetSkyClient.orbitalViewIn(contactsLevel);
-        if (view == null || game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship)) {
+        if (contactsLevel == null || !contactsLevel.dimension().equals(BlockSpaceProgram.ORBITAL_SPACE)
+                || game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship)) {
             return;
         }
         var system = ClientOrbitalState.system();
-        var body = system.body(view.reference().orElseThrow().center());
         double seconds = snapshot.orbitTicks() / (double) OrbitalSavedData.TICKS_PER_SECOND;
         for (var contact : snapshot.ships()) {
             if (contact.id().equals(ship.getUUID())) {
+                var body = system.centerAt(contact.state().position(), seconds);
                 var relative = contact.state().subtract(system.bodyState(body.id(), seconds));
                 try {
                     var elements = OrbitElements.fromState(body.gravitationalParameter(), relative, seconds);
@@ -134,7 +133,7 @@ public final class OrbitalRegionClient {
             var clip = projection.transform(new Vector4f((float) delta.x, (float) delta.y, (float) delta.z, 1));
             long metres = Math.round(distance);
             if (clip.w <= 0 || Math.abs(clip.x) >= clip.w || Math.abs(clip.y) >= clip.w) {
-                if (distance <= MODEL_RANGE) {
+                if (distance <= OrbitalRegion.CONTACT_RANGE) {
                     // Use the bearing before perspective division so contacts behind the camera keep the right side.
                     float edge = Math.max(Math.abs(clip.x), Math.abs(clip.y));
                     next.add(edge > 1e-5F ? new Marker(0.9F * clip.x / edge, 0.9F * clip.y / edge, metres)
@@ -143,7 +142,7 @@ public final class OrbitalRegionClient {
                 continue;
             }
             next.add(new Marker(clip.x / clip.w, clip.y / clip.w, metres));
-            if (distance <= MODEL_RANGE) {
+            if (distance <= OrbitalRegion.CONTACT_RANGE) {
                 drawModel(event, game, delta, distance);
             }
         }

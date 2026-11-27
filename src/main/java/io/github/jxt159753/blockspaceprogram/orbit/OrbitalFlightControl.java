@@ -68,7 +68,7 @@ public final class OrbitalFlightControl {
     }
 
     public WarpResult warpTo(double seconds) {
-        if (!server.isSingleplayer() || server.isPublished()) {
+        if (!OrbitalTimeWarp.isPrivateWorld(server)) {
             return WarpResult.MULTIPLAYER;
         }
         var owner = server.getPlayerList().getPlayer(ownerId);

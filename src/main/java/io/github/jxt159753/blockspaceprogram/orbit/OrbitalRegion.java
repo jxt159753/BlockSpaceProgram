@@ -44,6 +44,7 @@ public final class OrbitalRegion extends SavedData {
     private static final double REBASE_DISTANCE = 64;
     private static final double REBASE_SPEED = 12;
     static final int CONTACT_INTERVAL = 5;
+    public static final double CONTACT_RANGE = 4_000;
     // Leave clearance below the region for target ships and untethered players.
     public static final Vec3 ORIGIN = new Vec3(0, 4096, 0);
 
@@ -529,6 +530,13 @@ public final class OrbitalRegion extends SavedData {
         return members.values().stream().filter(AssembledShipEntity.class::isInstance)
                 .map(ship -> new OrbitalNetworking.Contact(ship.getUUID(), frame.absolute(localState(ship))))
                 .toList();
+    }
+
+    @Nullable
+    Vec3 observerPosition(ServerPlayer player, OrbitalSavedData data) {
+        var path = referenceFor(player);
+        return path == null ? null : data.system().absoluteState(path, data.orbitSeconds()).position()
+                .add(toInertial(SableShipFlight.worldPosition(player).subtract(ORIGIN)));
     }
 
     private static OrbitalState localState(Entity entity) {

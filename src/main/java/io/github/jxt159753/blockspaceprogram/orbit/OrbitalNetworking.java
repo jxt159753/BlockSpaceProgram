@@ -6,9 +6,12 @@ import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalRegionClient;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
 import io.netty.buffer.ByteBuf;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -17,6 +20,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
@@ -31,17 +35,20 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.NetworkRegistry;
 
 public final class OrbitalNetworking {
+    // A respawn replaces the player entity but keeps the connection and its client-side ship cache.
+    private static final Map<ServerGamePacketListenerImpl, OrbitalShipTracker> SHIP_TRACKERS = new WeakHashMap<>();
+
     private OrbitalNetworking() {}
 
     public static void register(IEventBus modBus) {
         modBus.addListener(OrbitalNetworking::registerPayloads);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLevelLoad);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogin);
+        NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogout);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::afterServerTick);
         NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
         if (ModList.get().isLoaded("sable")) {
             NeoForge.EVENT_BUS.addListener(OrbitalTimeWarp::register);
-            NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogout);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onDimensionChange);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onStopping);
         }
@@ -97,10 +104,6 @@ public final class OrbitalNetworking {
                 return;
             }
             PacketDistributor.sendToPlayer(player, new Clock(data.orbitTicks()));
-            for (OrbitingShip ship : data.ships()) {
-                var view = OrbitalShipView.of(ship, player.registryAccess());
-                PacketDistributor.sendToPlayer(player, new ShipUpdate(ship.id(), Optional.of(view)));
-            }
             if (ModList.get().isLoaded("sable")) {
                 OrbitalRegion.get(player.serverLevel().getServer()).onLogin(player, data);
             }
@@ -108,9 +111,12 @@ public final class OrbitalNetworking {
     }
 
     private static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player && OrbitalRegion.inSpace(player)) {
-            var server = player.serverLevel().getServer();
-            OrbitalRegion.get(server).onLogout(player, OrbitalSavedData.get(server));
+        if (event.getEntity() instanceof ServerPlayer player) {
+            SHIP_TRACKERS.remove(player.connection);
+            if (ModList.get().isLoaded("sable") && OrbitalRegion.inSpace(player)) {
+                var server = player.serverLevel().getServer();
+                OrbitalRegion.get(server).onLogout(player, OrbitalSavedData.get(server));
+            }
         }
     }
 
@@ -133,8 +139,9 @@ public final class OrbitalNetworking {
         OrbitalSavedData data = OrbitalSavedData.get(server);
         boolean sable = ModList.get().isLoaded("sable");
         var space = sable ? server.getLevel(BlockSpaceProgram.ORBITAL_SPACE) : null;
+        var region = space == null ? null : OrbitalRegion.get(server);
         double previousSeconds = data.orbitSeconds();
-        int step = space == null ? 1 : OrbitalRegion.get(server).timeWarp().nextStep(space, data);
+        int step = region == null ? 1 : region.timeWarp().nextStep(space, data);
         boolean warped = step > 1;
         // Run listeners after committing the orbital updates and leaving the active-ship iterator.
         data.advanceTicks(server.registryAccess(), step).forEach(NeoForge.EVENT_BUS::post);
@@ -142,21 +149,35 @@ public final class OrbitalNetworking {
             ShipOrbitHandoff.tick(server, data, previousSeconds, warped);
         }
         var changes = data.takeChanges();
-        if (server.getPlayerList().getPlayers().isEmpty()) {
+        var players = server.getPlayerList().getPlayers();
+        if (players.isEmpty()) {
             return;
         }
-        if (warped || !changes.isEmpty() || data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0) {
+        if (warped || data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0) {
             PacketDistributor.sendToAllPlayers(new Clock(data.orbitTicks()));
         }
-        for (UUID id : changes) {
-            var view = Optional.ofNullable(data.ship(id)).map(ship -> OrbitalShipView.of(ship, server.registryAccess()));
-            PacketDistributor.sendToAllPlayers(new ShipUpdate(id, view));
-        }
-        if (space != null && !space.players().isEmpty()
-                && (warped || data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0)) {
-            var contacts = OrbitalRegion.get(server).contacts(data);
-            var payload = new RegionContacts(data.orbitTicks(), contacts);
-            space.players().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
+
+        boolean showAll = OrbitalTimeWarp.isPrivateWorld(server);
+        var contacts = region != null && !space.players().isEmpty()
+                && (warped || data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0) ? region.contacts(data) : null;
+        var updates = new HashMap<UUID, ShipUpdate>();
+        for (ServerPlayer player : players) {
+            var position = region == null || player.serverLevel() != space ? null : region.observerPosition(player, data);
+            var center = position == null ? player.level().dimension().location()
+                    : data.system().centerAt(position, data.orbitSeconds()).id();
+            var interest = new OrbitalShipTracker.Interest(player.getUUID(), center, showAll);
+            var tracker = SHIP_TRACKERS.computeIfAbsent(player.connection, connection -> new OrbitalShipTracker());
+            tracker.sync(data, interest, changes, (id, ship) -> {
+                var update = ship == null ? new ShipUpdate(id, Optional.empty())
+                        : updates.computeIfAbsent(id, key -> new ShipUpdate(key,
+                                Optional.of(OrbitalShipView.of(ship, server.registryAccess()))));
+                PacketDistributor.sendToPlayer(player, update);
+            });
+            if (contacts != null && position != null) {
+                var nearby = showAll ? contacts : contacts.stream().filter(contact -> contact.state().position()
+                        .distanceToSqr(position) <= OrbitalRegion.CONTACT_RANGE * OrbitalRegion.CONTACT_RANGE).toList();
+                PacketDistributor.sendToPlayer(player, new RegionContacts(data.orbitTicks(), nearby));
+            }
         }
     }
 
