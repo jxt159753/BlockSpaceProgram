@@ -52,7 +52,7 @@ final class ShipFlightState {
         impactParts = new ImpactPart[count];
         this.stage = stage;
         damagedParts = savedDamage & ((1L << count) - 1);
-        int[] groups = new int[count];
+        int[] groups = StagePerformance.tankGroups(design);
         double dryMass = 0;
         double weakest = Double.POSITIVE_INFINITY;
         long pods = 0;
@@ -62,8 +62,7 @@ final class ShipFlightState {
             var node = design.nodes().get(index);
             var part = node.part();
             var properties = part.properties();
-            int group = StagePerformance.tankGroup(design, branch, groups);
-            groups[index] = group;
+            int group = groups[index];
             double capacity = StagePerformance.fuelCapacity(node);
             fuel[index] = initialFuel(savedFuel, count, index, capacity, isDamaged(index));
             dryMass += properties.mass();
@@ -106,7 +105,7 @@ final class ShipFlightState {
     static int initialStage(ShipDesign design) {
         int engineStage = design.nodes().stream().filter(ShipFlightState::hasEngine)
                 .mapToInt(ShipDesign.Node::engineStage).min().orElse(0);
-        int firstCut = design.links().stream().filter(ShipDesign.Link::separable)
+        int firstCut = design.links().stream().filter(link -> link.separationStage() >= 0)
                 .mapToInt(ShipDesign.Link::separationStage).min().orElse(design.stageCount());
         return Math.min(engineStage, firstCut - 1);
     }
@@ -153,18 +152,42 @@ final class ShipFlightState {
                 moment.scale(1.0 / nozzleCount).toVector3f());
     }
 
-    private static Vec3 seat(ShipDesign design, int pod) {
+    static Vec3 seat(ShipDesign design, int pod) {
         var root = design.nodes().get(pod);
+        var cabin = root.bounds();
         Vec3 marker = root.part().blocks().stream().filter(block -> block.state().is(PartType.COMMAND_SEATS))
-                .map(block -> root.point(Vec3.atCenterOf(block.pos()))).findFirst().orElseGet(() -> root.bounds().getCenter());
-        double height = root.bounds().maxY;
-        for (var node : design.nodes()) {
-            var box = node.bounds().inflate(0.30, 0, 0.30);
-            if (marker.x >= box.minX && marker.x <= box.maxX && marker.z >= box.minZ && marker.z <= box.maxZ) {
-                height = Math.max(height, box.maxY);
+                .map(block -> root.point(Vec3.atCenterOf(block.pos()))).findFirst().orElse(cabin.getCenter());
+        var up = root.pose().rotation().rotate(Direction.UP);
+        Vec3 seat = exposedSeat(design, marker, up);
+        if (cabin.distanceToSqr(seat) > 0.01
+                && design.nodes().stream().filter(ShipDesign.Node::isCommandPod).limit(2).count() == 2) {
+            // Stacked pods can share a column. Move the covered seat to the closest exposed side.
+            for (Direction side : Direction.values()) {
+                if (side.getAxis() != up.getAxis()) {
+                    Vec3 candidate = exposedSeat(design, marker, side);
+                    if (candidate.distanceToSqr(marker) < seat.distanceToSqr(marker)) {
+                        seat = candidate;
+                    }
+                }
             }
         }
-        return new Vec3(marker.x, height + 0.05, marker.z);
+        return seat;
+    }
+
+    private static Vec3 exposedSeat(ShipDesign design, Vec3 marker, Direction direction) {
+        var normal = Vec3.atLowerCornerOf(direction.getNormal());
+        double surface = marker.dot(normal);
+        for (var node : design.nodes()) {
+            var bounds = node.bounds();
+            var box = bounds.inflate(0.30);
+            Vec3 column = marker.add(normal.scale(box.getCenter().subtract(marker).dot(normal)));
+            if (box.contains(column)) {
+                var min = new Vec3(bounds.minX, bounds.minY, bounds.minZ);
+                var max = new Vec3(bounds.maxX, bounds.maxY, bounds.maxZ);
+                surface = Math.max(surface, Math.max(min.dot(normal), max.dot(normal)));
+            }
+        }
+        return marker.add(normal.scale(surface - marker.dot(normal) + 0.05));
     }
 
     Map<BlockPos, Cell> cells() {
@@ -197,6 +220,12 @@ final class ShipFlightState {
             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
         }
         return new ShipFlightState(design, remainingFuel, damage, stage);
+    }
+
+    ShipFlightState docked(ShipDesign design, ShipFlightState incoming) {
+        var combinedFuel = saveFuel();
+        combinedFuel.addAll(incoming.saveFuel());
+        return new ShipFlightState(design, combinedFuel, damagedParts | incoming.damagedParts << fuel.length, stage);
     }
 
     double wheelTorque() {

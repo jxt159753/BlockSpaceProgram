@@ -8,6 +8,9 @@ public final class ShipServerConfig {
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
     static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
+    static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
+    static final ModConfigSpec.DoubleValue DOCK_ANGLE;
+    static final ModConfigSpec.DoubleValue DOCK_SPEED;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_EXIT_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_SPEED;
@@ -26,6 +29,14 @@ public final class ShipServerConfig {
         builder.push("flight");
         MAX_REMOTE_SHIPS = builder.comment("Maximum ships kept loaded by a remote flight controller per dimension.")
                 .defineInRange("maxRemoteShips", 8, 0, Integer.MAX_VALUE);
+        builder.pop();
+        builder.push("docking");
+        DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")
+                .defineInRange("captureDistance", 0.25, 0.01, 2.0);
+        DOCK_ANGLE = builder.comment("Maximum angular error from a square docking alignment in degrees.")
+                .defineInRange("captureAngle", 8.0, 0.1, 45.0);
+        DOCK_SPEED = builder.comment("Maximum relative speed of the docking port centers in metres per second.")
+                .defineInRange("captureSpeed", 0.5, 0.01, 5.0);
         builder.pop();
         builder.push("orbitalPhysics");
         ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres at which a nearby ship can enter local physics.")

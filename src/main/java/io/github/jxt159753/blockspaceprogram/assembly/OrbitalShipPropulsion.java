@@ -22,7 +22,7 @@ public final class OrbitalShipPropulsion {
         this.shipData = shipData;
         int count = design.nodes().size();
         partFuel = new double[count];
-        groups = new int[count];
+        groups = StagePerformance.tankGroups(design);
         groupFuel = new double[count];
         flow = new double[count];
         double[] thrust = new double[count];
@@ -32,8 +32,7 @@ public final class OrbitalShipPropulsion {
             int index = branch.node();
             var node = design.nodes().get(index);
             var properties = node.part().properties();
-            int group = StagePerformance.tankGroup(design, branch, groups);
-            groups[index] = group;
+            int group = groups[index];
             boolean damaged = (damage & (1L << index)) != 0;
             partFuel[index] = ShipFlightState.initialFuel(savedFuel, count, index, StagePerformance.fuelCapacity(node), damaged);
             groupFuel[group] += partFuel[index];
