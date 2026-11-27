@@ -109,9 +109,20 @@ public final class OrbitalSavedData extends SavedData {
         return ManeuverResult.QUEUED;
     }
 
-    void advanceTick(HolderLookup.Provider registries) {
+    double nextManeuverSeconds() {
+        double next = Double.POSITIVE_INFINITY;
+        for (UUID id : activeShips) {
+            var node = ships.get(id).maneuver().orElse(null);
+            if (node != null) {
+                next = Math.min(next, node.seconds());
+            }
+        }
+        return next;
+    }
+
+    void advanceTicks(HolderLookup.Provider registries, int ticks) {
         double from = orbitSeconds();
-        orbitTicks++;
+        orbitTicks += ticks;
         double to = orbitSeconds();
         var candidates = activeShips.iterator();
         while (candidates.hasNext()) {

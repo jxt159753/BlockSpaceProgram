@@ -43,16 +43,15 @@ public class OrbitalSavedDataTest {
         var savedShip = new OrbitingShip(id, new Orbit(OrbitalSystem.MOTHER_PLANET,
                 OrbitElements.fromSemiMajorAxis(70_000, 0, 0, 0, 0, 0, 0)), orientation, angularVelocity, shipData);
         data.put(savedShip);
-        for (int tick = 0; tick < 45; tick++) {
-            data.advanceTick(REGISTRIES);
-        }
+        data.advanceTicks(REGISTRIES, 100_000);
+        data.advanceTicks(REGISTRIES, 1);
         storage.save();
         IOUtilities.waitUntilIOWorkerComplete();
 
         var reopened = openStorage();
         OrbitalSavedData loaded = reopened.computeIfAbsent(OrbitalSavedData.FACTORY, OrbitalSavedData.STORAGE_ID);
-        assertEquals(45, loaded.orbitTicks());
-        assertEquals(2.25, loaded.orbitSeconds(), 0);
+        assertEquals(100_001, loaded.orbitTicks());
+        assertEquals(5_000.05, loaded.orbitSeconds(), 0);
         assertFalse(loaded.isDirty());
         assertEquals(savedShip, loaded.ship(id));
         OrbitingShip handoff = loaded.remove(id);
@@ -70,7 +69,7 @@ public class OrbitalSavedDataTest {
         OrbitalSavedData data = storage.computeIfAbsent(OrbitalSavedData.FACTORY, OrbitalSavedData.STORAGE_ID);
         UUID id = UUID.randomUUID();
         var orbit = new Orbit(OrbitalSystem.MOTHER_PLANET, OrbitElements.fromSemiMajorAxis(70_000, 0, 0, 0, 0, 0, 0));
-        var node = new ManeuverNode(0.075, new Vec3(30, 0, 0));
+        var node = new ManeuverNode(12.075, new Vec3(30, 0, 0));
         var req = Optional.of(node);
         var ship = new OrbitingShip(id, orbit, new Quaterniond(), Vec3.ZERO, new CompoundTag());
         data.put(ship);
@@ -81,9 +80,11 @@ public class OrbitalSavedDataTest {
 
         var loaded = openStorage().computeIfAbsent(OrbitalSavedData.FACTORY, OrbitalSavedData.STORAGE_ID);
         assertEquals(req, loaded.ship(id).maneuver());
-        loaded.advanceTick(REGISTRIES);
+        var step = OrbitalTimeWarp.stepBefore(loaded.orbitTicks(), 100_000, loaded.nextManeuverSeconds());
+        loaded.advanceTicks(REGISTRIES, step);
+        assertEquals(12.05, loaded.orbitSeconds(), 0);
         assertEquals(req, loaded.ship(id).maneuver());
-        loaded.advanceTick(REGISTRIES);
+        loaded.advanceTicks(REGISTRIES, 1);
         assertTrue(loaded.ship(id).maneuver().isEmpty());
         assertEquals(orbit, loaded.ship(id).orbit());
     }

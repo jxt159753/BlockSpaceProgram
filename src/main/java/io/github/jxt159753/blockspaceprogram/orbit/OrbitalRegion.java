@@ -46,6 +46,7 @@ public final class OrbitalRegion extends SavedData {
     public static final Vec3 ORIGIN = new Vec3(0, 4096, 0);
 
     private final Map<UUID, Entity> members = new LinkedHashMap<>();
+    private final OrbitalTimeWarp timeWarp = new OrbitalTimeWarp();
     @Nullable private Orbit reference;
     @Nullable private UUID anchor;
 
@@ -53,6 +54,17 @@ public final class OrbitalRegion extends SavedData {
 
     static OrbitalRegion get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(FACTORY, STORAGE_ID);
+    }
+
+    OrbitalTimeWarp timeWarp() {
+        return timeWarp;
+    }
+
+    List<OrbitalState> warpMembers(ServerLevel space) {
+        syncMembers(space);
+        return members.values().stream().map(OrbitalRegion::localState)
+                .map(state -> new OrbitalState(toInertial(state.position().subtract(ORIGIN)), toInertial(state.velocity())))
+                .toList();
     }
 
     @Nullable
@@ -99,7 +111,7 @@ public final class OrbitalRegion extends SavedData {
         }
     }
 
-    void tick(ServerLevel space, OrbitalSavedData data) {
+    void tick(ServerLevel space, OrbitalSavedData data, double previousSeconds, boolean warped) {
         if (reference == null) {
             return;
         }
@@ -113,11 +125,15 @@ public final class OrbitalRegion extends SavedData {
             return;
         }
 
-        var advanced = SYSTEM.advance(reference, now - 1.0 / OrbitalSavedData.TICKS_PER_SECOND, now);
+        var advanced = SYSTEM.advance(reference, previousSeconds, now);
         if (advanced != reference) {
             setReference(advanced, anchor);
         }
         var frame = new Frame(reference, now);
+        if (warped) {
+            SableShipFlight.setOrbitalGravity(space, frame::gravity);
+            return;
+        }
         for (Entity member : List.copyOf(members.values())) {
             if (member instanceof AssembledShipEntity ship) {
                 try {
@@ -264,6 +280,7 @@ public final class OrbitalRegion extends SavedData {
         if (!inSpace(player)) {
             return;
         }
+        timeWarp.reset(player.serverLevel());
         if (reference == null) {
             configurePlayer(player, false);
             return;
@@ -275,6 +292,7 @@ public final class OrbitalRegion extends SavedData {
     }
 
     void onStopping(ServerLevel space, OrbitalSavedData data) {
+        timeWarp.reset(space);
         if (reference != null) {
             List.copyOf(space.players()).forEach(player -> savePlayer(player, data.orbitSeconds()));
             recycle(space, data);

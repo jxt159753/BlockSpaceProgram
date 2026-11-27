@@ -311,6 +311,26 @@ public final class SableShipFlight implements ShipFlightControl {
         }
     }
 
+    public static boolean isCoasting(ServerLevel level) {
+        var flights = LEVELS.get(level);
+        return flights == null || flights.active.values().stream().filter(SableShipFlight::isActive)
+                .noneMatch(flight -> flight.stageRequested || flight.controls.requestsThrust(flight.keys));
+    }
+
+    public static void freezeOrbitalPhysics(ServerLevel level, boolean freeze) {
+        var flights = LEVELS.get(level);
+        if (flights == null || flights.frozenForWarp == freeze) {
+            return;
+        }
+        // Pausing this Sable solver retains the body poses and velocities and keeps its plots loaded.
+        var physics = SubLevelContainer.getContainer(level).physicsSystem();
+        if (freeze) {
+            flights.pausedBeforeWarp = physics.getPaused();
+        }
+        physics.setPaused(freeze || flights.pausedBeforeWarp);
+        flights.frozenForWarp = freeze;
+    }
+
     public static void rebase(ServerLevel level, Vec3 displacement, Vec3 velocityChange) {
         var moving = new ArrayList<Entity>();
         for (Entity entity : level.getAllEntities()) {
@@ -543,7 +563,7 @@ public final class SableShipFlight implements ShipFlightControl {
         }
         syncStatus();
         updateFlightEvents();
-        if (stageRequested) {
+        if (stageRequested && !flights.frozenForWarp) {
             stageRequested = false;
             try {
                 if (advanceStage()) {
@@ -929,6 +949,8 @@ public final class SableShipFlight implements ShipFlightControl {
         final Vector3dc baseGravity;
         final Map<ServerSubLevel, SableShipFlight> active = new IdentityHashMap<>();
         @Nullable UnaryOperator<Vec3> orbitalGravity;
+        boolean frozenForWarp;
+        boolean pausedBeforeWarp;
 
         Flights(Vector3dc baseGravity) {
             this.baseGravity = baseGravity;
