@@ -1,0 +1,73 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+def experiment = 'experiments/surface-color-map'
+def run = providers.gradleProperty('surfaceColorMapRun').orElse('manual')
+def planetShader = file('src/main/resources/assets/blockspaceprogram/shaders/core')
+def shaderExtension = file("${experiment}/surface-map.glsl")
+def generated = layout.buildDirectory.dir('generated/surfaceColorMap')
+
+def generateShader = tasks.register('generateSurfaceColorMapShader') {
+    def programFile = new File(planetShader, 'planet_sky.json')
+    def fragmentFile = new File(planetShader, 'planet_sky.fsh')
+    inputs.files(programFile, fragmentFile, shaderExtension)
+    outputs.dir(generated)
+    doLast {
+        def shaderDir = generated.get().dir('assets/bsp_surface_color_map/shaders/core').asFile
+        shaderDir.mkdirs()
+        def program = new JsonSlurper().parse(programFile)
+        program.fragment = 'bsp_surface_color_map:surface_map'
+        program.samplers.add([name: 'SurfaceMap'])
+        program.uniforms.add([name: 'HasSurfaceMap', type: 'int', count: 1, values: [0]])
+        new File(shaderDir, 'surface_map.json').setText(JsonOutput.toJson(program), 'UTF-8')
+        def original = fragmentFile.getText('UTF-8')
+        def entry = 'vec3 surfaceColor(vec3 normal) {'
+        if (!original.contains(entry)) {
+            throw new GradleException('Planet sky shader no longer provides the surfaceColor hook')
+        }
+        def sampledColor = '    if (HasSurfaceMap != 0) { return mappedSurfaceColor(normal); }'
+        new File(shaderDir, 'surface_map.fsh').setText(
+                original.replace(entry, shaderExtension.getText('UTF-8') + "\n${entry}\n${sampledColor}"), 'UTF-8')
+    }
+}
+
+sourceSets {
+    surfaceColorMap {
+        java.srcDirs = ["${experiment}/java"]
+        resources.srcDirs = ["${experiment}/resources", generated]
+    }
+    test.java.srcDir "${experiment}/test"
+}
+
+tasks.named('processSurfaceColorMapResources') {
+    dependsOn generateShader
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.surfaceColorMap)
+neoForge.mods.register('bsp_surface_color_map') {
+    sourceSet(sourceSets.surfaceColorMap)
+}
+neoForge.runs.register('surfaceColorMapServer') {
+    server()
+    gameDirectory = file("runs/surfaceColorMap/${run.get()}/server")
+    programArgument '--nogui'
+    jvmArguments.addAll('-Xms2G', '-Xmx2G')
+    systemProperty 'bsp.surfaceColorMap.width', providers.gradleProperty('surfaceColorMapWidth').getOrElse('2048')
+    systemProperty 'bsp.surfaceColorMap.y', providers.gradleProperty('surfaceColorMapY').getOrElse('256')
+}
+neoForge.runs.register('surfaceColorMapClient') {
+    client()
+    gameDirectory = file("runs/surfaceColorMap/${run.get()}/client")
+    programArguments.addAll('--username', 'SurfaceMap')
+    systemProperty 'bsp.surfaceColorMap.compareTerrain', providers.gradleProperty('surfaceColorMapCompareTerrain').isPresent().toString()
+    if (providers.gradleProperty('surfaceColorMapJoin').isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', providers.gradleProperty('surfaceColorMapJoin').get())
+    }
+}
+tasks.named('runSurfaceColorMapServer', JavaExec) {
+    standardInput = System.in
+}
+dependencies {
+    surfaceColorMapCompileOnly sourceSets.main.output
+    testImplementation sourceSets.surfaceColorMap.output
+}

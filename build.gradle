@@ -137,3 +137,7 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
 if (providers.gradleProperty('candidateDimensions').isPresent()) {
     apply from: 'experiments/candidate-dimensions/candidate-dimensions.gradle'
 }
+
+if (providers.gradleProperty('surfaceColorMap').isPresent()) {
+    apply from: 'experiments/surface-color-map/surface-color-map.gradle'
+}
