@@ -29,7 +29,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     // With the blueprint in hand, the main inventory and offhand can supply 36 unstackable parts.
     public static final int MAX_PARTS = 36;
     public static final int MAX_HULL_NODES = 27;
-    private static final int MAX_NODES = MAX_PARTS + MAX_HULL_NODES;
+    static final int MAX_NODES = MAX_PARTS + MAX_HULL_NODES;
     public static final int BENCHMARK_MAX_PARTS = 50;
     public static final int MAX_STAGES = MAX_PARTS * 2;
     static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;

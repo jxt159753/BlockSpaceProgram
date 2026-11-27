@@ -1,5 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import com.mojang.math.OctahedralGroup;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -13,8 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /** A sparse block region on the ship's block grid, with material masses captured at assembly. */
 public final class HullRegion {
@@ -99,6 +103,26 @@ public final class HullRegion {
 
     boolean contains(BlockPos position) {
         return storage.positions().contains(position.asLong());
+    }
+
+    HullRegion rotate(OctahedralGroup axes) {
+        if (axes == PartPose.ROOT.rotation()) {
+            return this;
+        }
+        var rotation = switch (axes.rotate(Direction.NORTH)) {
+            case EAST -> Rotation.CLOCKWISE_90;
+            case SOUTH -> Rotation.CLOCKWISE_180;
+            case WEST -> Rotation.COUNTERCLOCKWISE_90;
+            default -> throw new IllegalArgumentException("Expected a hull yaw rotation");
+        };
+        // Rotating the center accounts for the lower corner changing on reversed axes.
+        BlockPos shift = BlockPos.containing(PartPose.rotate(axes, new Vec3(0.5, 0.5, 0.5)));
+        var positions = storage.positions().longStream()
+                .map(pos -> BlockPos.of(pos).rotate(rotation).offset(shift).asLong()).toArray();
+        var palette = storage.palette().stream()
+                .map(material -> new Material(material.state().rotate(rotation), material.mass())).toList();
+        return new HullRegion(new Storage(palette, LongList.of(positions), storage.indices()),
+                PartPose.rotateBounds(axes, bounds), mass);
     }
 
     void forEach(BiConsumer<BlockPos, Material> consumer) {
