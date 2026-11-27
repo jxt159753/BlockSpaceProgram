@@ -1,0 +1,160 @@
+import groovy.json.JsonLexer
+
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+
+abstract class CheckLang extends DefaultTask {
+    private static final String ENGLISH = 'en_us.json'
+    private static final String SIMPLIFIED_CHINESE = 'zh_cn.json'
+    // Tokenize flat Minecraft language objects without skipping malformed JSON.
+    private static final Pattern JSON_TOKEN = Pattern.compile(/\G[ \t\r\n]*("(?:[^"\\\x00-\x1f]|\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4}))*+"|[{}:,]|\z)/)
+    private static final Pattern PLACEHOLDER = Pattern.compile(/%%|%(?:([0-9]+)\$)?s|%/)
+
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getLanguageDirectory()
+
+    @TaskAction
+    void checkLanguages() {
+        Map<String, File> files = new TreeMap<>()
+        languageDirectory.get().asFileTree.visit { details ->
+            if (!details.directory) {
+                files[details.relativePath.pathString] = details.file
+            }
+        }
+
+        for (String required : [ENGLISH, SIMPLIFIED_CHINESE]) {
+            if (!files.containsKey(required)) {
+                throw new GradleException("${required}: required language file is missing")
+            }
+        }
+
+        Map<String, Set<Integer>> english = readLanguage(ENGLISH, files[ENGLISH])
+        List<String> errors = []
+        files.remove(ENGLISH)
+        for (Map.Entry<String, File> entry : files.entrySet()) {
+            String name = entry.key
+            Map<String, Set<Integer>> translations = readLanguage(name, entry.value)
+            Set<String> missing = english.keySet() - translations.keySet()
+            if (!missing.empty) {
+                String message = "${name}: missing keys from ${ENGLISH}: ${missing.join(', ')}"
+                if (name == SIMPLIFIED_CHINESE) {
+                    errors.add(message)
+                } else {
+                    logger.warn(message)
+                }
+            }
+
+            for (String key : translations.keySet()) {
+                Set<Integer> arguments = translations[key]
+                if (!english.containsKey(key)) {
+                    errors.add("${name}: ${key}: unknown key (not in ${ENGLISH})")
+                } else if (arguments != english[key]) {
+                    errors.add("${name}: ${key}: expected argument indices ${english[key]}, found ${arguments}")
+                }
+            }
+        }
+
+        if (!errors.empty) {
+            throw new GradleException(errors.join(System.lineSeparator()))
+        }
+    }
+
+    private static Map<String, Set<Integer>> readLanguage(String name, File file) {
+        String json
+        try {
+            json = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+        } catch (IOException error) {
+            throw new GradleException("${name}: cannot read UTF-8 JSON (${error.message})", error)
+        }
+        Matcher tokens = JSON_TOKEN.matcher(json)
+        if (nextToken(tokens, name) != '{') {
+            throw new GradleException("${name}: expected a JSON object at the root")
+        }
+
+        Map<String, Set<Integer>> translations = [:]
+        String keyToken = nextToken(tokens, name)
+        if (keyToken != '}') {
+            while (true) {
+                String key = decodeString(keyToken, "${name}: expected a JSON string key")
+                String location = "${name}: ${key}"
+                if (translations.containsKey(key)) {
+                    throw new GradleException("${location}: duplicate key")
+                }
+                if (nextToken(tokens, location) != ':') {
+                    throw new GradleException("${location}: expected ':' after the key")
+                }
+                String translation = decodeString(nextToken(tokens, location), "${location}: expected a string translation")
+                translations[key] = argumentIndices(name, key, translation)
+
+                String delimiter = nextToken(tokens, location)
+                if (delimiter == '}') {
+                    break
+                }
+                if (delimiter != ',') {
+                    throw new GradleException("${location}: expected ',' or '}' after the translation")
+                }
+                keyToken = nextToken(tokens, location)
+            }
+        }
+        if (nextToken(tokens, name) != '') {
+            throw new GradleException("${name}: unexpected content after the JSON object")
+        }
+        return translations
+    }
+
+    private static String nextToken(Matcher tokens, String location) {
+        if (!tokens.find()) {
+            throw new GradleException("${location}: invalid JSON token")
+        }
+        return tokens.group(1)
+    }
+
+    private static String decodeString(String token, String message) {
+        if (!token.startsWith('"')) {
+            throw new GradleException(message)
+        }
+        return JsonLexer.unescape(token.substring(1, token.length() - 1))
+    }
+
+    private static Set<Integer> argumentIndices(String name, String key, String translation) {
+        Set<Integer> arguments = new TreeSet<>()
+        int nextImplicit = 1
+        def matcher = PLACEHOLDER.matcher(translation)
+        while (matcher.find()) {
+            String placeholder = matcher.group()
+            if (placeholder == '%%') {
+                continue
+            }
+            if (placeholder == '%') {
+                throw new GradleException("${name}: ${key}: invalid placeholder at character ${matcher.start() + 1}")
+            }
+            String position = matcher.group(1)
+            int index
+            try {
+                index = position == null ? nextImplicit++ : Integer.parseInt(position)
+            } catch (NumberFormatException error) {
+                throw new GradleException("${name}: ${key}: invalid argument index in ${placeholder}", error)
+            }
+            if (index < 1) {
+                throw new GradleException("${name}: ${key}: invalid argument index in ${placeholder}")
+            }
+            arguments.add(index)
+        }
+        return arguments
+    }
+}
+
+def checkLang = tasks.register('checkLang', CheckLang) {
+    group = 'verification'
+    description = 'Checks language file syntax, translation keys, and placeholder arguments.'
+    languageDirectory.set(layout.projectDirectory.dir('src/main/resources/assets/blockspaceprogram/lang'))
+    // Allow Gradle to skip unchanged inputs for this verification task without output files.
+    outputs.upToDateWhen { true }
+}
+
+tasks.named('check') {
+    dependsOn checkLang
+}

@@ -1,4 +1,5 @@
 {
+  "fml.menu.mods.info.description.blockspaceprogram": "用方块搭建飞船并飞向轨道的 Minecraft 模组。",
   "block.blockspaceprogram.assembly_table": "装配台",
   "block.blockspaceprogram.launch_pad": "发射台",
   "block.blockspaceprogram.stack_interface": "堆叠接口方块",

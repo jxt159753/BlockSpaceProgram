@@ -1,4 +1,5 @@
 {
+  "fml.menu.mods.info.description.blockspaceprogram": "A Minecraft mod about building spacecraft from blocks and flying them into orbit.",
   "block.blockspaceprogram.assembly_table": "Assembly Table",
   "block.blockspaceprogram.launch_pad": "Launch Pad",
   "block.blockspaceprogram.stack_interface": "Stack Interface",
