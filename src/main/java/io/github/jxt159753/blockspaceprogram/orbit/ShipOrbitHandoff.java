@@ -26,11 +26,11 @@ final class ShipOrbitHandoff {
 
     private ShipOrbitHandoff() {}
 
-    static void tick(MinecraftServer server, OrbitalSavedData data) {
+    static void tick(MinecraftServer server, OrbitalSavedData data, double previousSeconds, boolean warped) {
         var region = OrbitalRegion.get(server);
         var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
         if (space != null) {
-            region.tick(space, data);
+            region.tick(space, data, previousSeconds, warped);
         }
         for (ServerLevel level : server.getAllLevels()) {
             if (level == space) {
@@ -64,6 +64,17 @@ final class ShipOrbitHandoff {
             }
         }
         checkDescents(server, data);
+    }
+
+    static double timeWarpRadius(MinecraftServer server, CelestialBody body) {
+        var level = server.getLevel(ResourceKey.create(Registries.DIMENSION, body.id()));
+        var boundary = boundary(level, body);
+        if (boundary != null) {
+            return body.radius() + boundary.descent();
+        }
+        var profile = PlanetFlightProperties.profile(body.id());
+        return profile != null && profile.flight().hasAtmosphere()
+                ? body.radius() + profile.flight().atmosphereTop() : 0;
     }
 
     private static void checkDescents(MinecraftServer server, OrbitalSavedData data) {

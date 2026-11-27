@@ -124,6 +124,21 @@ final class ShipFlightControls {
         return throttleMode == ThrottleMode.VERTICAL_SPEED || throttleMode == ThrottleMode.THRUST_TO_WEIGHT;
     }
 
+    boolean requestsThrust(int keys) {
+        if ((keys & CUTOFF) != 0) {
+            return false;
+        }
+        if ((keys & (THROTTLE_UP | THROTTLE_DOWN)) != 0) {
+            return (keys & THROTTLE_UP) != 0 || pilotThrottle > 0;
+        }
+        return switch (throttleMode) {
+            case MANUAL -> pilotThrottle > 0;
+            case DIRECT, THRUST_TO_WEIGHT -> throttleTarget > 0;
+            // The feedback controller can request thrust as the frame changes.
+            case VERTICAL_SPEED -> true;
+        };
+    }
+
     double resolveThrottle(int keys, double verticalSpeed, double accelerationToHover,
             double maxUpAcceleration, double maxThrustToWeight) {
         if ((keys & CUTOFF) != 0) {

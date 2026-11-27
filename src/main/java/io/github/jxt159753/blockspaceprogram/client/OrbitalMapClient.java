@@ -9,6 +9,7 @@ import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import org.lwjgl.glfw.GLFW;
@@ -17,12 +18,18 @@ import org.lwjgl.glfw.GLFW;
 public final class OrbitalMapClient {
     private static final KeyMapping MAP = new KeyMapping("key.blockspaceprogram.orbital_map",
             InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_M, "key.categories.blockspaceprogram");
+    private static final KeyMapping WARP_FASTER = new KeyMapping("key.blockspaceprogram.warp_faster",
+            InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PERIOD, "key.categories.blockspaceprogram");
+    private static final KeyMapping WARP_SLOWER = new KeyMapping("key.blockspaceprogram.warp_slower",
+            InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_COMMA, "key.categories.blockspaceprogram");
 
     private OrbitalMapClient() {}
 
     @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(MAP);
+        event.register(WARP_FASTER);
+        event.register(WARP_SLOWER);
     }
 
     @SubscribeEvent
@@ -32,6 +39,20 @@ public final class OrbitalMapClient {
             if (game.player != null && game.screen == null && ClientOrbitalState.hasClock()) {
                 game.setScreen(new OrbitalMapScreen());
             }
+        }
+        while (WARP_FASTER.consumeClick()) {
+            changeWarp(game, "faster");
+        }
+        while (WARP_SLOWER.consumeClick()) {
+            changeWarp(game, "slower");
+        }
+    }
+
+    private static void changeWarp(Minecraft game, String direction) {
+        var server = game.getSingleplayerServer();
+        if (game.screen == null && game.player != null && server != null && !server.isPublished()
+                && ModList.get().isLoaded("sable")) {
+            game.player.connection.sendCommand("bsp_warp " + direction);
         }
     }
 

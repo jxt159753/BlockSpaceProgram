@@ -116,18 +116,41 @@ public final class OrbitalSystem {
 
     /** Compute SOI patches once and evaluate the resulting inertial path within the supplied interval. */
     public DoubleFunction<OrbitalState> forecast(Orbit orbit, double fromSeconds, double toSeconds) {
+        return forecast(conics(orbit, fromSeconds, toSeconds));
+    }
+
+    List<Orbit> conics(Orbit orbit, double fromSeconds, double toSeconds) {
         List<Orbit> legs = new ArrayList<>();
         legs.add(orbit);
         advance(orbit, fromSeconds, toSeconds, legs::add);
+        return legs;
+    }
+
+    DoubleFunction<OrbitalState> forecast(List<Orbit> legs) {
         return seconds -> {
-            for (int i = legs.size() - 1; i > 0; i--) {
+            for (int i = legs.size() - 1; i >= 1; i--) {
                 Orbit leg = legs.get(i);
                 if (seconds >= leg.elements().epochSeconds()) {
                     return absoluteState(leg, seconds);
                 }
             }
-            return absoluteState(orbit, seconds);
+            return absoluteState(legs.getFirst(), seconds);
         };
+    }
+
+    double maxAcceleration(List<Orbit> legs) {
+        double maximum = 0;
+        for (Orbit orbit : legs) {
+            double acceleration = 0;
+            while (orbit != null) {
+                var center = body(orbit.center());
+                double periapsis = orbit.elements().periapsis();
+                acceleration += center.gravitationalParameter() / (periapsis * periapsis);
+                orbit = center.orbit();
+            }
+            maximum = Math.max(maximum, acceleration);
+        }
+        return maximum;
     }
 
     private Orbit advance(Orbit orbit, double fromSeconds, double toSeconds, Consumer<Orbit> onCrossing) {

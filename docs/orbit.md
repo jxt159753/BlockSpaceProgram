@@ -1,6 +1,6 @@
 # 轨道数据
 
-所有维度共用主世界存档中的轨道时钟和飞船记录，文件为 `data/blockspaceprogram_orbits.dat`。服务端每游戏刻推进 0.05 轨道秒，20 TPS 时与现实时间同速。天体与飞船用同一时刻求值，位置单位为米，速度单位为米每秒。惯性坐标系使用 XY 参考平面和 +Z 北向，角度用弧度。 [时间方案 #2](https://github.com/jxt159753/BlockSpaceProgram/issues/2)
+所有维度共用主世界存档中的轨道时钟和飞船记录，文件为 `data/blockspaceprogram_orbits.dat`。常速下每游戏刻推进 0.05 轨道秒，20 TPS 时与现实时间同速。天体与飞船用同一时刻求值，位置单位为米，速度单位为米每秒。惯性坐标系使用 XY 参考平面和 +Z 北向，角度用弧度。 [时间方案 #2](https://github.com/jxt159753/BlockSpaceProgram/issues/2)
 
 ## M3 天体
 
@@ -17,7 +17,13 @@
 - `OrbitalSystem.M3` 提供天体参数、同刻的天体位置与速度，以及拼接圆锥曲线传播。影响球半径取 `a × (μ卫星 / μ父天体)^(2/5)`。进出影响球时使用同一惯性系中的位置和速度拟合新圆锥曲线。服务端只检查轨道范围可能与某个影响球边界相交的飞船。
 - `PlanetFrame.atDimension` 和 `atOrbit` 在同一轨道时刻换算维度位置和天体中心惯性位置。速度按东、上、南的正交基底转换，并计入天体自转。姿态和角速度通过同一基底换轴。天空渲染共用该投影。 [星球尺度 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 - `OrbitalSavedData.get(server)` 提供权威时刻和记录。交接方可用 `put` 存入飞船，再从 `ship` 读取船体 NBT、船体到惯性系的姿态四元数和惯性系角速度（rad/s）。目标维度成功重建刚体和实体后调用 `remove`。 [无人飞船交接与调试命令](flight.md#无人飞船与轨道交接) · [局部物理区 #34](https://github.com/jxt159753/BlockSpaceProgram/issues/34)
-- 客户端可用 `ClientOrbitalState` 读取服务端时刻和按 UUID 索引的轨道。登录时收到整份列表，之后接收轨道变更和删除，以及每轨道秒一次的时钟更新。地图可用共享的 `OrbitalSystem.M3` 做同刻求值和未来轨道预演。 [地图 #15](https://github.com/jxt159753/BlockSpaceProgram/issues/15)
+- 客户端可用 `ClientOrbitalState` 读取服务端时刻和按 UUID 索引的轨道。登录时收到整份列表，之后接收轨道变更和删除。时钟在常速时每 20 游戏刻同步一次，加速时每游戏刻同步。地图可用共享的 `OrbitalSystem.M3` 做同刻求值和未来轨道预演。 [地图 #15](https://github.com/jxt159753/BlockSpaceProgram/issues/15)
+
+## 时间加速
+
+- 安装 Sable 后，未开放联机的单人存档可以在轨道局部物理区滑行时加速。按 **.** 提高倍率，按 **,** 降低倍率。档位为 1、5、10、50、100、1,000、10,000 和 100,000 倍。动作栏显示当前倍率。`/bsp_warp` 查询倍率，`/bsp_warp stop` 立即恢复常速。这些操作无需开启作弊。
+- 加速期间天体和在轨飞船随轨道时钟推进。局部物理区的刚体暂停，飞船和舱外玩家继续显示。恢复常速时刚体从原有姿态、线速度和角速度继续模拟。Minecraft 世界、红石和机器仍按游戏刻运行。
+- 飞船准备点火或分级、即将下降到交接高度，或有无人飞船即将满足并入物理区的距离和相对速度条件时，自动恢复 1 倍。专用服和开放联机的存档始终使用 1 倍。重开存档时从 1 倍继续。 [时间加速 #16](https://github.com/jxt159753/BlockSpaceProgram/issues/16)
 
 ## 轨道地图与机动
 

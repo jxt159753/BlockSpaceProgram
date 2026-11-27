@@ -34,6 +34,7 @@ public final class OrbitalNetworking {
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::afterServerTick);
         if (ModList.get().isLoaded("sable")) {
             NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
+            NeoForge.EVENT_BUS.addListener(OrbitalTimeWarp::register);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogout);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onDimensionChange);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onStopping);
@@ -108,24 +109,28 @@ public final class OrbitalNetworking {
     private static void afterServerTick(ServerTickEvent.Post event) {
         var server = event.getServer();
         OrbitalSavedData data = OrbitalSavedData.get(server);
-        data.advanceTick(server.registryAccess());
-        if (ModList.get().isLoaded("sable")) {
-            ShipOrbitHandoff.tick(server, data);
+        boolean sable = ModList.get().isLoaded("sable");
+        var space = sable ? server.getLevel(BlockSpaceProgram.ORBITAL_SPACE) : null;
+        double previousSeconds = data.orbitSeconds();
+        int step = space == null ? 1 : OrbitalRegion.get(server).timeWarp().nextStep(space, data);
+        boolean warped = step > 1;
+        data.advanceTicks(server.registryAccess(), step);
+        if (sable) {
+            ShipOrbitHandoff.tick(server, data, previousSeconds, warped);
         }
         var changes = data.takeChanges();
         if (server.getPlayerList().getPlayers().isEmpty()) {
             return;
         }
-        if (!changes.isEmpty() || data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0) {
+        if (warped || !changes.isEmpty() || data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0) {
             PacketDistributor.sendToAllPlayers(new Clock(data.orbitTicks()));
         }
         for (UUID id : changes) {
             var view = Optional.ofNullable(data.ship(id)).map(ship -> OrbitalShipView.of(ship, server.registryAccess()));
             PacketDistributor.sendToAllPlayers(new ShipUpdate(id, view));
         }
-        var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
-        if (space != null && !space.players().isEmpty() && ModList.get().isLoaded("sable")
-                && data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0) {
+        if (space != null && !space.players().isEmpty()
+                && (warped || data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0)) {
             var contacts = OrbitalRegion.get(server).contacts(data.orbitSeconds());
             var payload = new RegionContacts(data.orbitTicks(), contacts);
             space.players().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
