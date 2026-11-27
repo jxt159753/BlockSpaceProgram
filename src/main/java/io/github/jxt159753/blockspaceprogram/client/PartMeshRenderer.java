@@ -10,7 +10,7 @@ import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormatElement;
-import io.github.jxt159753.blockspaceprogram.client.compat.iris.IrisCompat;
+import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -51,7 +51,7 @@ public final class PartMeshRenderer {
         Mesh mesh = getMesh(part.geometry());
         poses.pushPose();
         poses.scale(part.scale(), part.scale(), part.scale());
-        if (mesh.cutoutBuffer() != null && !IrisCompat.isShaderPackInUse()) {
+        if (mesh.cutoutBuffer() != null && !BlockSpaceProgram.isIrisShaderPackInUse()) {
             drawCutout(mesh.cutoutBuffer(), poses.last(), light);
         } else {
             drawBuffered(mesh.cutout(), Sheets.cutoutBlockSheet(), poses.last(), buffers, light, OverlayTexture.NO_OVERLAY);
@@ -109,7 +109,7 @@ public final class PartMeshRenderer {
         var view = new PartBlockView(geometry);
         PoseStack poses = new PoseStack();
         RandomSource random = RandomSource.create();
-        VertexFormat bakeFormat = IrisCompat.isShaderPackInUse() ? IRIS_BAKE_FORMAT : FORMAT;
+        VertexFormat bakeFormat = BlockSpaceProgram.isIrisShaderPackInUse() ? IRIS_BAKE_FORMAT : FORMAT;
         try (ByteBufferBuilder cutoutStorage = new ByteBufferBuilder(4096);
                 ByteBufferBuilder translucentStorage = new ByteBufferBuilder(4096)) {
             var cutout = new BufferBuilder(cutoutStorage, VertexFormat.Mode.QUADS, bakeFormat);

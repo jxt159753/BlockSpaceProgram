@@ -1,12 +1,10 @@
-package io.github.jxt159753.blockspaceprogram.client.compat.iris;
+package io.github.jxt159753.blockspaceprogram.compat.iris;
 
 import java.lang.reflect.Method;
 import java.util.function.BooleanSupplier;
-import net.neoforged.fml.ModList;
 
 public final class IrisCompat {
-    private static final BooleanSupplier SHADER_PACK_IN_USE =
-            ModList.get().isLoaded("iris") ? shaderPackQuery() : () -> false;
+    private static final BooleanSupplier SHADER_PACK_IN_USE = shaderPackQuery();
 
     private IrisCompat() {
     }
