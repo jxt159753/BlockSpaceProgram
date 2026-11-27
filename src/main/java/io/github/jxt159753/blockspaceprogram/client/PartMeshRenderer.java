@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormatElement;
+import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -31,6 +32,7 @@ import org.joml.Vector3f;
 public final class PartMeshRenderer {
     private static final int CACHE_BUDGET = 16 * 1024 * 1024;
     private static final VertexFormat FORMAT = DefaultVertexFormat.NEW_ENTITY;
+    private static final VertexFormat IRIS_BAKE_FORMAT = copyEntityFormat();
     private static final int STRIDE = FORMAT.getVertexSize();
     private static final int COLOR_OFFSET = FORMAT.getOffset(VertexFormatElement.COLOR);
     private static final int UV_OFFSET = FORMAT.getOffset(VertexFormatElement.UV0);
@@ -49,7 +51,7 @@ public final class PartMeshRenderer {
         Mesh mesh = getMesh(part.geometry());
         poses.pushPose();
         poses.scale(part.scale(), part.scale(), part.scale());
-        if (mesh.cutoutBuffer() != null) {
+        if (mesh.cutoutBuffer() != null && !BlockSpaceProgram.isIrisShaderPackInUse()) {
             drawCutout(mesh.cutoutBuffer(), poses.last(), light);
         } else {
             drawBuffered(mesh.cutout(), Sheets.cutoutBlockSheet(), poses.last(), buffers, light, OverlayTexture.NO_OVERLAY);
@@ -107,10 +109,11 @@ public final class PartMeshRenderer {
         var view = new PartBlockView(geometry);
         PoseStack poses = new PoseStack();
         RandomSource random = RandomSource.create();
+        VertexFormat bakeFormat = BlockSpaceProgram.isIrisShaderPackInUse() ? IRIS_BAKE_FORMAT : FORMAT;
         try (ByteBufferBuilder cutoutStorage = new ByteBufferBuilder(4096);
                 ByteBufferBuilder translucentStorage = new ByteBufferBuilder(4096)) {
-            var cutout = new BufferBuilder(cutoutStorage, VertexFormat.Mode.QUADS, FORMAT);
-            var translucent = new BufferBuilder(translucentStorage, VertexFormat.Mode.QUADS, FORMAT);
+            var cutout = new BufferBuilder(cutoutStorage, VertexFormat.Mode.QUADS, bakeFormat);
+            var translucent = new BufferBuilder(translucentStorage, VertexFormat.Mode.QUADS, bakeFormat);
             for (BakedPart.StructureBlock block : geometry.blocks()) {
                 var state = block.state();
                 if (state.getRenderShape() != RenderShape.MODEL) {
@@ -151,6 +154,13 @@ public final class PartMeshRenderer {
                 return new Mesh(cutoutVertices, translucentVertices, cutoutBuffer, bytes);
             }
         }
+    }
+
+    private static VertexFormat copyEntityFormat() {
+        // Iris extends NEW_ENTITY buffers while shaders are active. Keep the vanilla layout in the mesh cache.
+        var builder = VertexFormat.builder();
+        FORMAT.getElementMapping().forEach(builder::add);
+        return builder.padding(1).build();
     }
 
     private static byte[] copyVertices(@Nullable MeshData data) {

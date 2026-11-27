@@ -19,6 +19,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.compat.computercraft.FlightPeripheral;
 import io.github.jxt159753.blockspaceprogram.compat.ftbteams.FtbTeamsFacilityOwnerResolver;
+import io.github.jxt159753.blockspaceprogram.compat.iris.IrisCompat;
 import io.github.jxt159753.blockspaceprogram.facility.FacilityCommands;
 import io.github.jxt159753.blockspaceprogram.facility.FacilityLevels;
 import io.github.jxt159753.blockspaceprogram.facility.FacilityOwnerResolver;
@@ -30,6 +31,7 @@ import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
+import java.util.function.BooleanSupplier;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -70,6 +72,7 @@ public final class BlockSpaceProgram {
     private static final DeferredRegister.DataComponents COMPONENTS =
             DeferredRegister.createDataComponents(Registries.DATA_COMPONENT_TYPE, MOD_ID);
     private static FacilityLevels facilities;
+    private static BooleanSupplier irisShaderPackInUse = () -> false;
 
     public static final DeferredBlock<BakingTableBlock> BAKING_TABLE = BLOCKS.registerBlock(
             "baking_table", BakingTableBlock::new, BlockBehaviour.Properties.of().strength(2.5F));
@@ -149,6 +152,9 @@ public final class BlockSpaceProgram {
         if (ModList.get().isLoaded("computercraft")) {
             FlightPeripheral.register(modBus);
         }
+        if (ModList.get().isLoaded("iris")) {
+            irisShaderPackInUse = IrisCompat::isShaderPackInUse;
+        }
         SkyNetworking.register(modBus);
         modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
@@ -156,6 +162,10 @@ public final class BlockSpaceProgram {
 
     public static FacilityLevels facilities() {
         return facilities;
+    }
+
+    public static boolean isIrisShaderPackInUse() {
+        return irisShaderPackInUse.getAsBoolean();
     }
 
     private void addCreativeTabItems(BuildCreativeModeTabContentsEvent event) {
