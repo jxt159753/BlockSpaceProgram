@@ -35,7 +35,9 @@
 
 ## 模型缓存
 
-客户端用烘焙结构作为模型缓存键，同一结构的各个比例共用网格。烘焙网格时按 Minecraft 的邻面规则去掉遮挡面，使用记录的方块状态和固定的生物群系色调。世界里的不透明与镂空几何合并成一次静态顶点缓冲绘制，半透明面用游戏的排序缓冲。缓存按 CPU 和 GPU 顶点数据及条目开销计量，总预算为 16 MiB。淘汰最久未用的网格或重载资源时会释放对应的 GPU 缓冲。
+客户端用烘焙结构作为模型缓存键，同一结构的各个比例共用网格。烘焙网格时按 Minecraft 的邻面规则去掉遮挡面，使用记录的方块状态和固定的生物群系色调。半透明面用游戏的排序缓冲。缓存按 CPU 和 GPU 顶点数据及条目开销计量，总预算为 16 MiB。淘汰最久未用的网格或重载资源时会释放对应的 GPU 缓冲。
+
+在 Iris 中启用光影包时，世界中的零件和飞船由光影包计算光照和阴影。在游戏内切换光影即可生效。投射阴影需要光影包启用实体阴影，例如在 Complementary Reimagined 的性能设置中打开「实体阴影」。关闭光影或未安装 Iris 时，不透明和镂空几何合并成一次静态顶点缓冲绘制。 [Iris 兼容 #51](https://github.com/jxt159753/BlockSpaceProgram/issues/51)
 
 Create 6.0.10 所带的 Flywheel 1.0.6 提供 `EntityVisualizer` 和 `TransformedInstance`，可用于实例化绘制。当前实现使用 Minecraft 的顶点缓冲，在仅装有 NeoForge 的开发客户端也能运行。飞船渲染可在对应零件的局部姿态下调用 `PartMeshRenderer.render`。 [零件渲染 #7](https://github.com/jxt159753/BlockSpaceProgram/issues/7)
 
