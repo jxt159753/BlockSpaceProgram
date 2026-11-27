@@ -40,6 +40,13 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 客户端代码只放在 `client` 包。其他包中只有注册网络包的 `*Networking` 类可以引用 `client`，引用限于客户端处理入口。
 - 轨道力学、Δv 和投影这类纯计算不引用 Minecraft 类型，以便在 `src/test` 中直接写单元测试。
 
+### 与整合包的边界
+
+- 本仓库的开发和验收不依赖整合包。只装本模组就能运行，Sable 和 Create 按需加装。验收写在这样的环境里，不写整合包实例。
+- issue 的依赖只能从整合包指向本仓库。整合包 issue 可以依赖本仓库的 issue，本仓库的 issue 不依赖整合包 issue。整合包需要新接口时，在本仓库另开 issue。
+- 本模组代码引用的内容由本模组自带，例如卫星维度 `blockspaceprogram:moon`、天体参数和零件属性。整合包用同 ID 的数据包或配置覆盖默认值，例如替换卫星地形（jxt159753/BlockSpaceProgram-Modpack#2）。
+- 在整合包实例上的复测写在整合包仓库的 issue 里。
+
 ### 可选依赖
 
 - Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody` 和 `SableCollisionDebugRenderer`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
