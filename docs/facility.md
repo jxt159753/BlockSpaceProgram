@@ -19,9 +19,11 @@
 | 配置项 | 默认值 | 用途 |
 | --- | --- | --- |
 | `bakingTableMaxBlocks` | `[729]` | 单个零件的方块数 |
-| `assemblyTableMaxParts` | `[0]` | 每艘飞船的零件数 |
+| `assemblyTableMaxParts` | `[10, 36]` | 每艘飞船的零件数 |
 | `launchPadMaxMass` | `[0]` | 每艘飞船的满油质量，单位为 kg |
 | `defaultTier` | `1` | 某项设施没有存档记录时使用的等级 |
+
+新生成的配置将装配台 1 级设为 10 件、2 级设为 36 件。已有服务器要采用这组上限时，在现有 `blockspaceprogram-server.toml` 中填写该列表。 [性能基准](benchmark.md#实测结果)
 
 存档等级或 `defaultTier` 超出某个列表的长度时，按列表最后一级查上限。缩短列表后，存档中的原等级仍会保留。服务器会在打开装配台或指令舱界面时发送当前上限。等级变化后可以重新打开界面查看。
 

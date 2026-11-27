@@ -15,7 +15,7 @@ public final class FacilityConfig {
                 .defineList("bakingTableMaxBlocks", List.of(defaultMaxBlocks), () -> 0,
                         value -> value instanceof Integer count && count >= 0);
         assemblyTableMaxParts = builder.comment("Maximum parts per ship at each assembly table tier. 0 means unlimited.")
-                .defineList("assemblyTableMaxParts", List.of(0), () -> 0,
+                .defineList("assemblyTableMaxParts", List.of(10, 36), () -> 0,
                         value -> value instanceof Integer count && count >= 0);
         launchPadMaxMass = builder.comment("Maximum fully fueled mass in kg at each launch pad tier. 0 means unlimited.")
                 .<Number>defineList("launchPadMaxMass", List.of(0), () -> 0,
