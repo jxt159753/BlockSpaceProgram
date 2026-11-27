@@ -13,9 +13,13 @@
     { "name": "PrimeMeridian", "type": "float", "count": 3, "values": [1, 0, 0] },
     { "name": "SurfaceSeed", "type": "int", "count": 1, "values": [0] },
     { "name": "Density", "type": "float", "count": 1, "values": [0] },
+    { "name": "SkyDensity", "type": "float", "count": 1, "values": [0] },
     { "name": "Weather", "type": "float", "count": 1, "values": [0] },
     { "name": "StarBrightness", "type": "float", "count": 1, "values": [0] },
     { "name": "HaloRadius", "type": "float", "count": 1, "values": [4] },
+    { "name": "SolarHaloRadius", "type": "float", "count": 1, "values": [9] },
+    { "name": "BodyAtmosphere", "type": "float", "count": 3, "values": [0, 0, 0] },
+    { "name": "CloudRotation", "type": "float", "count": 2, "values": [1, 0] },
     { "name": "PixelPadding", "type": "float", "count": 2, "values": [0, 0] },
     { "name": "Horizon", "type": "float", "count": 1, "values": [-1] }
   ]
