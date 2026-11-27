@@ -1,4 +1,4 @@
-package io.github.jxt159753.blockspaceprogram.assembly;
+package io.github.jxt159753.blockspaceprogram.orbit;
 
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -6,11 +6,6 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitElements;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitingShip;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import java.util.UUID;
 import java.util.stream.Stream;
 import net.minecraft.commands.CommandSourceStack;

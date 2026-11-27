@@ -1,9 +1,9 @@
-package io.github.jxt159753.blockspaceprogram.part;
+package io.github.jxt159753.blockspaceprogram.assembly;
 
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.assembly.PartPose;
-import io.github.jxt159753.blockspaceprogram.assembly.WorldAssembly;
+import io.github.jxt159753.blockspaceprogram.part.BakedPart;
+import io.github.jxt159753.blockspaceprogram.part.PartType;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;

@@ -117,7 +117,7 @@ public record BakedPart(
         return scale >= 0.5F ? 0.5F : 0.25F;
     }
 
-    float nextScale() {
+    public float nextScale() {
         int current = SCALES.indexOf(scale);
         for (int offset = 1; offset < SCALES.size(); offset++) {
             float candidate = SCALES.get((current + offset) % SCALES.size());

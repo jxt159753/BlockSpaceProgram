@@ -1,15 +1,10 @@
-package io.github.jxt159753.blockspaceprogram.assembly;
+package io.github.jxt159753.blockspaceprogram.orbit;
 
 import com.mojang.logging.LogUtils;
+import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight.Motion;
-import io.github.jxt159753.blockspaceprogram.orbit.CelestialBody;
-import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitElements;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitingShip;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalState;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
-import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import java.util.ArrayList;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -24,13 +19,13 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 /** Moves ships between dimension-local Sable bodies and the shared orbit store on the server thread. */
-public final class ShipOrbitHandoff {
+final class ShipOrbitHandoff {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
 
     private ShipOrbitHandoff() {}
 
-    public static void tick(MinecraftServer server, OrbitalSavedData data) {
+    static void tick(MinecraftServer server, OrbitalSavedData data) {
         for (ServerLevel level : server.getAllLevels()) {
             var body = SYSTEM.findBody(level.dimension().location());
             var boundary = boundary(level, body);
