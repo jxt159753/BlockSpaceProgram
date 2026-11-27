@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "io.github.jxt159753.blockspaceprogram.client.surfacecolor.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["PlanetSkyColorMixin", "ComparisonCameraMixin", "ComparisonChunkCullingMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
