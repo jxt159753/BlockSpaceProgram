@@ -342,7 +342,14 @@ public final class OrbitalRegion extends SavedData {
             }
         }
         var orbit = Orbit.CODEC.parse(NbtOps.INSTANCE, saved.get("orbit")).getOrThrow();
-        orbit = SYSTEM.advance(orbit, saved.getDouble("seconds"), now);
+        double savedSeconds = saved.getDouble("seconds");
+        if (savedSeconds > now) {
+            // Player data can be flushed before the world's orbital clock during shutdown.
+            var body = SYSTEM.body(orbit.center());
+            orbit = ShipOrbitHandoff.fit(body, SYSTEM.relativeState(orbit, savedSeconds), now);
+        } else {
+            orbit = SYSTEM.advance(orbit, savedSeconds, now);
+        }
         Orbit path = reference == null ? orbit : reference;
         var frame = new Frame(path, now);
         var local = frame.local(SYSTEM.absoluteState(orbit, now));
