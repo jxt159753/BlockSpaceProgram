@@ -81,7 +81,7 @@ public final class LaunchPadBlock extends Block {
             }
         }
 
-        AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, origin, OctahedralGroup.IDENTITY);
+        AssembledShipEntity ship = AssembledShipEntity.spawn(level, blueprint, origin, OctahedralGroup.IDENTITY, player.getUUID());
         if (ship == null) {
             return reject(player, "spawn");
         }

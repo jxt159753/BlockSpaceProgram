@@ -6,14 +6,18 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyMenu;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyTableBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.BakedPartItem;
+import io.github.jxt159753.blockspaceprogram.assembly.FlightTerminalBlock;
+import io.github.jxt159753.blockspaceprogram.assembly.FlightTerminalBlockEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.FlightTerminalMenu;
 import io.github.jxt159753.blockspaceprogram.assembly.LaunchPadBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.SableCollisionCellBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipBlueprintItem;
-import io.github.jxt159753.blockspaceprogram.assembly.ShipDebrisConfig;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
 import io.github.jxt159753.blockspaceprogram.collision.CollisionCellBlock;
+import io.github.jxt159753.blockspaceprogram.compat.computercraft.FlightPeripheral;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
@@ -30,12 +34,14 @@ import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -48,6 +54,8 @@ public final class BlockSpaceProgram {
     private static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MOD_ID);
     private static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MOD_ID);
     private static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(Registries.ENTITY_TYPE, MOD_ID);
+    private static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
+            DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, MOD_ID);
     private static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, MOD_ID);
     private static final DeferredRegister.DataComponents COMPONENTS =
             DeferredRegister.createDataComponents(Registries.DATA_COMPONENT_TYPE, MOD_ID);
@@ -58,6 +66,11 @@ public final class BlockSpaceProgram {
             "assembly_table", AssemblyTableBlock::new, BlockBehaviour.Properties.of().strength(2.5F));
     public static final DeferredBlock<LaunchPadBlock> LAUNCH_PAD = BLOCKS.registerBlock(
             "launch_pad", LaunchPadBlock::new, BlockBehaviour.Properties.of().strength(3.0F));
+    public static final DeferredBlock<FlightTerminalBlock> FLIGHT_TERMINAL = BLOCKS.registerBlock(
+            "flight_terminal", FlightTerminalBlock::new, BlockBehaviour.Properties.of().strength(2.5F));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<FlightTerminalBlockEntity>> FLIGHT_TERMINAL_ENTITY =
+            BLOCK_ENTITIES.register("flight_terminal",
+                    () -> BlockEntityType.Builder.of(FlightTerminalBlockEntity::new, FLIGHT_TERMINAL.get()).build(null));
     public static final DeferredBlock<PartConnectorBlock> STACK_INTERFACE = registerConnector("stack_interface", PartConnector.Kind.STACK);
     public static final DeferredBlock<PartConnectorBlock> SEPARATION_INTERFACE = registerConnector("separation_interface", PartConnector.Kind.SEPARATION);
     public static final DeferredBlock<PartConnectorBlock> DOCKING_INTERFACE = registerConnector("docking_interface", PartConnector.Kind.DOCKING);
@@ -91,18 +104,22 @@ public final class BlockSpaceProgram {
             "assembly", () -> new MenuType<>(AssemblyMenu::new, FeatureFlags.DEFAULT_FLAGS));
     public static final DeferredHolder<MenuType<?>, MenuType<AssemblyMenu>> WORLD_ASSEMBLY_MENU = MENUS.register(
             "world_assembly", () -> new MenuType<>(AssemblyMenu::worldClient, FeatureFlags.DEFAULT_FLAGS));
+    public static final DeferredHolder<MenuType<?>, MenuType<FlightTerminalMenu>> FLIGHT_TERMINAL_MENU = MENUS.register(
+            "flight_terminal", () -> IMenuTypeExtension.create(FlightTerminalMenu::new));
 
     static {
         ITEMS.registerSimpleBlockItem(BAKING_TABLE);
         ITEMS.registerSimpleBlockItem(ASSEMBLY_TABLE);
         ITEMS.registerSimpleBlockItem(LAUNCH_PAD);
+        ITEMS.registerSimpleBlockItem(FLIGHT_TERMINAL);
     }
 
     public BlockSpaceProgram(IEventBus modBus, ModContainer container) {
-        container.registerConfig(ModConfig.Type.SERVER, ShipDebrisConfig.SPEC);
+        container.registerConfig(ModConfig.Type.SERVER, ShipServerConfig.SPEC);
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
         ENTITIES.register(modBus);
+        BLOCK_ENTITIES.register(modBus);
         MENUS.register(modBus);
         COMPONENTS.register(modBus);
         modBus.addListener(BlockPartProperties::register);
@@ -111,6 +128,9 @@ public final class BlockSpaceProgram {
         modBus.addListener(ShipFlightInput::register);
         OrbitalNetworking.register(modBus);
         AssembledShipEntity.registerFlight();
+        if (ModList.get().isLoaded("computercraft")) {
+            FlightPeripheral.register(modBus);
+        }
         SkyNetworking.register(modBus);
         modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
@@ -121,6 +141,7 @@ public final class BlockSpaceProgram {
             event.accept(BAKING_TABLE);
             event.accept(ASSEMBLY_TABLE);
             event.accept(LAUNCH_PAD);
+            event.accept(FLIGHT_TERMINAL);
             event.accept(STACK_INTERFACE);
             event.accept(SEPARATION_INTERFACE);
             event.accept(DOCKING_INTERFACE);

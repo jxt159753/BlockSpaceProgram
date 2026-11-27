@@ -2,11 +2,12 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-public final class ShipDebrisConfig {
+public final class ShipServerConfig {
     public static final ModConfigSpec SPEC;
     static final ModConfigSpec.IntValue MAX_DEBRIS;
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
+    static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
 
     static {
         var builder = new ModConfigSpec.Builder();
@@ -19,8 +20,12 @@ public final class ShipDebrisConfig {
         LIFETIME = builder.comment("Maximum age of debris in seconds of game time. 0 disables this rule.")
                 .defineInRange("lifetimeSeconds", 300, 0, Integer.MAX_VALUE);
         builder.pop();
+        builder.push("flight");
+        MAX_REMOTE_SHIPS = builder.comment("Maximum ships kept loaded by a remote flight controller per dimension.")
+                .defineInRange("maxRemoteShips", 8, 0, Integer.MAX_VALUE);
+        builder.pop();
         SPEC = builder.build();
     }
 
-    private ShipDebrisConfig() {}
+    private ShipServerConfig() {}
 }

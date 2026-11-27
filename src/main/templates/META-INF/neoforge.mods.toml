@@ -34,3 +34,10 @@ type = "optional"
 versionRange = "[2.0.6]"
 ordering = "AFTER"
 side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "computercraft"
+type = "optional"
+versionRange = "[${cc_tweaked_version},)"
+ordering = "AFTER"
+side = "BOTH"
