@@ -283,7 +283,9 @@ public final class AssemblyMenu extends AbstractContainerMenu {
             case LOAD -> {
                 ItemStack stack = inventorySlot(index);
                 var blueprint = stack.is(BlockSpaceProgram.SHIP_BLUEPRINT.get()) ? stack.get(BlockSpaceProgram.SHIP_DESIGN) : null;
-                if (blueprint != null && blueprint.isValid()) {
+                if (blueprint != null && blueprint.hasHull()) {
+                    feedback = "load_hull_blueprint";
+                } else if (blueprint != null && blueprint.isValid()) {
                     design = blueprint;
                     feedback = "loaded";
                 } else {

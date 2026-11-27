@@ -2,18 +2,12 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.part.BakedPart;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.ItemInteractionResult;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -24,7 +18,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.neoforged.fml.ModList;
-import org.jetbrains.annotations.Nullable;
 
 public final class LaunchPadBlock extends Block {
     public LaunchPadBlock(Properties properties) {
@@ -51,36 +44,41 @@ public final class LaunchPadBlock extends Block {
         if (design == null || !design.isValid()) {
             return reject(player, "blueprint");
         }
+        boolean hasHull = design.hasHull();
+        boolean hasSable = ModList.get().isLoaded("sable");
+        if (hasHull && !hasSable) {
+            return reject(player, "hull_requires_sable");
+        }
         var rejection = ShipFacilityLimits.checkLaunch(player, design);
         if (rejection != null) {
-            player.displayClientMessage(rejection, true);
-            return false;
+            return reject(player, rejection);
         }
-        Inventory inventory = player.getInventory();
-        Map<BakedPart, Integer> required = new HashMap<>();
-        for (ShipDesign.Node node : design.nodes()) {
-            required.merge(node.part(), 1, Integer::sum);
-        }
-        List<Debit> payment = planPayment(inventory, required);
-        if (payment == null) {
-            return reject(player, "parts");
+        LaunchPayment payment = LaunchPayment.plan(level, pad, player, design);
+        if (payment.shortage() != null) {
+            return reject(player, payment.shortage());
         }
 
         AABB bounds = design.bounds();
-        Vec3 center = design.nodes().getFirst().bounds().getCenter();
-        Vec3 offset = PartPose.fromQuarters(PartPose.snap(new Vec3(0.5 - center.x, 1 - bounds.minY, 0.5 - center.z)));
+        Vec3 center = design.nodes().stream().filter(ShipDesign.Node::isCommandPod).findFirst().orElseThrow().bounds().getCenter();
+        Vec3 offset = new Vec3(0.5 - center.x, 1 - bounds.minY, 0.5 - center.z);
+        // A hull's blocks must line up with whole world cells. Round up to keep the lowest part above the pad.
+        offset = hasHull ? new Vec3(Math.round(offset.x), Math.ceil(offset.y), Math.round(offset.z))
+                : PartPose.fromQuarters(PartPose.snap(offset));
         Vec3 origin = Vec3.atLowerCornerOf(pad).add(offset);
-        AABB worldBounds = bounds.move(origin);
-        BlockPos min = BlockPos.containing(worldBounds.minX, worldBounds.minY, worldBounds.minZ);
-        BlockPos max = BlockPos.containing(worldBounds.maxX - 0.125, worldBounds.maxY - 0.125, worldBounds.maxZ - 0.125);
-        if (worldBounds.minY < level.getMinBuildHeight() || worldBounds.maxY > level.getMaxBuildHeight()
-                || !level.getWorldBorder().isWithinBounds(worldBounds) || !level.hasChunksAt(min, max)) {
+        if (!hasHull && !isLoadedAndInBounds(level, bounds.move(origin))) {
             return reject(player, "blocked");
         }
-        boolean hasSable = ModList.get().isLoaded("sable");
         for (ShipDesign.Node node : design.nodes()) {
+            if (node.hull() != null) {
+                BlockPos hullOrigin = BlockPos.containing(origin).offset(node.hullOrigin());
+                if (!node.hull().positionsMatch(pos -> isHullCellFree(level, hullOrigin.offset(pos)))) {
+                    return reject(player, "blocked");
+                }
+                continue;
+            }
             AABB box = node.bounds().move(origin);
-            if (!level.noCollision(box) || !level.isUnobstructed(null, Shapes.create(box))
+            if ((hasHull && !isLoadedAndInBounds(level, box)) || !level.noCollision(box)
+                    || !level.isUnobstructed(null, Shapes.create(box))
                     || (hasSable && SableShipFlight.obstructs(level, box))) {
                 return reject(player, "blocked");
             }
@@ -91,52 +89,36 @@ public final class LaunchPadBlock extends Block {
             return reject(player, "spawn");
         }
         // Entity-join listeners run inline and may change inventory before the spawn returns.
-        if (payment.stream().anyMatch(debit -> !debit.stillAvailable(inventory))) {
+        if (!payment.commit(player)) {
             ship.discard();
-            return reject(player, "parts");
+            return reject(player, "payment_changed");
         }
-        payment.forEach(debit -> inventory.removeItem(debit.slot(), debit.count()));
-        inventory.setChanged();
         player.displayClientMessage(Component.translatable("launch.blockspaceprogram.success"), true);
         return true;
     }
 
-    @Nullable
-    private static List<Debit> planPayment(Inventory inventory, Map<BakedPart, Integer> required) {
-        Map<BakedPart, Integer> remaining = new HashMap<>(required);
-        List<Debit> payment = new ArrayList<>();
-        for (int slot = 0; slot <= Inventory.INVENTORY_SIZE && !remaining.isEmpty(); slot++) {
-            int index = slot == Inventory.INVENTORY_SIZE ? Inventory.SLOT_OFFHAND : slot;
-            BakedPart part = submittedPart(inventory.getItem(index));
-            Integer needed = remaining.get(part);
-            if (needed == null) {
-                continue;
-            }
-            int count = Math.min(needed, inventory.getItem(index).getCount());
-            payment.add(new Debit(index, part, count));
-            if (count == needed) {
-                remaining.remove(part);
-            } else {
-                remaining.put(part, needed - count);
-            }
-        }
-        return remaining.isEmpty() ? payment : null;
+    private static boolean isLoadedAndInBounds(ServerLevel level, AABB bounds) {
+        BlockPos min = BlockPos.containing(bounds.minX, bounds.minY, bounds.minZ);
+        BlockPos max = BlockPos.containing(bounds.maxX - 0.125, bounds.maxY - 0.125, bounds.maxZ - 0.125);
+        return bounds.minY >= level.getMinBuildHeight() && bounds.maxY <= level.getMaxBuildHeight()
+                && level.getWorldBorder().isWithinBounds(bounds) && level.hasChunksAt(min, max);
     }
 
-    @Nullable
-    private static BakedPart submittedPart(ItemStack stack) {
-        return stack.is(BlockSpaceProgram.BAKED_PART.get()) ? stack.get(BlockSpaceProgram.PART_DATA) : null;
+    private static boolean isHullCellFree(ServerLevel level, BlockPos pos) {
+        if (!level.isInWorldBounds(pos) || !level.isLoaded(pos) || !level.isEmptyBlock(pos)) {
+            return false;
+        }
+        AABB cell = new AABB(pos);
+        return level.getWorldBorder().isWithinBounds(cell) && level.getEntities(null, cell).isEmpty()
+                && !SableShipFlight.obstructs(level, cell);
     }
 
     private static boolean reject(ServerPlayer player, String reason) {
-        player.displayClientMessage(Component.translatable("launch.blockspaceprogram." + reason), true);
-        return false;
+        return reject(player, Component.translatable("launch.blockspaceprogram." + reason));
     }
 
-    private record Debit(int slot, BakedPart part, int count) {
-        boolean stillAvailable(Inventory inventory) {
-            ItemStack stack = inventory.getItem(slot);
-            return stack.getCount() >= count && part.equals(submittedPart(stack));
-        }
+    private static boolean reject(ServerPlayer player, Component message) {
+        player.displayClientMessage(message, true);
+        return false;
     }
 }
