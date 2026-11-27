@@ -6,9 +6,7 @@ import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking.OrbitalView;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 
 final class PlanetSkyProjection {
@@ -18,28 +16,20 @@ final class PlanetSkyProjection {
 
     private PlanetSkyProjection() {}
 
-    @Nullable
-    static CelestialBody bodyForDimension(ResourceLocation dimension) {
-        return OrbitalSystem.M3.findBody(dimension);
-    }
-
-    static Observer onSurface(CelestialBody body, PlanetFlightProperties properties, Vec3 camera, double seconds) {
-        var frame = PlanetFrame.atDimension(body, properties.seaLevel(),
+    static Observer onSurface(OrbitalSystem system, CelestialBody body, PlanetFlightProperties properties, Vec3 camera,
+                              double seconds) {
+        var frame = PlanetFrame.atDimension(system, body, properties.seaLevel(),
                 new Vec3(camera.x, Math.max(camera.y, properties.seaLevel()), camera.z), seconds);
-        Vec3 center = OrbitalSystem.M3.bodyState(body.id(), seconds).position();
+        Vec3 center = system.bodyState(body.id(), seconds).position();
         return new Observer(center.add(frame.relativePosition()), frame.east(), frame.up(), frame.south());
     }
 
-    static Observer inOrbit(OrbitalView view, Vec3 camera, double seconds) {
+    static Observer inOrbit(OrbitalSystem system, OrbitalView view, Vec3 camera, double seconds) {
         Vec3 offset = camera.subtract(view.regionOrigin());
-        Vec3 reference = OrbitalSystem.M3.absoluteState(view.reference().orElseThrow(), seconds).position();
+        Vec3 reference = system.absoluteState(view.reference().orElseThrow(), seconds).position();
         // Minecraft's Y-up region coordinates become Z-up in the inertial frame.
         return new Observer(reference.add(OrbitalRegion.toInertial(offset)), new Vec3(1, 0, 0), NORTH_POLE,
                 new Vec3(0, -1, 0));
-    }
-
-    static Vec3 primeMeridian(CelestialBody body, double seconds) {
-        return PlanetFrame.primeMeridian(body, seconds);
     }
 
     record Observer(Vec3 position, Vec3 east, Vec3 up, Vec3 south) {

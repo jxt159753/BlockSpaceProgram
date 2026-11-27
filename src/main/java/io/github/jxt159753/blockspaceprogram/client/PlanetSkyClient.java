@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
+import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking.OrbitalView;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,13 +121,14 @@ public final class PlanetSkyClient {
     public static float solarTime(ClientLevel level, float partialTick) {
         var dimension = level.dimension().location();
         var properties = PlanetFlightProperties.clientIn(dimension);
-        var body = PlanetSkyProjection.bodyForDimension(dimension);
+        var system = ClientOrbitalState.system();
+        var body = system.findBody(dimension);
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
         if (properties == null || body == null || !ClientOrbitalState.hasClock()
                 || !camera.isInitialized() || camera.getEntity().level() != level) {
             return level.dimensionType().timeOfDay(level.dayTime());
         }
-        var observer = PlanetSkyProjection.onSurface(body, properties, camera.getPosition(),
+        var observer = PlanetSkyProjection.onSurface(system, body, properties, camera.getPosition(),
                 ClientOrbitalState.orbitSeconds(partialTick));
         Vec3 sun = observer.toLocal(PlanetSkyProjection.SUN_DIRECTION);
         float angle = (float) (Math.acos(Mth.clamp(sun.y, -1, 1)) / (2 * Math.PI));
@@ -144,14 +146,15 @@ public final class PlanetSkyClient {
         }
 
         Vec3 position = camera.getPosition();
-        var home = planet == null ? null : PlanetSkyProjection.bodyForDimension(dimension);
+        var system = ClientOrbitalState.system();
+        var home = planet == null ? null : system.findBody(dimension);
         double seconds = ClientOrbitalState.orbitSeconds(partialTick);
         PlanetSkyProjection.Observer observer = null;
         if (ClientOrbitalState.hasClock()) {
             if (region != null) {
-                observer = PlanetSkyProjection.inOrbit(region, position, seconds);
+                observer = PlanetSkyProjection.inOrbit(system, region, position, seconds);
             } else if (home != null) {
-                observer = PlanetSkyProjection.onSurface(home, planet, position, seconds);
+                observer = PlanetSkyProjection.onSurface(system, home, planet, position, seconds);
             }
         }
         float density = region == null ? (float) Math.sqrt(planet.relativeDensityAt(position.y)) : 0;
@@ -196,7 +199,7 @@ public final class PlanetSkyClient {
             }
             draw(STAR, sun, SUN_RADIUS, Vec3.ZERO);
             if (observer != null) {
-                renderBodies(observer, seconds, showGlobe || region != null ? null : dimension);
+                renderBodies(system, observer, seconds, showGlobe || region != null ? null : dimension);
             } else if (showGlobe) {
                 draw(planet.hasAtmosphere() ? ATMOSPHERIC_BODY : ROCKY_BODY, NADIR, ratio, new Vec3(0, 1, 0));
             }
@@ -210,19 +213,20 @@ public final class PlanetSkyClient {
         return radius / (radius + Math.max(altitude, 0));
     }
 
-    private static void renderBodies(PlanetSkyProjection.Observer observer, double seconds, @Nullable ResourceLocation hidden) {
+    private static void renderBodies(OrbitalSystem system, PlanetSkyProjection.Observer observer, double seconds,
+                                     @Nullable ResourceLocation hidden) {
         var visible = new ArrayList<Disc>();
-        for (var body : OrbitalSystem.M3.bodies()) {
+        for (var body : system.bodies()) {
             if (body.id().equals(hidden)) {
                 continue;
             }
-            Vec3 displacement = OrbitalSystem.M3.bodyState(body.id(), seconds).position().subtract(observer.position());
+            Vec3 displacement = system.bodyState(body.id(), seconds).position().subtract(observer.position());
             double distance = displacement.length();
             if (distance > body.radius()) {
                 var properties = PlanetFlightProperties.clientIn(body.id());
                 boolean atmospheric = properties == null ? body.id().equals(OrbitalSystem.MOTHER_PLANET) : properties.hasAtmosphere();
                 Vec3 direction = observer.toLocal(displacement.scale(1 / distance));
-                Vec3 primeMeridian = observer.toLocal(PlanetSkyProjection.primeMeridian(body, seconds));
+                Vec3 primeMeridian = observer.toLocal(PlanetFrame.primeMeridian(system, body, seconds));
                 visible.add(new Disc(atmospheric ? ATMOSPHERIC_BODY : ROCKY_BODY, direction,
                         body.radius() / distance, primeMeridian, distance));
             }

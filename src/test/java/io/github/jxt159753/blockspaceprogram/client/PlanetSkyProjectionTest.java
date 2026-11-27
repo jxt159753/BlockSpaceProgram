@@ -15,6 +15,7 @@ import org.junit.Test;
 public class PlanetSkyProjectionTest {
     private static final PlanetFlightProperties OVERWORLD = new PlanetFlightProperties(63, 60_000, 9.8, 1.225, 4_000, 1_200);
     private static final ResourceLocation EARTH = OrbitalSystem.MOTHER_PLANET;
+    private static final OrbitalSystem M3 = OrbitalSystem.legacy();
     private static final Vec3 EQUATOR = new Vec3(0, 63, 0);
 
     @Test
@@ -29,7 +30,7 @@ public class PlanetSkyProjectionTest {
 
     @Test
     public void surfaceViewAccountsForParallaxAndAngularSize() {
-        Vec3 moon = OrbitalSystem.M3.bodyState(OrbitalSystem.MOON, 0).position();
+        Vec3 moon = M3.bodyState(OrbitalSystem.MOON, 0).position();
         var observer = surface(EQUATOR, 0);
         assertVector(new Vec3(0, 300_000, 0), observer.toLocal(moon.subtract(observer.position())));
         assertEquals(0.04, 12_000 / moon.distanceTo(observer.position()), 1e-10);
@@ -40,18 +41,28 @@ public class PlanetSkyProjectionTest {
     }
 
     @Test
+    public void lunarObserverUsesTheCurrentSystemPositionAndPhase() {
+        var system = OrbitalSystem.withMoonOrbit(OrbitElements.fromSemiMajorAxis(240_000, 0, 0, 0, 0, Math.PI / 2, 0));
+        var moon = system.body(OrbitalSystem.MOON);
+        var properties = new PlanetFlightProperties(63, 12_000, 1.6, 0, 0, 1_200);
+        var observer = PlanetSkyProjection.onSurface(system, moon, properties, EQUATOR, 0);
+        assertVector(new Vec3(0, 228_000, 0), observer.position());
+        assertVector(new Vec3(0, 228_000, 0), observer.toLocal(observer.position().scale(-1)));
+    }
+
+    @Test
     public void orbitalCameraFollowsReferenceAndIncludesLocalOffset() {
         var reference = new Orbit(EARTH, OrbitElements.fromSemiMajorAxis(70_000, 0, 0, 0, 0, 0, 0));
         var origin = new Vec3(1_000, 500, -2_000);
         var region = new OrbitalView(ResourceLocation.withDefaultNamespace("the_end"), origin, Optional.of(reference));
         Vec3 camera = origin.add(10, 20, 30);
         double quarterPeriod = Math.PI / 2 * Math.sqrt(Math.pow(70_000, 3) / 3.528e10);
-        assertVector(new Vec3(70_010, -30, 20), PlanetSkyProjection.inOrbit(region, camera, 0).position());
-        assertVector(new Vec3(10, 69_970, 20), PlanetSkyProjection.inOrbit(region, camera, quarterPeriod).position());
+        assertVector(new Vec3(70_010, -30, 20), PlanetSkyProjection.inOrbit(M3, region, camera, 0).position());
+        assertVector(new Vec3(10, 69_970, 20), PlanetSkyProjection.inOrbit(M3, region, camera, quarterPeriod).position());
     }
 
     private static PlanetSkyProjection.Observer surface(Vec3 camera, double seconds) {
-        return PlanetSkyProjection.onSurface(OrbitalSystem.M3.body(EARTH), OVERWORLD, camera, seconds);
+        return PlanetSkyProjection.onSurface(M3, M3.body(EARTH), OVERWORLD, camera, seconds);
     }
 
     private static Vec3 localSun(Vec3 camera, double seconds) {

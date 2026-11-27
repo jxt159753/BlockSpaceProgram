@@ -218,7 +218,7 @@ public final class SableShipFlight implements ShipFlightControl {
 
     void attach() {
         flights.active.put(body.subLevel(), this);
-        if (isInSpace()) {
+        if (isInSpace() || ship.isBenchmark()) {
             body.container().addForceLoadTicket(body.subLevel(), HANDOFF_TICKET, Unit.INSTANCE);
         }
         if (isDebris()) {
@@ -274,7 +274,7 @@ public final class SableShipFlight implements ShipFlightControl {
         List<AssembledShipEntity> ascending = new ArrayList<>();
         for (var flight : flights.active.values()) {
             var subLevel = flight.body.subLevel();
-            if (subLevel.isRemoved()) {
+            if (subLevel.isRemoved() || flight.ship.isBenchmark()) {
                 continue;
             }
             double y = subLevel.logicalPose().position().y();
@@ -556,7 +556,7 @@ public final class SableShipFlight implements ShipFlightControl {
         subLevel.updateBoundingBox();
         previousHandoffY = motion.center().y;
         // A high-altitude handoff can happen far from every player. Let Sable keep its flight and terrain loaded.
-        if (isInSpace() || motion.center().y >= subLevel.getLevel().getMaxBuildHeight()) {
+        if (isInSpace() || ship.isBenchmark() || motion.center().y >= subLevel.getLevel().getMaxBuildHeight()) {
             body.container().addForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
         } else {
             body.container().removeForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
@@ -1086,7 +1086,8 @@ public final class SableShipFlight implements ShipFlightControl {
         int distance = level.dimension().equals(BlockSpaceProgram.ORBITAL_SPACE) ? 0 : ShipServerConfig.DISTANCE.get();
         long lifetime = ShipServerConfig.LIFETIME.get() * 20L;
         double rangeSquared = (double) distance * distance;
-        var debris = flights.active.values().stream().filter(flight -> flight.isDebris() && !flight.body.subLevel().isRemoved())
+        var debris = flights.active.values().stream()
+                .filter(flight -> !flight.ship.isBenchmark() && flight.isDebris() && !flight.body.subLevel().isRemoved())
                 .toList();
         List<SableShipFlight> remaining = new ArrayList<>();
         for (var flight : debris) {

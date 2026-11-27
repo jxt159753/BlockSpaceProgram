@@ -6,7 +6,6 @@ import io.github.jxt159753.blockspaceprogram.orbit.OrbitElements;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking.RegionContacts;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
-import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,7 +49,7 @@ public final class OrbitalRegionClient {
         if (view == null || game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship)) {
             return;
         }
-        var system = OrbitalSystem.M3;
+        var system = ClientOrbitalState.system();
         var body = system.body(view.reference().orElseThrow().center());
         double seconds = snapshot.orbitTicks() / (double) OrbitalSavedData.TICKS_PER_SECOND;
         for (var contact : snapshot.ships()) {
@@ -108,7 +107,7 @@ public final class OrbitalRegionClient {
             return;
         }
         double now = ClientOrbitalState.orbitSeconds(event.getPartialTick().getGameTimeDeltaPartialTick(false));
-        var system = OrbitalSystem.M3;
+        var system = ClientOrbitalState.system();
         Vec3 origin = system.absoluteState(view.reference().orElseThrow(), now).position();
         Vec3 observer = origin.add(OrbitalRegion.toInertial(event.getCamera().getPosition().subtract(view.regionOrigin())));
         var positions = new HashMap<UUID, Vec3>();

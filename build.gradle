@@ -122,6 +122,10 @@ tasks.named('jar', Jar) {
 
 apply from: 'gradle/check-lang.gradle'
 
+if (providers.gradleProperty('starSystem').isPresent()) {
+    apply from: 'experiments/star-system/star-system.gradle'
+}
+
 if (providers.gradleProperty('physicsDrop').isPresent()) {
     apply from: 'experiments/physics-drop/physics-drop.gradle'
 }

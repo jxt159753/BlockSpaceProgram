@@ -8,6 +8,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 用装配台在 3D 界面接合零件、编排分级并查看每级 Δv。保存蓝图后，把完整的零件套件带到发射台生成飞船。服务器可以按玩家或 FTB Teams 队伍设置设施等级和制造上限。 [装配与发射](docs/vab.md) · [设施等级与上限](docs/facility.md)
 
+新存档可以选择卫星间距和轨道形状。天空和轨道地图随该存档的卫星位置推进。 [天体与新存档](docs/orbit.md#天体与新存档) · [生成原型复测](experiments/star-system/README.md)
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft、Sable、CC:Tweaked 和 FTB Teams 的编译依赖。
@@ -29,6 +31,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 | `./gradlew runData` | 运行数据生成器，生成的资源写入 `src/generated/resources/` |
 
 候选维度池的专用服实测和复测步骤见原型记录。 [候选维度池原型](experiments/candidate-dimensions/README.md)
+
+用 `/bsp_bench` 复测零件渲染和飞船压力场景。 [性能基准命令](docs/benchmark.md)
 
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。
 

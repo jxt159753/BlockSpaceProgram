@@ -18,7 +18,6 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 /** Session-only warp rate for the private integrated server. */
 final class OrbitalTimeWarp {
     private static final int[] RATES = { 1, 5, 10, 50, 100, 1_000, 10_000, 100_000 };
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
     private static final String MESSAGE = "orbit.blockspaceprogram.warp.";
     private int gear;
 
@@ -42,7 +41,12 @@ final class OrbitalTimeWarp {
     private static int changeRate(ServerPlayer player, int change) {
         var server = player.serverLevel().getServer();
         var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
-        var warp = OrbitalRegion.get(server).timeWarp();
+        var region = OrbitalRegion.get(server);
+        if (region.benchmarking()) {
+            player.sendSystemMessage(BenchmarkReport.text("orbital_busy"));
+            return 0;
+        }
+        var warp = region.timeWarp();
         if (change > 0) {
             if (space == null || !player.isAlive() || OrbitalRegion.referenceFor(player) == null) {
                 player.displayClientMessage(Component.translatable(MESSAGE + "in_orbit"), true);
@@ -120,30 +124,31 @@ final class OrbitalTimeWarp {
         if (limit.seconds() <= from) {
             return limit;
         }
+        var system = data.system();
         var radii = new HashMap<ResourceLocation, Double>();
-        for (var body : SYSTEM.bodies()) {
+        for (var body : system.bodies()) {
             radii.put(body.id(), ShipOrbitHandoff.timeWarpRadius(space.getServer(), body));
         }
         var members = OrbitalRegion.get(space.getServer()).warpMembers(space);
-        var referenceLegs = SYSTEM.conics(reference, from, Math.min(to, limit.seconds()));
+        var referenceLegs = system.conics(reference, from, Math.min(to, limit.seconds()));
         for (var member : members) {
-            double time = firstDescent(referenceLegs, radii, member.position(), from, Math.min(to, limit.seconds()));
+            double time = firstDescent(system, referenceLegs, radii, member.position(), from, Math.min(to, limit.seconds()));
             limit = limit.earlier(time, "descent");
         }
 
-        var origin = SYSTEM.forecast(referenceLegs);
-        double originAcceleration = SYSTEM.maxAcceleration(referenceLegs);
+        var origin = system.forecast(referenceLegs);
+        double originAcceleration = system.maxAcceleration(referenceLegs);
         double entry = ShipServerConfig.orbitEntryDistance();
         double speed = ShipServerConfig.orbitEntrySpeed();
         for (var ship : data.ships()) {
             if (limit.seconds() <= from) {
                 break;
             }
-            var legs = SYSTEM.conics(ship.orbit(), from, Math.min(to, limit.seconds()));
-            double descent = firstDescent(legs, radii, Vec3.ZERO, from, Math.min(to, limit.seconds()));
+            var legs = system.conics(ship.orbit(), from, Math.min(to, limit.seconds()));
+            double descent = firstDescent(system, legs, radii, Vec3.ZERO, from, Math.min(to, limit.seconds()));
             limit = limit.earlier(descent, "descent");
-            var target = SYSTEM.forecast(legs);
-            double acceleration = originAcceleration + SYSTEM.maxAcceleration(legs);
+            var target = system.forecast(legs);
+            double acceleration = originAcceleration + system.maxAcceleration(legs);
             for (var member : members) {
                 // The region's local positions are fixed during warp. Retain the member's own velocity for entry.
                 var contact = new Proximity(t -> target.apply(t).subtract(origin.apply(t)).subtract(member),
@@ -154,7 +159,8 @@ final class OrbitalTimeWarp {
         return limit;
     }
 
-    static double firstDescent(List<Orbit> legs, Map<ResourceLocation, Double> radii, Vec3 offset, double from, double to) {
+    static double firstDescent(OrbitalSystem system, List<Orbit> legs, Map<ResourceLocation, Double> radii, Vec3 offset,
+                               double from, double to) {
         for (int i = 0; i < legs.size(); i++) {
             var leg = legs.get(i);
             double start = i == 0 ? from : leg.elements().epochSeconds();
@@ -167,7 +173,7 @@ final class OrbitalTimeWarp {
             if (radius == 0 || elements.periapsis() - offset.length() >= radius) {
                 continue;
             }
-            double mu = SYSTEM.body(leg.center()).gravitationalParameter();
+            double mu = system.body(leg.center()).gravitationalParameter();
             double time;
             if (offset.equals(Vec3.ZERO)) {
                 time = elements.stateAt(mu, start).position().lengthSqr() < radius * radius
