@@ -18,6 +18,7 @@ import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
 import org.slf4j.Logger;
@@ -51,23 +52,30 @@ final class ShipOrbitHandoff {
             }
             for (var ship : ascents) {
                 var flight = ship.activeFlight();
-                if (flight != null && data.ship(ship.getUUID()) == null) {
-                    try {
-                        var motion = flight.motion();
-                        if (PlanetFrame.isInProjection(body, motion.center())) {
-                            var frame = PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(),
-                                    data.orbitSeconds());
-                            var orbit = fit(body, frame.toOrbit(motion.velocity()), data.orbitSeconds());
-                            if (flight.carriesPlayer()) {
-                                region.enter(data, ship, orbit, motion, frame.dimensionToInertialRotation());
-                            } else {
-                                depart(data, ship, flight, frame, motion, orbit);
-                            }
-                        }
-                    } catch (RuntimeException error) {
-                        LOGGER.warn("Could not put ship {} on orbit", ship.getUUID(), error);
-                    }
+                if (flight == null || data.ship(ship.getUUID()) != null) {
+                    continue;
                 }
+                Orbit orbit;
+                try {
+                    var motion = flight.motion();
+                    if (!PlanetFrame.isInProjection(body, motion.center())) {
+                        continue;
+                    }
+                    var frame = PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(),
+                            data.orbitSeconds());
+                    orbit = fit(body, frame.toOrbit(motion.velocity()), data.orbitSeconds());
+                    if (flight.carriesPlayer()) {
+                        if (!region.enter(data, ship, orbit, motion, frame.dimensionToInertialRotation())) {
+                            continue;
+                        }
+                    } else {
+                        depart(data, ship, flight, frame, motion, orbit);
+                    }
+                } catch (RuntimeException error) {
+                    LOGGER.warn("Could not put ship {} on orbit", ship.getUUID(), error);
+                    continue;
+                }
+                NeoForge.EVENT_BUS.post(ShipOrbitEvent.enteredOrbit(ship.getUUID(), ship.owner(), orbit));
             }
         }
         checkDescents(server, data, previousSeconds);

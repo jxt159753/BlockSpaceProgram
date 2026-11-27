@@ -7,7 +7,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.DoubleFunction;
 import java.util.function.DoubleUnaryOperator;
 import net.minecraft.resources.ResourceLocation;
@@ -118,7 +118,7 @@ public final class OrbitalSystem {
 
     /** Apply each SOI crossing in order and return the conic valid at the end of the interval. */
     public Orbit advance(Orbit orbit, double fromSeconds, double toSeconds) {
-        return advance(orbit, fromSeconds, toSeconds, ignored -> {});
+        return advance(orbit, fromSeconds, toSeconds, (before, after) -> {});
     }
 
     /** Compute SOI patches once and evaluate the resulting inertial path within the supplied interval. */
@@ -129,7 +129,7 @@ public final class OrbitalSystem {
     List<Orbit> conics(Orbit orbit, double fromSeconds, double toSeconds) {
         List<Orbit> legs = new ArrayList<>();
         legs.add(orbit);
-        advance(orbit, fromSeconds, toSeconds, legs::add);
+        advance(orbit, fromSeconds, toSeconds, (before, after) -> legs.add(after));
         return legs;
     }
 
@@ -160,7 +160,7 @@ public final class OrbitalSystem {
         return maximum;
     }
 
-    private Orbit advance(Orbit orbit, double fromSeconds, double toSeconds, Consumer<Orbit> onCrossing) {
+    Orbit advance(Orbit orbit, double fromSeconds, double toSeconds, BiConsumer<Orbit, Orbit> onCrossing) {
         if (!Double.isFinite(fromSeconds) || !Double.isFinite(toSeconds) || fromSeconds > toSeconds) {
             throw new IllegalArgumentException("Expected an ordered finite propagation interval");
         }
@@ -169,8 +169,9 @@ public final class OrbitalSystem {
             double epoch = crossing.seconds();
             CelestialBody nextCenter = body(crossing.center());
             OrbitalState relative = absoluteState(orbit, epoch).subtract(bodyState(nextCenter.id(), epoch));
-            orbit = new Orbit(nextCenter.id(), OrbitElements.fromState(nextCenter.gravitationalParameter(), relative, epoch));
-            onCrossing.accept(orbit);
+            Orbit next = new Orbit(nextCenter.id(), OrbitElements.fromState(nextCenter.gravitationalParameter(), relative, epoch));
+            onCrossing.accept(orbit, next);
+            orbit = next;
             fromSeconds = epoch;
         }
         return orbit;

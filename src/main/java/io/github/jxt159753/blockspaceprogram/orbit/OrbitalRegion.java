@@ -25,6 +25,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
@@ -134,10 +135,10 @@ public final class OrbitalRegion extends SavedData {
         members.clear();
     }
 
-    void enter(OrbitalSavedData data, AssembledShipEntity ship, Orbit orbit, Motion motion, Quaterniondc rotation) {
+    boolean enter(OrbitalSavedData data, AssembledShipEntity ship, Orbit orbit, Motion motion, Quaterniondc rotation) {
         var space = ship.getServer().getLevel(BlockSpaceProgram.ORBITAL_SPACE);
         if (space == null) {
-            return;
+            return false;
         }
         BenchmarkCommands.interruptOrbital(space);
         double now = data.orbitSeconds();
@@ -150,12 +151,14 @@ public final class OrbitalRegion extends SavedData {
         var local = frame.localMotion(system.absoluteState(orbit, now), new Quaterniond(rotation).mul(motion.orientation()),
                 new Vec3(angular.x, angular.y, angular.z));
         var restored = ship.activeFlight().transfer(space, local, transform, false);
-        if (restored != null) {
-            members.put(restored.getUUID(), restored);
-            if (reference == null) {
-                setReference(orbit, restored.getUUID());
-            }
+        if (restored == null) {
+            return false;
         }
+        members.put(restored.getUUID(), restored);
+        if (reference == null) {
+            setReference(orbit, restored.getUUID());
+        }
+        return true;
     }
 
     void tick(ServerLevel space, OrbitalSavedData data, double previousSeconds, boolean warped) {
@@ -177,9 +180,12 @@ public final class OrbitalRegion extends SavedData {
         }
 
         var system = data.system();
-        var advanced = system.advance(reference, previousSeconds, now);
-        if (advanced != reference) {
-            setReference(advanced, anchor);
+        var legs = system.conics(reference, previousSeconds, now);
+        if (legs.size() > 1) {
+            setReference(legs.getLast(), anchor);
+            for (int index = 1; index < legs.size(); index++) {
+                postSoiChange(legs.get(index - 1), legs.get(index));
+            }
         }
         var frame = new Frame(system, reference, now);
         if (warped) {
@@ -254,12 +260,26 @@ public final class OrbitalRegion extends SavedData {
         Vec3 displacement = local.position().subtract(ORIGIN);
         if (changedAnchor || displacement.lengthSqr() > REBASE_DISTANCE * REBASE_DISTANCE
                 || local.velocity().lengthSqr() > REBASE_SPEED * REBASE_SPEED) {
+            var before = reference;
+            Orbit next;
             try {
-                Orbit next = fit(system, frame.absolute(local), now);
+                next = fit(system, frame.absolute(local), now);
                 SableShipFlight.rebase(space, displacement.scale(-1), local.velocity().scale(-1));
-                setReference(next, entity.getUUID());
             } catch (IllegalArgumentException error) {
                 LOGGER.debug("Could not fit an orbital reference for {}", entity.getUUID(), error);
+                return;
+            }
+            setReference(next, entity.getUUID());
+            if (!before.center().equals(next.center())) {
+                postSoiChange(before, next);
+            }
+        }
+    }
+
+    private void postSoiChange(Orbit before, Orbit after) {
+        for (var member : List.copyOf(members.values())) {
+            if (member instanceof AssembledShipEntity ship) {
+                NeoForge.EVENT_BUS.post(ShipOrbitEvent.soiChanged(ship.getUUID(), ship.owner(), before, after));
             }
         }
     }

@@ -115,6 +115,35 @@ public class OrbitalSavedDataTest {
         assertEquals(orbit, loaded.ship(id).orbit());
     }
 
+    @Test
+    public void reportsBothSoiCrossingsOfAFlybyInOneAdvance() {
+        var data = new OrbitalSavedData(StarSystem.LEGACY);
+        UUID id = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        var shipData = new CompoundTag();
+        shipData.putUUID("ShipOwner", owner);
+        var approach = new Orbit(OrbitalSystem.MOTHER_PLANET, OrbitElements.fromSemiMajorAxis(
+                345_000, 0, Math.PI, 0, 0, -0.5, 0));
+        data.put(new OrbitingShip(id, approach, new Quaterniond(), Vec3.ZERO, shipData));
+
+        var crossings = data.advanceTicks(REGISTRIES, 1_000 * OrbitalSavedData.TICKS_PER_SECOND);
+        assertEquals(2, crossings.size());
+        for (var crossing : crossings) {
+            assertEquals(ShipOrbitEvent.Kind.SOI_CHANGED, crossing.kind());
+            assertEquals(id, crossing.shipId());
+            assertEquals(owner, crossing.ownerId());
+        }
+        var arrival = crossings.getFirst();
+        var departure = crossings.getLast();
+        assertEquals(OrbitalSystem.MOTHER_PLANET, arrival.previousCenter());
+        assertEquals(OrbitalSystem.MOON, arrival.orbit().center());
+        assertEquals(OrbitalSystem.MOON, departure.previousCenter());
+        assertEquals(OrbitalSystem.MOTHER_PLANET, departure.orbit().center());
+        assertTrue(arrival.orbit().elements().epochSeconds() < departure.orbit().elements().epochSeconds());
+        assertEquals(departure.orbit(), data.ship(id).orbit());
+        assertTrue(data.advanceTicks(REGISTRIES, 1).isEmpty());
+    }
+
     private DimensionDataStorage openStorage() {
         return new DimensionDataStorage(worldData.getRoot(), DataFixers.getDataFixer(), REGISTRIES);
     }

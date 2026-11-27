@@ -6,6 +6,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
 
+整合包可以用 KubeJS 订阅入轨、着陆、分级分离和影响球变更事件。 [KubeJS 飞行事件](docs/flight-kubejs.md)
+
 用装配台在 3D 界面接合零件、编排分级并查看每级 Δv。保存蓝图后，把完整的零件套件带到发射台生成飞船。服务器可以按玩家或 FTB Teams 队伍设置设施等级和制造上限。 [装配与发射](docs/vab.md) · [设施等级与上限](docs/facility.md)
 
 新存档可以选择卫星间距和轨道形状。天空和轨道地图随该存档的卫星位置推进。 [天体与新存档](docs/orbit.md#天体与新存档) · [生成原型复测](experiments/star-system/README.md)

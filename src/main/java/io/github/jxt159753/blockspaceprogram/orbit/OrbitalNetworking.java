@@ -136,7 +136,8 @@ public final class OrbitalNetworking {
         double previousSeconds = data.orbitSeconds();
         int step = space == null ? 1 : OrbitalRegion.get(server).timeWarp().nextStep(space, data);
         boolean warped = step > 1;
-        data.advanceTicks(server.registryAccess(), step);
+        // Run listeners after committing the orbital updates and leaving the active-ship iterator.
+        data.advanceTicks(server.registryAccess(), step).forEach(NeoForge.EVENT_BUS::post);
         if (sable) {
             ShipOrbitHandoff.tick(server, data, previousSeconds, warped);
         }

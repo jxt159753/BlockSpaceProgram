@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.Codec;
 import io.github.jxt159753.blockspaceprogram.assembly.OrbitalShipPropulsion;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
@@ -142,10 +144,11 @@ public final class OrbitalSavedData extends SavedData {
         return next;
     }
 
-    void advanceTicks(HolderLookup.Provider registries, int ticks) {
+    List<ShipOrbitEvent> advanceTicks(HolderLookup.Provider registries, int ticks) {
         double from = orbitSeconds();
         orbitTicks += ticks;
         double to = orbitSeconds();
+        var crossings = new ArrayList<ShipOrbitEvent>();
         var candidates = activeShips.iterator();
         while (candidates.hasNext()) {
             UUID id = candidates.next();
@@ -153,13 +156,15 @@ public final class OrbitalSavedData extends SavedData {
             ManeuverNode node = ship.maneuver().orElse(null);
             OrbitingShip advanced = ship;
             double start = from;
+            BiConsumer<Orbit, Orbit> onCrossing = (before, after) ->
+                    crossings.add(ShipOrbitEvent.soiChanged(id, ship.ownerId(), before, after));
             if (node != null && node.seconds() <= to) {
                 // Fit the impulse at its exact epoch, even when it falls between ticks.
                 start = Math.max(from, node.seconds());
-                Orbit before = system.advance(ship.orbit(), from, start);
+                Orbit before = system.advance(ship.orbit(), from, start, onCrossing);
                 advanced = ignite(ship.withOrbit(before), node, start, registries);
             }
-            Orbit next = system.advance(advanced.orbit(), start, to);
+            Orbit next = system.advance(advanced.orbit(), start, to, onCrossing);
             if (next != advanced.orbit()) {
                 advanced = advanced.withOrbit(next);
             }
@@ -172,6 +177,7 @@ public final class OrbitalSavedData extends SavedData {
             }
         }
         setDirty();
+        return crossings;
     }
 
     private OrbitingShip ignite(OrbitingShip ship, ManeuverNode node, double seconds, HolderLookup.Provider registries) {

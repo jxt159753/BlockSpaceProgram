@@ -2,11 +2,13 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
 
 /**
@@ -52,6 +54,12 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
     @Override
     public CompoundTag shipData() {
         return shipData.copy();
+    }
+
+    @Nullable
+    UUID ownerId() {
+        String key = AssembledShipEntity.SAVED_OWNER_TAG;
+        return shipData.hasUUID(key) ? shipData.getUUID(key) : null;
     }
 
     public OrbitingShip withOrbit(Orbit next) {
