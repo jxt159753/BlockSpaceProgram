@@ -59,6 +59,37 @@ public record OrbitElements(double semiLatusRectum, double eccentricity, double 
         return eccentricity < 1 ? TWO_PI / meanMotion(mu, semiMajorAxis()) : Double.POSITIVE_INFINITY;
     }
 
+    /** First inward crossing of the radius at or after the given time, or infinity if there is none. */
+    public double inwardCrossing(double mu, double radius, double fromSeconds) {
+        double q = periapsis();
+        if (radius <= q || radius >= apoapsis()) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double e = eccentricity;
+        double mean;
+        double rate;
+        if (e == 1) {
+            double d = -Math.sqrt((radius - q) / q);
+            mean = d * (1 + d * d / 3);
+            rate = 2 * meanMotion(mu, semiLatusRectum);
+        } else {
+            boolean hyperbolic = e > 1;
+            double a = Math.abs(semiMajorAxis());
+            double half = Math.sqrt((radius - q) / (2 * a * e));
+            double anomaly = -2 * (hyperbolic ? asinh(half) : Math.asin(Math.min(1, half)));
+            mean = kepler(anomaly, e, hyperbolic);
+            rate = meanMotion(mu, a);
+        }
+        double delta = mean - meanAnomalyAtEpoch - rate * (fromSeconds - epochSeconds);
+        if (e < 1) {
+            delta %= TWO_PI;
+            if (delta < 0) {
+                delta += TWO_PI;
+            }
+        }
+        return delta >= 0 ? fromSeconds + delta / rate : Double.POSITIVE_INFINITY;
+    }
+
     double maxSpeed(double mu) {
         return Math.sqrt(mu / semiLatusRectum) * (1 + eccentricity);
     }

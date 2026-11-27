@@ -4,6 +4,10 @@ import net.minecraft.world.phys.Vec3;
 
 /** Position in metres and velocity in metres per second in the same inertial frame. */
 public record OrbitalState(Vec3 position, Vec3 velocity) {
+    public double specificEnergy(double mu) {
+        return velocity.lengthSqr() / 2 - mu / position.length();
+    }
+
     public OrbitalState add(OrbitalState other) {
         return new OrbitalState(position.add(other.position), velocity.add(other.velocity));
     }
