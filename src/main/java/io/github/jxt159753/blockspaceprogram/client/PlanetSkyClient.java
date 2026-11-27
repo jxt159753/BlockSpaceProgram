@@ -215,7 +215,9 @@ public final class PlanetSkyClient {
         float weather = level.getRainLevel(partialTick);
         float daylight = Mth.clamp(((float) sun.y + 0.18F) / 0.33F, 0, 1);
         float starBrightness = 0.8F * (1 - density * daylight) * (1 - density * weather);
+        var target = Minecraft.getInstance().getMainRenderTarget();
         shader.safeGetUniform("ClipToWorld").set(new Matrix4f(view).invert().mul(new Matrix4f(projection).invert()));
+        shader.safeGetUniform("PixelPadding").set(4.0F / target.width, 4.0F / target.height);
         shader.safeGetUniform("Density").set(density);
         shader.safeGetUniform("Weather").set(weather);
         shader.safeGetUniform("StarBrightness").set(starBrightness);

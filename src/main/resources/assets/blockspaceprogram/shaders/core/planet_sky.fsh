@@ -11,6 +11,7 @@ uniform int SurfaceSeed;
 uniform float Density;
 uniform float Weather;
 uniform float StarBrightness;
+uniform float HaloRadius;
 uniform float Horizon;
 
 in vec2 screenPosition;
@@ -32,14 +33,13 @@ vec3 transmittance(vec3 ray) {
         return vec3(1.0);
     }
     // A curved atmosphere has a finite path length even along the horizon.
-    float zenith = max(0.0, ray.y);
-    float airMass = inversesqrt(0.009 + 0.991 * zenith * zenith);
+    float zenithCosine = max(0.0, ray.y);
+    float airMass = inversesqrt(0.009 + 0.991 * zenithCosine * zenithCosine);
     vec3 extinction = vec3(0.047, 0.085, 0.145) + 1.45 * Weather;
     return exp(-Density * airMass * extinction);
 }
 
 const float TWO_PI = 6.28318530718;
-const float HALO_RADIUS = 4.0;
 
 // Basin centers and chord radii. Overlapping basins form the larger maria.
 const vec4 MARIA[9] = vec4[9](
@@ -166,7 +166,7 @@ void main() {
     float rayStep = Mode == 1 ? max(length(dFdx(ray)), length(dFdy(ray))) : 0.0;
     bool hasHalo = Mode == 1 && Density > 0.0 && StarBrightness > 0.0;
     if (alongRay <= 0.0 || ray.y < Horizon
-            || (coverage == 0.0 && (!hasHalo || distanceSquared >= radiusSquared * HALO_RADIUS * HALO_RADIUS))) {
+            || (coverage == 0.0 && (!hasHalo || distanceSquared >= radiusSquared * HaloRadius * HaloRadius))) {
         discard;
     }
 
@@ -175,7 +175,7 @@ void main() {
     vec3 halo = vec3(0.0);
     if (hasHalo) {
         float radial = sqrt(distanceSquared) / Radius;
-        float falloff = 1.0 - smoothstep(1.0, HALO_RADIUS, radial);
+        float falloff = 1.0 - smoothstep(1.0, HaloRadius, radial);
         halo = transmission * (0.058 * Density * StarBrightness * litFraction * falloff);
     }
     if (coverage == 0.0) {
