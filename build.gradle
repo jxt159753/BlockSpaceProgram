@@ -128,3 +128,7 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
 if (providers.gradleProperty('candidateDimensions').isPresent()) {
     apply from: 'experiments/candidate-dimensions/candidate-dimensions.gradle'
 }
+
+if (providers.gradleProperty('starSystem').isPresent()) {
+    apply from: 'experiments/star-system/star-system.gradle'
+}

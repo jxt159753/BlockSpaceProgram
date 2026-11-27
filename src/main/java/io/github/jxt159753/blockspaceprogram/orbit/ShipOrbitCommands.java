@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 import net.minecraft.commands.CommandSourceStack;
@@ -15,8 +16,10 @@ import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.commands.arguments.UuidArgument;
 import net.minecraft.commands.arguments.coordinates.Vec3Argument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 final class ShipOrbitCommands {
@@ -26,6 +29,13 @@ final class ShipOrbitCommands {
     private ShipOrbitCommands() {}
 
     static void register(RegisterCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("bsp_star_system")
+                .requires(source -> source.hasPermission(2) || source.getEntity() instanceof ServerPlayer player
+                        && source.getServer().isSingleplayerOwner(player.getGameProfile()))
+                .executes(context -> showSystem(context.getSource())));
+        if (!ModList.get().isLoaded("sable")) {
+            return;
+        }
         var position = Commands.argument("position", Vec3Argument.vec3(false))
                 .then(Commands.argument("vx", DoubleArgumentType.doubleArg())
                         .then(Commands.argument("vy", DoubleArgumentType.doubleArg())
@@ -38,12 +48,28 @@ final class ShipOrbitCommands {
                                         .executes(ShipOrbitCommands::orbit))));
         var body = Commands.argument("body", ResourceLocationArgument.id())
                 .suggests((context, builder) -> SharedSuggestionProvider.suggestResource(
-                        OrbitalSystem.M3.bodies().stream().map(celestial -> celestial.id()), builder))
+                        OrbitalSavedData.get(context.getSource().getServer()).system().bodies().stream()
+                                .map(CelestialBody::id), builder))
                 .then(Commands.argument("p", DoubleArgumentType.doubleArg(Double.MIN_VALUE))
                         .then(Commands.argument("e", DoubleArgumentType.doubleArg(0)).then(angles)));
         event.getDispatcher().register(Commands.literal("bsp_ship").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("position").then(shipArgument().then(position)))
                 .then(Commands.literal("orbit").then(shipArgument().then(body))));
+    }
+
+    private static int showSystem(CommandSourceStack source) {
+        var data = OrbitalSavedData.get(source.getServer());
+        var profile = data.starSystem();
+        var orbit = profile.moonOrbit();
+        source.sendSuccess(() -> Component.translatable("orbit.blockspaceprogram.star_system.profile",
+                profile.spacing().id(), profile.shape().id(), Long.toString(profile.seed())), false);
+        source.sendSuccess(() -> Component.translatable("orbit.blockspaceprogram.star_system.elements",
+                orbit.semiMajorAxis(), orbit.semiLatusRectum(), orbit.eccentricity(), orbit.inclination(),
+                orbit.longitudeOfAscendingNode(), orbit.argumentOfPeriapsis(), orbit.meanAnomalyAtEpoch(),
+                orbit.epochSeconds()), false);
+        source.sendSuccess(() -> Component.translatable("orbit.blockspaceprogram.star_system.transfer",
+                String.format(Locale.ROOT, "%.2f", profile.hohmannSeconds(data.system()) / 60)), false);
+        return 1;
     }
 
     private static RequiredArgumentBuilder<CommandSourceStack, UUID> shipArgument() {

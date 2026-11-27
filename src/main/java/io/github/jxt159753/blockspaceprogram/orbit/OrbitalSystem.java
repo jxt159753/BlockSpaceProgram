@@ -17,10 +17,9 @@ import org.jetbrains.annotations.Nullable;
 public final class OrbitalSystem {
     public static final ResourceLocation MOTHER_PLANET = ResourceLocation.withDefaultNamespace("overworld");
     public static final ResourceLocation MOON = ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "moon");
-    public static final OrbitalSystem M3 = new OrbitalSystem(
-            new CelestialBody(MOTHER_PLANET, 60_000, 3.528e10, null),
-            new CelestialBody(MOON, 12_000, 2.304e8,
-                    new Orbit(MOTHER_PLANET, OrbitElements.fromSemiMajorAxis(360_000, 0, 0, 0, 0, 0, 0))));
+    static final OrbitElements LEGACY_MOON_ORBIT = OrbitElements.fromSemiMajorAxis(360_000, 0, 0, 0, 0, 0, 0);
+    private static final CelestialBody MOTHER = new CelestialBody(MOTHER_PLANET, 60_000, 3.528e10, null);
+    private static final OrbitalSystem LEGACY = withMoonOrbit(LEGACY_MOON_ORBIT);
 
     private static final OrbitalState ORIGIN = new OrbitalState(Vec3.ZERO, Vec3.ZERO);
     private static final double CROSSING_TIME_TOLERANCE = 1e-3;
@@ -30,6 +29,14 @@ public final class OrbitalSystem {
     private final Map<ResourceLocation, CelestialBody> bodies = new LinkedHashMap<>();
     private final Map<ResourceLocation, List<CelestialBody>> children = new LinkedHashMap<>();
     private final Map<ResourceLocation, Double> sphereRadii = new LinkedHashMap<>();
+
+    public static OrbitalSystem legacy() {
+        return LEGACY;
+    }
+
+    public static OrbitalSystem withMoonOrbit(OrbitElements elements) {
+        return new OrbitalSystem(MOTHER, new CelestialBody(MOON, 12_000, 2.304e8, new Orbit(MOTHER_PLANET, elements)));
+    }
 
     /** Supply satellites with each parent before its children. */
     public OrbitalSystem(CelestialBody root, CelestialBody... satellites) {

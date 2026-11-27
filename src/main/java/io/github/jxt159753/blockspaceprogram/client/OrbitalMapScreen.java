@@ -28,7 +28,6 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 final class OrbitalMapScreen extends Screen {
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
     private static final int WHITE = 0xffe6f0ff;
     private static final int MUTED = 0xff9fb4cc;
     private static final int BODY = 0xff80a8d7;
@@ -119,11 +118,12 @@ final class OrbitalMapScreen extends Screen {
             if (shipsChanged) {
                 lastShips = Map.copyOf(ships);
             }
-            refreshOrbitLines(now);
-            var targetBody = target == null || target.body == null ? null : SYSTEM.body(target.body);
+            var system = ClientOrbitalState.system();
+            refreshOrbitLines(system, now);
+            var targetBody = target == null || target.body == null ? null : system.body(target.body);
             var targetShip = target == null ? null : ships.get(target.ship);
-            forecast = selected == null ? null : OrbitalMapForecast.calculate(selected.orbit(), armed == null ? draft : armed,
-                    targetBody, targetShip, now);
+            forecast = selected == null ? null : OrbitalMapForecast.calculate(system, selected.orbit(),
+                    armed == null ? draft : armed, targetBody, targetShip, now);
         }
         shipButton.active = ships.size() > 1;
         targetButton.active = selected != null;
@@ -139,9 +139,9 @@ final class OrbitalMapScreen extends Screen {
         cancelButton.active = !awaitingServer && armed != null;
     }
 
-    private void refreshOrbitLines(double now) {
+    private void refreshOrbitLines(OrbitalSystem system, double now) {
         var visible = new HashSet<Orbit>();
-        for (CelestialBody body : SYSTEM.bodies()) {
+        for (CelestialBody body : system.bodies()) {
             if (body.orbit() != null) {
                 visible.add(body.orbit());
             }
@@ -149,11 +149,11 @@ final class OrbitalMapScreen extends Screen {
         lastShips.values().forEach(ship -> visible.add(ship.orbit()));
         orbitLines.keySet().retainAll(visible);
         for (Orbit orbit : visible) {
-            double period = orbit.elements().period(SYSTEM.body(orbit.center()).gravitationalParameter());
+            double period = orbit.elements().period(system.body(orbit.center()).gravitationalParameter());
             if (!orbitLines.containsKey(orbit) || !Double.isFinite(period)) {
                 double start = Double.isFinite(period) ? orbit.elements().epochSeconds() : now;
                 double end = start + (Double.isFinite(period) ? period : OrbitalPlanner.PREDICTION_SECONDS);
-                var path = OrbitalMapForecast.Path.sample(seconds -> SYSTEM.relativeState(orbit, seconds), start, end);
+                var path = OrbitalMapForecast.Path.sample(seconds -> system.relativeState(orbit, seconds), start, end);
                 orbitLines.put(orbit, path.positions());
             }
         }
@@ -179,39 +179,41 @@ final class OrbitalMapScreen extends Screen {
     }
 
     private OrbitalMapViewport.Frame frame(double seconds) {
+        var system = ClientOrbitalState.system();
         var selected = selectedView();
         ResourceLocation center = selected == null ? OrbitalSystem.MOTHER_PLANET : selected.orbit().center();
-        double extent = SYSTEM.sphereOfInfluence(center);
+        double extent = system.sphereOfInfluence(center);
         if (!Double.isFinite(extent)) {
-            extent = SYSTEM.body(center).radius() * 2;
-            for (CelestialBody body : SYSTEM.bodies()) {
+            extent = system.body(center).radius() * 2;
+            for (CelestialBody body : system.bodies()) {
                 if (body.orbit() != null && center.equals(body.orbit().center())) {
                     extent = Math.max(extent, body.orbit().elements().apoapsis() * 1.13);
                 }
             }
         }
         if (selected != null) {
-            extent = Math.max(extent, SYSTEM.relativeState(selected.orbit(), seconds).position().length() * 1.08);
+            extent = Math.max(extent, system.relativeState(selected.orbit(), seconds).position().length() * 1.08);
             double apoapsis = selected.orbit().elements().apoapsis();
             if (Double.isFinite(apoapsis)) {
                 extent = Math.max(extent, apoapsis * 1.08);
             }
         }
-        return viewport.frame(SYSTEM.bodyState(center, seconds).position(), extent);
+        return viewport.frame(system.bodyState(center, seconds).position(), extent);
     }
 
     private void drawMap(GuiGraphics graphics, OrbitalMapViewport.Frame frame, double now) {
+        var system = ClientOrbitalState.system();
         graphics.enableScissor(viewport.left + 1, viewport.top + 1, viewport.right - 1, viewport.bottom - 1);
         var ink = new OrbitalMapViewport.Ink(graphics, frame);
-        for (CelestialBody body : SYSTEM.bodies()) {
+        for (CelestialBody body : system.bodies()) {
             var orbit = body.orbit();
             if (orbit != null) {
-                drawOrbit(ink, orbit, now, new Target(body.id(), null).equals(target) ? TARGET : 0xff4b6589);
+                drawOrbit(ink, system, orbit, now, new Target(body.id(), null).equals(target) ? TARGET : 0xff4b6589);
             }
         }
         for (var entry : lastShips.entrySet()) {
             if (!entry.getKey().equals(selectedShip)) {
-                drawOrbit(ink, entry.getValue().orbit(), now,
+                drawOrbit(ink, system, entry.getValue().orbit(), now,
                         new Target(null, entry.getKey()).equals(target) ? TARGET : 0xff395977);
             }
         }
@@ -222,15 +224,15 @@ final class OrbitalMapScreen extends Screen {
             }
         }
 
-        for (CelestialBody body : SYSTEM.bodies()) {
-            var point = frame.project(SYSTEM.bodyState(body.id(), now).position());
+        for (CelestialBody body : system.bodies()) {
+            var point = frame.project(system.bodyState(body.id(), now).position());
             float radius = (float) Math.clamp(body.radius() * frame.scale(), 3.5, 512);
             ink.circle(point, radius, 0xff233d59, true);
             ink.circle(point, radius, new Target(body.id(), null).equals(target) ? TARGET : BODY, false);
         }
         for (var entry : lastShips.entrySet()) {
             var id = entry.getKey();
-            var point = frame.project(SYSTEM.absoluteState(entry.getValue().orbit(), now).position());
+            var point = frame.project(system.absoluteState(entry.getValue().orbit(), now).position());
             boolean selected = id.equals(selectedShip);
             boolean targeted = new Target(null, id).equals(target);
             ink.diamond(point, selected || targeted ? 4 : 2.5f, selected ? SHIP : targeted ? TARGET : BODY);
@@ -249,9 +251,13 @@ final class OrbitalMapScreen extends Screen {
             ink.diamond(closest, 3.5f, WHITE);
         }
         graphics.flush();
-        for (CelestialBody body : SYSTEM.bodies()) {
-            var point = frame.project(SYSTEM.bodyState(body.id(), now).position());
+        for (CelestialBody body : system.bodies()) {
+            var point = frame.project(system.bodyState(body.id(), now).position());
             drawLabel(graphics, bodyName(body.id()), point, 6, BODY);
+            var orbit = body.orbit();
+            if (orbit != null && orbit.elements().inclination() > 0) {
+                drawOrbitalNodes(graphics, frame, orbit, system.bodyState(orbit.center(), now).position());
+            }
         }
         if (forecast != null && forecast.approach() != null) {
             String label = forecast.surfaceContact() ? "surface_mark" : "closest_mark";
@@ -267,11 +273,30 @@ final class OrbitalMapScreen extends Screen {
         graphics.disableScissor();
     }
 
-    private void drawOrbit(OrbitalMapViewport.Ink ink, Orbit orbit, double now, int color) {
+    private void drawOrbit(OrbitalMapViewport.Ink ink, OrbitalSystem system, Orbit orbit, double now, int color) {
         var line = orbitLines.get(orbit);
         if (line != null) {
-            ink.path(line, SYSTEM.bodyState(orbit.center(), now).position(), color, 1, false);
+            ink.path(line, system.bodyState(orbit.center(), now).position(), color, 1, false);
         }
+    }
+
+    private void drawOrbitalNodes(GuiGraphics graphics, OrbitalMapViewport.Frame frame, Orbit orbit, Vec3 center) {
+        var elements = orbit.elements();
+        double longitude = elements.longitudeOfAscendingNode();
+        var direction = new Vec3(Math.cos(longitude), Math.sin(longitude), 0);
+        // The ascending and descending nodes have true anomalies -ω and π - ω.
+        double radialFactor = elements.eccentricity() * Math.cos(elements.argumentOfPeriapsis());
+        var ascending = frame.project(center.add(direction.scale(elements.semiLatusRectum() / (1 + radialFactor))));
+        var descending = frame.project(center.add(direction.scale(-elements.semiLatusRectum() / (1 - radialFactor))));
+        drawOrbitalNode(graphics, "ascending_node", ascending);
+        drawOrbitalNode(graphics, "descending_node", descending);
+    }
+
+    private void drawOrbitalNode(GuiGraphics graphics, String label, OrbitalMapViewport.Point point) {
+        int x = Math.round(point.x());
+        int y = Math.round(point.y());
+        graphics.fill(x - 1, y - 1, x + 2, y + 2, MUTED);
+        drawLabel(graphics, text(label), point, 5, MUTED);
     }
 
     private void drawLabel(GuiGraphics graphics, Component label, OrbitalMapViewport.Point point, int yOffset, int color) {
@@ -282,15 +307,16 @@ final class OrbitalMapScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphics graphics, double now) {
+        var system = ClientOrbitalState.system();
         var selected = selectedView();
         if (selected == null) {
             panelLine(graphics, text("empty"), 54, MUTED);
             return;
         }
         var orbit = selected.orbit();
-        var body = SYSTEM.body(orbit.center());
+        var body = system.body(orbit.center());
         var elements = orbit.elements();
-        double altitude = SYSTEM.relativeState(orbit, now).position().length() - body.radius();
+        double altitude = system.relativeState(orbit, now).position().length() - body.radius();
         panelLine(graphics, text("selected", shortId(selectedShip), bodyName(body.id())), 52, SHIP);
         panelPair(graphics, text("periapsis", distance(elements.periapsis() - body.radius())),
                 text("apoapsis", distance(elements.apoapsis() - body.radius())), 64);
@@ -304,8 +330,8 @@ final class OrbitalMapScreen extends Screen {
         if (forecast != null && forecast.approach() != null) {
             var approach = forecast.approach();
             var label = "closest";
-            if (!forecast.surfaceContact() && target != null && target.body != null && SYSTEM.body(target.body).orbit() != null
-                    && approach.distance() < SYSTEM.sphereOfInfluence(target.body)) {
+            if (!forecast.surfaceContact() && target != null && target.body != null && system.body(target.body).orbit() != null
+                    && approach.distance() < system.sphereOfInfluence(target.body)) {
                 label = "encounter";
             }
             panelLine(graphics, text(label, distance(approach.distance()), number(approach.relativeSpeed(), 0)), 112, TARGET);
@@ -402,17 +428,18 @@ final class OrbitalMapScreen extends Screen {
 
     @Nullable
     private Target pickContact(OrbitalMapViewport.Frame frame, double x, double y, double now) {
+        var system = ClientOrbitalState.system();
         double nearest = 36;
         Target hit = null;
         for (var entry : lastShips.entrySet()) {
-            double distance = frame.project(SYSTEM.absoluteState(entry.getValue().orbit(), now).position()).distanceSquared(x, y);
+            double distance = frame.project(system.absoluteState(entry.getValue().orbit(), now).position()).distanceSquared(x, y);
             if (distance < nearest) {
                 nearest = distance;
                 hit = new Target(null, entry.getKey());
             }
         }
-        for (CelestialBody body : SYSTEM.bodies()) {
-            double distance = frame.project(SYSTEM.bodyState(body.id(), now).position()).distanceSquared(x, y);
+        for (CelestialBody body : system.bodies()) {
+            double distance = frame.project(system.bodyState(body.id(), now).position()).distanceSquared(x, y);
             if (distance < nearest) {
                 nearest = distance;
                 hit = new Target(body.id(), null);
@@ -479,7 +506,7 @@ final class OrbitalMapScreen extends Screen {
 
     private void cycleTarget() {
         var targets = new ArrayList<Target>();
-        for (CelestialBody body : SYSTEM.bodies()) {
+        for (CelestialBody body : ClientOrbitalState.system().bodies()) {
             targets.add(new Target(body.id(), null));
         }
         for (UUID id : sortedShips()) {

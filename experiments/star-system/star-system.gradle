@@ -1,0 +1,9 @@
+neoForge.runs.register('starSystem') {
+    server()
+    gameDirectory = file('runs/starSystem')
+    programArgument '--nogui'
+}
+
+tasks.named('runStarSystem', JavaExec) {
+    standardInput = System.in
+}

@@ -9,7 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import org.junit.Test;
 
 public class OrbitalSystemTest {
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
+    private static final OrbitalSystem SYSTEM = OrbitalSystem.legacy();
     private static final CelestialBody MOTHER = SYSTEM.body(OrbitalSystem.MOTHER_PLANET);
     private static final CelestialBody MOON = SYSTEM.body(OrbitalSystem.MOON);
     private static final double MOON_SOI = SYSTEM.sphereOfInfluence(MOON.id());

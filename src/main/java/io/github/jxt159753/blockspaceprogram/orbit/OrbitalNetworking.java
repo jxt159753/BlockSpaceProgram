@@ -10,30 +10,36 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 
 public final class OrbitalNetworking {
     private OrbitalNetworking() {}
 
     public static void register(IEventBus modBus) {
         modBus.addListener(OrbitalNetworking::registerPayloads);
+        NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLevelLoad);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogin);
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::afterServerTick);
+        NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
         if (ModList.get().isLoaded("sable")) {
-            NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
             NeoForge.EVENT_BUS.addListener(OrbitalTimeWarp::register);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogout);
             NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onDimensionChange);
@@ -43,6 +49,8 @@ public final class OrbitalNetworking {
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar("2");
+        registrar.optional().playToClient(StarSystemSnapshot.TYPE, StarSystemSnapshot.CODEC,
+                (payload, context) -> ClientOrbitalState.receiveSystem(payload.moonOrbit()));
         registrar.playToClient(Clock.TYPE, Clock.CODEC,
                 (payload, context) -> ClientOrbitalState.receiveClock(payload.orbitTicks()));
         registrar.playToClient(ShipUpdate.TYPE, ShipUpdate.CODEC,
@@ -71,9 +79,23 @@ public final class OrbitalNetworking {
         PacketDistributor.sendToPlayer(player, new ManeuverFeedback(command.id(), result));
     }
 
+    private static void onLevelLoad(LevelEvent.Load event) {
+        if (event.getLevel() instanceof ServerLevel level && level.dimension().equals(Level.OVERWORLD)) {
+            // The overworld initialization flag has not yet been set for a new world.
+            OrbitalSavedData.get(level.getServer());
+        }
+    }
+
     private static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             OrbitalSavedData data = OrbitalSavedData.get(player.serverLevel().getServer());
+            var moonOrbit = data.starSystem().moonOrbit();
+            if (NetworkRegistry.hasChannel(player.connection, StarSystemSnapshot.TYPE.id())) {
+                PacketDistributor.sendToPlayer(player, new StarSystemSnapshot(moonOrbit));
+            } else if (!moonOrbit.equals(OrbitalSystem.LEGACY_MOON_ORBIT)) {
+                player.connection.disconnect(Component.translatable("orbit.blockspaceprogram.star_system.update_client"));
+                return;
+            }
             PacketDistributor.sendToPlayer(player, new Clock(data.orbitTicks()));
             for (OrbitingShip ship : data.ships()) {
                 var view = OrbitalShipView.of(ship, player.registryAccess());
@@ -131,7 +153,7 @@ public final class OrbitalNetworking {
         }
         if (space != null && !space.players().isEmpty()
                 && (warped || data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0)) {
-            var contacts = OrbitalRegion.get(server).contacts(data.orbitSeconds());
+            var contacts = OrbitalRegion.get(server).contacts(data);
             var payload = new RegionContacts(data.orbitTicks(), contacts);
             space.players().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
         }
@@ -156,6 +178,17 @@ public final class OrbitalNetworking {
 
         @Override
         public Type<RegionContacts> type() {
+            return TYPE;
+        }
+    }
+
+    record StarSystemSnapshot(OrbitElements moonOrbit) implements CustomPacketPayload {
+        static final Type<StarSystemSnapshot> TYPE = payloadType("orbital_star_system");
+        static final StreamCodec<ByteBuf, StarSystemSnapshot> CODEC =
+                ByteBufCodecs.fromCodec(OrbitElements.CODEC).map(StarSystemSnapshot::new, StarSystemSnapshot::moonOrbit);
+
+        @Override
+        public Type<StarSystemSnapshot> type() {
             return TYPE;
         }
     }

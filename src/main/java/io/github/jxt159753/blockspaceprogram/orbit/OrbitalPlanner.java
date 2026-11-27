@@ -36,7 +36,7 @@ public final class OrbitalPlanner {
         double n1 = TAU / from.elements().period(mu);
         double n2 = TAU / target.elements().period(mu);
         double transferAxis = (r1 + r2) / 2;
-        double flightTime = Math.PI * transferAxis / Math.sqrt(mu / transferAxis);
+        double flightTime = hohmannTransferSeconds(transferAxis, mu);
         double phase = Math.atan2(normal.dot(departure.position().cross(destination.position())),
                 departure.position().dot(destination.position()));
         double required = Math.IEEEremainder(Math.PI - n2 * flightTime, TAU);
@@ -47,6 +47,10 @@ public final class OrbitalPlanner {
         double prograde = Math.sqrt(mu / r1) * (Math.sqrt(r2 / transferAxis) - 1);
         return new TransferWindow(phase, required, new ManeuverNode(now + NODE_LEAD_SECONDS + delay,
                 new Vec3(prograde, 0, 0)));
+    }
+
+    static double hohmannTransferSeconds(double transferAxis, double mu) {
+        return Math.PI * transferAxis / Math.sqrt(mu / transferAxis);
     }
 
     /** Search a finite forecast interval and refine each sampled local minimum. */

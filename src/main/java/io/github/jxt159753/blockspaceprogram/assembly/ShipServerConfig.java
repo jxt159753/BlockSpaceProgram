@@ -1,5 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import java.util.List;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class ShipServerConfig {
@@ -14,6 +15,9 @@ public final class ShipServerConfig {
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_EXIT_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_SPEED;
+    private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SPACING;
+    private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SHAPE;
+    private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SEED;
 
     static {
         var builder = new ModConfigSpec.Builder();
@@ -47,6 +51,14 @@ public final class ShipServerConfig {
         ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for an uncrewed ship to enter local physics.")
                 .defineInRange("maxEntrySpeed", 40.0, 0.0, 1_000.0);
         builder.pop();
+        builder.comment("Star system settings only apply when creating a world.").push("star_system");
+        STAR_SYSTEM_SPACING = builder.comment("The Moon's orbital spacing: near, medium, or far.")
+                .define("orbit_spacing", "medium", List.of("near", "medium", "far")::contains);
+        STAR_SYSTEM_SHAPE = builder.comment("The Moon's orbit shape: regular or natural.")
+                .define("orbit_shape", "regular", List.of("regular", "natural")::contains);
+        STAR_SYSTEM_SEED = builder.comment("A signed 64-bit decimal seed. Leave blank to derive it from the world seed.")
+                .define("seed", "", ShipServerConfig::validStarSystemSeed);
+        builder.pop();
         SPEC = builder.build();
     }
 
@@ -62,5 +74,33 @@ public final class ShipServerConfig {
 
     public static double orbitEntrySpeed() {
         return ORBIT_ENTRY_SPEED.get();
+    }
+
+    public static String starSystemSpacing() {
+        return STAR_SYSTEM_SPACING.get();
+    }
+
+    public static String starSystemShape() {
+        return STAR_SYSTEM_SHAPE.get();
+    }
+
+    public static String starSystemSeed() {
+        return STAR_SYSTEM_SEED.get().trim();
+    }
+
+    private static boolean validStarSystemSeed(Object value) {
+        if (!(value instanceof String input)) {
+            return false;
+        }
+        String seed = input.trim();
+        if (seed.isEmpty()) {
+            return true;
+        }
+        try {
+            Long.parseLong(seed);
+            return true;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
     }
 }

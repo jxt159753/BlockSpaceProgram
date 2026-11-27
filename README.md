@@ -8,6 +8,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 用装配台在 3D 界面接合零件、编排分级并查看每级 Δv。保存蓝图后，把完整的零件套件带到发射台生成飞船。 [装配与发射](docs/vab.md)
 
+新存档可以选择卫星间距和轨道形状。天空和轨道地图随该存档的卫星位置推进。 [天体与新存档](docs/orbit.md#天体与新存档) · [生成原型复测](experiments/star-system/README.md)
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft、Sable 和 CC:Tweaked 的编译依赖。
