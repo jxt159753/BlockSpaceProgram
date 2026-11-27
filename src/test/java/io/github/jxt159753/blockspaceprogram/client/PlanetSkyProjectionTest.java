@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
@@ -17,6 +18,13 @@ public class PlanetSkyProjectionTest {
     private static final ResourceLocation EARTH = OrbitalSystem.MOTHER_PLANET;
     private static final OrbitalSystem M3 = OrbitalSystem.legacy();
     private static final Vec3 EQUATOR = new Vec3(0, 63, 0);
+
+    @Test
+    public void surfaceSeedIsRepeatableForEachBody() {
+        String moon = "blockspaceprogram:moon";
+        assertEquals(PlanetSkyProjection.surfaceSeed(moon), PlanetSkyProjection.surfaceSeed(moon));
+        assertNotEquals(PlanetSkyProjection.surfaceSeed("minecraft:overworld"), PlanetSkyProjection.surfaceSeed(moon));
+    }
 
     @Test
     public void solarElevationUsesOrbitalTimeAndLongitude() {
