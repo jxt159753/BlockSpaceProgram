@@ -114,6 +114,7 @@ public final class AssembledShipEntity extends Entity {
     public static void registerFlight() {
         if (ModList.get().isLoaded("sable")) {
             SableShipFlight.register();
+            NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
         }
         NeoForge.EVENT_BUS.addListener(PlanetFlightProperties::register);
     }
@@ -131,6 +132,71 @@ public final class AssembledShipEntity extends Entity {
             LOGGER.warn("Could not initialize ship flight for {}", getUUID(), error);
             return false;
         }
+    }
+
+    @Nullable
+    SableShipFlight activeFlight() {
+        return flight != null && flight.isActive() ? flight : null;
+    }
+
+    CompoundTag orbitSnapshot() {
+        var tag = new CompoundTag();
+        if (!saveAsPassenger(tag) || snapshotSize(tag) != getSelfAndPassengers().count()) {
+            throw new IllegalArgumentException("The ship and all of its passengers must be serializable");
+        }
+        return tag;
+    }
+
+    @Nullable
+    static AssembledShipEntity restoreFromOrbit(ServerLevel level, UUID id, CompoundTag tag,
+            SableShipFlight.Motion motion, boolean reentry) {
+        var entity = EntityType.loadEntityRecursive(tag, level, loaded -> loaded);
+        if (!(entity instanceof AssembledShipEntity ship) || !id.equals(ship.getUUID()) || ship.bodyId == null) {
+            return null;
+        }
+        ShipDesign design = ship.design();
+        var members = ship.getSelfAndPassengers().toList();
+        if (design == null || members.size() != snapshotSize(tag)
+                || members.stream().anyMatch(member -> level.getEntity(member.getUUID()) != null)) {
+            return null;
+        }
+
+        boolean restored = false;
+        try {
+            ship.bindFlight(SableShipFlight.rebuild(ship, level, design, ship.savedFuel, motion));
+            ship.flight.setMotion(motion);
+            AABB bounds = ship.flight.worldBounds();
+            if (!level.getWorldBorder().isWithinBounds(bounds) || (reentry && bounds.minY < level.getMaxBuildHeight())) {
+                return null;
+            }
+            ship.setPos(ship.flight.plotPosition());
+            for (Entity member : members) {
+                if (member.isPassenger()) {
+                    member.getVehicle().positionRider(member);
+                }
+                if (!level.addFreshEntity(member)) {
+                    return null;
+                }
+            }
+            restored = true;
+            return ship;
+        } finally {
+            if (!restored) {
+                members.reversed().forEach(Entity::discard);
+                if (ship.flight != null) {
+                    ship.flight.removeBodyNow();
+                }
+            }
+        }
+    }
+
+    private static int snapshotSize(CompoundTag tag) {
+        int size = 1;
+        var passengers = tag.getList("Passengers", Tag.TAG_COMPOUND);
+        for (int index = 0; index < passengers.size(); index++) {
+            size += snapshotSize(passengers.getCompound(index));
+        }
+        return size;
     }
 
     void useFlightFragment(ShipDesign design, SableShipFlight flight) {

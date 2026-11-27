@@ -29,6 +29,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Unit;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -55,6 +56,8 @@ final class SableShipFlight {
     // Keep these bounded bodies loaded until the cleanup rules have removed them.
     private static final SubLevelLoadingTicketType<Unit> DEBRIS_TICKET = SubLevelLoadingTicketType.create(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "debris"), Unit.CODEC);
+    private static final SubLevelLoadingTicketType<Unit> HANDOFF_TICKET = SubLevelLoadingTicketType.create(
+            ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "orbit_handoff"), Unit.CODEC);
     private static final Map<ServerLevel, Flights> LEVELS = new IdentityHashMap<>();
 
     private final AssembledShipEntity ship;
@@ -62,6 +65,7 @@ final class SableShipFlight {
     private ShipFlightState state;
     private final ShipLandingGear landingGear;
     private final Flights flights;
+    private double previousHandoffY;
     private int keys;
     private int throttle;
     private boolean stageRequested;
@@ -73,6 +77,7 @@ final class SableShipFlight {
         this.state = state;
         this.landingGear = new ShipLandingGear(design);
         this.flights = LEVELS.get(body.subLevel().getLevel());
+        this.previousHandoffY = body.subLevel().logicalPose().position().y();
     }
 
     static void register() {
@@ -163,12 +168,22 @@ final class SableShipFlight {
                 || !subLevel.getPlot().contains(ship.chunkPosition())) {
             throw new IllegalStateException("Saved Sable sub-level belongs to a different ship");
         }
-        int stage = savedStage < -1 ? ShipFlightState.initialStage(design) : Math.min(savedStage, design.stageCount() - 1);
-        var state = new ShipFlightState(design, savedFuel, ship.damagedParts(), stage);
+        var state = savedState(ship, design, savedFuel, savedStage);
         var body = new ShipCollisionBody(container, subLevel, origin);
         body.assignMass(state.cells());
         subLevel.updateLastPose();
         return new SableShipFlight(ship, body, state, design);
+    }
+
+    static SableShipFlight rebuild(AssembledShipEntity ship, ServerLevel level, ShipDesign design, ListTag savedFuel,
+            Motion motion) {
+        var state = savedState(ship, design, savedFuel, ship.activeStage());
+        return spawn(ship, level, design, state, vector(motion.center()), motion.orientation());
+    }
+
+    private static ShipFlightState savedState(AssembledShipEntity ship, ShipDesign design, ListTag savedFuel, int savedStage) {
+        int stage = savedStage < -1 ? ShipFlightState.initialStage(design) : Math.min(savedStage, design.stageCount() - 1);
+        return new ShipFlightState(design, savedFuel, ship.damagedParts(), stage);
     }
 
     void attach() {
@@ -186,8 +201,14 @@ final class SableShipFlight {
         if (isDebris()) {
             body.container().removeForceLoadTicket(body.subLevel(), DEBRIS_TICKET, Unit.INSTANCE);
         }
+        body.container().removeForceLoadTicket(body.subLevel(), HANDOFF_TICKET, Unit.INSTANCE);
         body.subLevel().markRemoved();
         detach();
+    }
+
+    void removeBodyNow() {
+        // Handoffs can be followed by a save before Sable processes its removal queue.
+        body.remove();
     }
 
     UUID bodyId() {
@@ -196,6 +217,71 @@ final class SableShipFlight {
 
     Vec3 plotPosition() {
         return Vec3.atLowerCornerOf(body.plotOrigin());
+    }
+
+    static List<AssembledShipEntity> takeAscents(ServerLevel level, double ascentY) {
+        var flights = LEVELS.get(level);
+        if (flights == null) {
+            return List.of();
+        }
+        List<AssembledShipEntity> ascending = new ArrayList<>();
+        for (var flight : flights.active.values()) {
+            var subLevel = flight.body.subLevel();
+            if (subLevel.isRemoved()) {
+                continue;
+            }
+            double y = subLevel.logicalPose().position().y();
+            if (y < level.getMaxBuildHeight() && flight.previousHandoffY >= level.getMaxBuildHeight()) {
+                flight.body.container().removeForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
+            }
+            if (flight.previousHandoffY <= ascentY && y > ascentY) {
+                ascending.add(flight.ship);
+            }
+            flight.previousHandoffY = y;
+        }
+        return ascending;
+    }
+
+    boolean carriesPlayer() {
+        var subLevel = body.subLevel();
+        return ship.getSelfAndPassengers().anyMatch(Player.class::isInstance)
+                || subLevel.getLevel().players().stream().anyMatch(player ->
+                        Sable.HELPER.getTrackingOrVehicleSubLevel(player) == subLevel
+                                || Sable.HELPER.getContaining(player) == subLevel);
+    }
+
+    boolean isActive() {
+        return !body.subLevel().isRemoved() && flights.active.get(body.subLevel()) == this;
+    }
+
+    AABB worldBounds() {
+        return body.subLevel().boundingBox().toMojang();
+    }
+
+    Motion motion() {
+        var subLevel = body.subLevel();
+        var pose = subLevel.logicalPose();
+        var pipeline = body.pipeline();
+        return new Motion(vec(pose.position()), vec(pipeline.getLinearVelocity(subLevel, new Vector3d())),
+                new Quaterniond(pose.orientation()), vec(pipeline.getAngularVelocity(subLevel, new Vector3d())));
+    }
+
+    void setMotion(Motion motion) {
+        var subLevel = body.subLevel();
+        var pipeline = body.pipeline();
+        pipeline.teleport(subLevel, vector(motion.center()), motion.orientation());
+        pipeline.resetVelocity(subLevel);
+        pipeline.addLinearAndAngularVelocity(subLevel, vector(motion.velocity()), vector(motion.angularVelocity()));
+        pipeline.wakeUp(subLevel);
+        subLevel.updateLastPose();
+        subLevel.updateBoundingBox();
+        previousHandoffY = motion.center().y;
+        // A high-altitude handoff can happen far from every player. Let Sable keep its flight and terrain loaded.
+        if (motion.center().y >= subLevel.getLevel().getMaxBuildHeight()) {
+            body.container().addForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
+        } else {
+            body.container().removeForceLoadTicket(subLevel, HANDOFF_TICKET, Unit.INSTANCE);
+        }
     }
 
     Vec3 seat() {
@@ -463,6 +549,16 @@ final class SableShipFlight {
             body.pipeline().addLinearAndAngularVelocity(subLevel, linear, angular);
         }
     }
+
+    private static Vec3 vec(Vector3dc value) {
+        return new Vec3(value.x(), value.y(), value.z());
+    }
+
+    private static Vector3d vector(Vec3 value) {
+        return new Vector3d(value.x, value.y, value.z);
+    }
+
+    record Motion(Vec3 center, Vec3 velocity, Quaterniond orientation, Vec3 angularVelocity) {}
 
     private record Flights(Vector3dc baseGravity, Map<ServerSubLevel, SableShipFlight> active) {}
 }

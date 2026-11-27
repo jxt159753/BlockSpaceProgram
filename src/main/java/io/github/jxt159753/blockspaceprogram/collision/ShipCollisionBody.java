@@ -123,7 +123,7 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
     }
 
     public void remove() {
-        if (!subLevel.isRemoved()) {
+        if (container.getSubLevel(subLevel.getUniqueId()) == subLevel) {
             container.removeSubLevel(subLevel, SubLevelRemovalReason.REMOVED);
         }
     }

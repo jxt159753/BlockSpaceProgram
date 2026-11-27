@@ -47,7 +47,7 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
         return shipData.copy();
     }
 
-    OrbitingShip withOrbit(Orbit next) {
+    public OrbitingShip withOrbit(Orbit next) {
         return new OrbitingShip(id, next, orientation, angularVelocity, shipData);
     }
 }

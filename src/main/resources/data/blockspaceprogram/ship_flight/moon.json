@@ -1,0 +1,12 @@
+{
+  "sea_level": 63,
+  "radius": 12000,
+  "surface_gravity": 1.6,
+  "sea_level_density": 0,
+  "atmosphere_top": 0,
+  "scale_height": 1000,
+  "orbit_handoff": {
+    "ascent_altitude": 1500,
+    "descent_altitude": 1000
+  }
+}
