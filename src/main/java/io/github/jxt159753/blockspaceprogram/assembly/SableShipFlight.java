@@ -624,15 +624,18 @@ public final class SableShipFlight implements ShipFlightControl {
         updateFlightEvents();
         if (stageRequested && !flights.frozenForWarp) {
             stageRequested = false;
+            ShipFlightEvent event;
             try {
-                if (advanceStage()) {
-                    postFlightEvent(ShipFlightEvent.Kind.STAGE_CHANGED, ship.activeStage());
-                }
+                event = advanceStage();
             } catch (RuntimeException error) {
                 LOGGER.warn("Could not advance stage for {}", ship.getUUID(), error);
                 if (ship.getFirstPassenger() instanceof ServerPlayer pilot) {
                     pilot.displayClientMessage(Component.translatable("flight.blockspaceprogram.stage_failed"), true);
                 }
+                return;
+            }
+            if (event != null) {
+                NeoForge.EVENT_BUS.post(event);
             }
         }
     }
@@ -945,11 +948,12 @@ public final class SableShipFlight implements ShipFlightControl {
         syncStatus();
     }
 
-    private boolean advanceStage() {
+    @Nullable
+    private ShipFlightEvent advanceStage() {
         ShipDesign design = ship.design();
         int stage = ship.dockingState().nextStage(state.stage());
         if (stage >= design.stageCount() || body.subLevel().isRemoved()) {
-            return false;
+            return null;
         }
         Set<Integer> cuts = new HashSet<>();
         for (int index = 0; index < design.links().size(); index++) {
@@ -958,20 +962,21 @@ public final class SableShipFlight implements ShipFlightControl {
                 cuts.add(index);
             }
         }
+        List<UUID> separatedShipIds = List.of();
         if (cuts.isEmpty()) {
             state.setStage(stage);
             syncStatus();
         } else {
-            cutLinks(design, cuts, design.components(cuts), stage, ship.dockingState());
+            separatedShipIds = cutLinks(design, cuts, design.components(cuts), stage, ship.dockingState());
         }
-        return true;
+        return new ShipFlightEvent(ship, ShipFlightEvent.Kind.STAGE_CHANGED, ship.activeStage(), separatedShipIds);
     }
 
-    private void cutLinks(ShipDesign design, Set<Integer> cuts, List<List<Integer>> components, int stage,
+    private List<UUID> cutLinks(ShipDesign design, Set<Integer> cuts, List<List<Integer>> components, int stage,
             ShipDockingState docking) {
         if (components.size() == 1) {
             updateGraph(design.withoutLinks(cuts), stage, docking);
-            return;
+            return List.of();
         }
         var level = body.subLevel().getLevel();
         var previous = motion();
@@ -1065,6 +1070,7 @@ public final class SableShipFlight implements ShipFlightControl {
         }
         removeBodyNow();
         cleanupDebris(level);
+        return fragments.subList(1, fragments.size()).stream().map(fragment -> fragment.flight.ship.getUUID()).toList();
     }
 
     private void push(Vec3 worldAnchor, Vector3dc worldImpulse) {

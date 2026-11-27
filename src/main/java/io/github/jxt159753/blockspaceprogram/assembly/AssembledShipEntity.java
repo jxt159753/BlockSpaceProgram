@@ -37,6 +37,7 @@ import org.slf4j.Logger;
 
 /** The launched ship retains its graph and stages across saves. */
 public final class AssembledShipEntity extends Entity {
+    public static final String SAVED_OWNER_TAG = "ShipOwner";
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int NO_SAVED_STAGE = -2;
     private static final String DOCKING = BlockSpaceProgram.MOD_ID + ":docking";
@@ -607,7 +608,7 @@ public final class AssembledShipEntity extends Entity {
     protected void readAdditionalSaveData(CompoundTag tag) {
         entityData.set(LAUNCH_ROTATION, tag.getByte("LaunchRotation"));
         setBlueprint(ItemStack.parseOptional(registryAccess(), tag.getCompound("Blueprint")));
-        owner = tag.hasUUID("ShipOwner") ? tag.getUUID("ShipOwner") : null;
+        owner = tag.hasUUID(SAVED_OWNER_TAG) ? tag.getUUID(SAVED_OWNER_TAG) : null;
         Tag savedDocking = getPersistentData().get(DOCKING);
         if (savedDocking != null) {
             var ops = registryAccess().createSerializationContext(NbtOps.INSTANCE);
@@ -628,7 +629,7 @@ public final class AssembledShipEntity extends Entity {
         tag.put("Blueprint", entityData.get(BLUEPRINT).saveOptional(registryAccess()));
         tag.putByte("LaunchRotation", entityData.get(LAUNCH_ROTATION));
         if (owner != null) {
-            tag.putUUID("ShipOwner", owner);
+            tag.putUUID(SAVED_OWNER_TAG, owner);
         }
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
