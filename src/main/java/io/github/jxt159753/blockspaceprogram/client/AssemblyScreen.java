@@ -7,6 +7,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking.Action;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipPlacement;
 import io.github.jxt159753.blockspaceprogram.assembly.StagePerformance;
+import io.github.jxt159753.blockspaceprogram.facility.Facility;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private static final int STATS = 35;
     private static final int WHITE = 0xFFF1F5FB;
     private static final int MUTED = 0xFFAEBECF;
+    private static final int OVER_LIMIT = 0xFFFF7D7D;
 
     private final AssemblyMenu menu;
     private AssemblyViewport viewport;
@@ -130,8 +132,10 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         graphics.fill(0, 0, width, height, 0xF4111721);
         graphics.fill(0, 0, width, 24, 0xFF263247);
         graphics.drawString(font, title, LEFT, 8, WHITE);
-        Component count = text("parts", design.nodes().size(), ShipDesign.MAX_PARTS);
-        graphics.drawString(font, count, width - LEFT - font.width(count), 8, MUTED);
+        int partCount = design.nodes().size();
+        int maximumParts = menu.maximumParts();
+        Component count = text("parts", partCount, maximumParts);
+        graphics.drawString(font, count, width - LEFT - font.width(count), 8, partCount > maximumParts ? OVER_LIMIT : MUTED);
         graphics.drawString(font, text("stages"), stageLeft + 1, TOOLS_Y + 6, WHITE);
         viewport.render(graphics, frame, design, preview == null ? design : preview.design(), hover, !world && stackMode);
         if (design.nodes().isEmpty() && !world) {
@@ -147,7 +151,10 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         drawStatus(graphics, preview);
         drawStages(graphics, mouseY);
         if (world) {
-            graphics.drawString(font, text("world_mass", value(wetMass, 1)), LEFT, TOOLS_Y + 6, WHITE);
+            double maximumMass = menu.maximumMass();
+            var facility = Facility.LAUNCH_PAD;
+            graphics.drawString(font, text("world_mass", facility.quantity(wetMass), facility.maximum(maximumMass)),
+                    LEFT, TOOLS_Y + 6, maximumMass > 0 && wetMass > maximumMass ? OVER_LIMIT : WHITE);
             assemble.active = !design.nodes().isEmpty();
         } else {
             drawInventory(graphics, mouseX, mouseY);
@@ -186,14 +193,12 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {}
 
     private void drawStatus(GuiGraphics graphics, @Nullable ShipPlacement.Result preview) {
-        Component status;
+        Component status = menu.message();
         int color = MUTED;
         if (preview != null && preview.error() != null && !menu.design().nodes().isEmpty()) {
             status = text(preview.error());
             color = 0xFFFFC28A;
-        } else if (!menu.message().isEmpty()) {
-            status = text(menu.message(), menu.messageCount());
-        } else {
+        } else if (status == null) {
             status = text(menu.isWorldAssembly() ? "world_camera_tip" : "camera_tip");
         }
         int statusWidth = (menu.isWorldAssembly() ? width - LEFT : stageLeft - 6) - LEFT;
@@ -205,10 +210,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
 
     private void updateStages(ShipDesign design) {
         shownDesign = design;
-        wetMass = design.nodes().stream().mapToDouble(node -> {
-            var properties = node.part().properties();
-            return properties.mass() + properties.fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
-        }).sum();
+        wetMass = design.fullMass();
         var metrics = StagePerformance.calculate(design);
         List<List<StageAction>> actions = new ArrayList<>();
         for (int i = 0; i < design.stageCount(); i++) {

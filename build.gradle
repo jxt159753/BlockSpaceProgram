@@ -26,12 +26,17 @@ repositories {
         url = 'https://maven.squiddev.cc'
         content { includeGroup 'cc.tweaked' }
     }
+    maven {
+        url = 'https://maven.ftb.dev/releases'
+        content { includeModule 'dev.ftb.mods', 'ftb-teams-neoforge' }
+    }
 }
 
 dependencies {
     compileOnly 'maven.modrinth:T9PomCSv:fg9dTRz9' // Sable NeoForge 2.0.6
     compileOnly 'dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0'
     compileOnly "cc.tweaked:cc-tweaked-1.21.1-forge-api:${cc_tweaked_version}"
+    compileOnly('dev.ftb.mods:ftb-teams-neoforge:2101.1.12') { transitive = false }
     testImplementation 'junit:junit:4.13.2'
 }
 

@@ -48,6 +48,12 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         links = List.copyOf(links);
     }
 
+    public double fullMass() {
+        return nodes.stream()
+                .mapToDouble(node -> node.part().properties().mass() + StagePerformance.fuelCapacity(node))
+                .sum();
+    }
+
     public record Node(BakedPart part, PartPose pose, int engineStage) {
         private static final Codec<Node> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 BakedPart.CODEC.fieldOf("part").forGetter(Node::part),
