@@ -3,6 +3,6 @@
   "minVersion": "0.8",
   "package": "io.github.jxt159753.blockspaceprogram.client.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": ["CameraEyeHeightAccessor", "ClientLevelMixin", "LevelRendererMixin"],
+  "client": ["CameraEyeHeightAccessor", "ClientLevelMixin", "LevelRendererMixin", "LevelRendererSkyAccessor"],
   "injectors": { "defaultRequire": 1 }
 }

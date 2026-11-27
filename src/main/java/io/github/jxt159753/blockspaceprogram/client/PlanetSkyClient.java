@@ -9,6 +9,7 @@ import com.mojang.blaze3d.vertex.VertexBuffer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+import io.github.jxt159753.blockspaceprogram.client.mixin.LevelRendererSkyAccessor;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking.OrbitalView;
@@ -32,9 +33,11 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RegisterShadersEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
+import org.lwjgl.opengl.GL11;
 
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class PlanetSkyClient {
@@ -119,6 +122,21 @@ public final class PlanetSkyClient {
     }
 
     public static float solarTime(ClientLevel level, float partialTick) {
+        Vec3 sun = surfaceSun(level, partialTick);
+        return sun == null ? level.dimensionType().timeOfDay(level.dayTime()) : PlanetSkyProjection.solarAngle(sun);
+    }
+
+    public static long shaderDayTime(ClientLevel level) {
+        long dayTime = level.dayTime();
+        if (!BlockSpaceProgram.isIrisShaderPackInUse()) {
+            return dayTime;
+        }
+        Vec3 sun = surfaceSun(level, 0);
+        return sun == null ? dayTime : PlanetSkyProjection.vanillaDayTime(dayTime, sun);
+    }
+
+    @Nullable
+    private static Vec3 surfaceSun(ClientLevel level, float partialTick) {
         var dimension = level.dimension().location();
         var properties = PlanetFlightProperties.clientIn(dimension);
         var system = ClientOrbitalState.system();
@@ -126,17 +144,37 @@ public final class PlanetSkyClient {
         var camera = Minecraft.getInstance().gameRenderer.getMainCamera();
         if (properties == null || body == null || !ClientOrbitalState.hasClock()
                 || !camera.isInitialized() || camera.getEntity().level() != level) {
-            return level.dimensionType().timeOfDay(level.dayTime());
+            return null;
         }
         var observer = PlanetSkyProjection.onSurface(system, body, properties, camera.getPosition(),
                 ClientOrbitalState.orbitSeconds(partialTick));
-        Vec3 sun = observer.toLocal(PlanetSkyProjection.SUN_DIRECTION);
-        float angle = (float) (Math.acos(Mth.clamp(sun.y, -1, 1)) / (2 * Math.PI));
-        return sun.x > 0 ? 1 - angle : angle;
+        return observer.toLocal(PlanetSkyProjection.SUN_DIRECTION);
     }
 
     public static boolean render(ClientLevel level, Camera camera, float partialTick, Matrix4f view,
                                  Matrix4f projection, VertexBuffer stars, boolean isFoggy) {
+        return !BlockSpaceProgram.isIrisShaderPackInUse()
+                && render(level, camera, partialTick, view, projection, stars, isFoggy, false);
+    }
+
+    @SubscribeEvent
+    public static void renderAfterShaderPack(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || !BlockSpaceProgram.isIrisShaderPackInUse()) {
+            return;
+        }
+        var game = Minecraft.getInstance();
+        var level = game.level;
+        var camera = event.getCamera();
+        var position = camera.getBlockPosition();
+        boolean isFoggy = level.effects().isFoggyAt(position.getX(), position.getY())
+                || game.gui.getBossOverlay().shouldCreateWorldFog();
+        var stars = ((LevelRendererSkyAccessor) event.getLevelRenderer()).blockspaceprogram$getStarBuffer();
+        render(level, camera, event.getPartialTick().getGameTimeDeltaPartialTick(false), event.getModelViewMatrix(),
+                event.getProjectionMatrix(), stars, isFoggy, true);
+    }
+
+    private static boolean render(ClientLevel level, Camera camera, float partialTick, Matrix4f view,
+                                  Matrix4f projection, VertexBuffer stars, boolean isFoggy, boolean afterShaderPack) {
         var dimension = level.dimension().location();
         var planet = PlanetFlightProperties.clientIn(dimension);
         var region = orbitalViewIn(level);
@@ -180,6 +218,12 @@ public final class PlanetSkyClient {
         shader.safeGetUniform("Horizon").set(horizon);
         shader.safeGetUniform("LightDirection").set(sun.toVector3f());
         shader.safeGetUniform("BodyPole").set(pole.toVector3f());
+        if (afterShaderPack) {
+            // Shader packs can replace sky colors during composition. The main target still has world depth.
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthFunc(GL11.GL_LEQUAL);
+            GL11.glDepthRange(1, 1);
+        }
         RenderSystem.depthMask(false);
         try {
             draw(BACKGROUND, Vec3.ZERO, 0, Vec3.ZERO);
@@ -205,6 +249,9 @@ public final class PlanetSkyClient {
             }
         } finally {
             RenderSystem.depthMask(true);
+            if (afterShaderPack) {
+                GL11.glDepthRange(0, 1);
+            }
         }
         return true;
     }
