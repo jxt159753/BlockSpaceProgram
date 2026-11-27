@@ -100,8 +100,9 @@ public final class OrbitalRegion extends SavedData {
     }
 
     boolean enterBenchmark(ServerPlayer player, ServerLevel space, Vec3 position, float yaw, float pitch) {
-        var body = SYSTEM.body(Level.OVERWORLD.location());
-        double epoch = OrbitalSavedData.get(space.getServer()).orbitSeconds();
+        var data = OrbitalSavedData.get(space.getServer());
+        var body = data.system().body(Level.OVERWORLD.location());
+        double epoch = data.orbitSeconds();
         var orbit = new Orbit(body.id(), new OrbitElements(body.radius() + 10_000, 0, 0, 0, 0, 0, epoch));
         timeWarp.reset(space);
         if (!SableShipFlight.movePlayer(player, space, position, Vec3.ZERO, yaw, pitch)) {

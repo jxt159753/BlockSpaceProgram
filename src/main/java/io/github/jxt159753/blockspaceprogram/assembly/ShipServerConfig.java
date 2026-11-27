@@ -2,7 +2,6 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.facility.FacilityConfig;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
-import java.util.List;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class ShipServerConfig {
@@ -57,9 +56,9 @@ public final class ShipServerConfig {
         FACILITY = new FacilityConfig(builder, BakedPart.MAX_BLOCKS);
         builder.comment("Star system settings only apply when creating a world.").push("star_system");
         STAR_SYSTEM_SPACING = builder.comment("The Moon's orbital spacing: near, medium, or far.")
-                .define("orbit_spacing", "medium", List.of("near", "medium", "far")::contains);
+                .define("orbit_spacing", "medium", value -> "near".equals(value) || "medium".equals(value) || "far".equals(value));
         STAR_SYSTEM_SHAPE = builder.comment("The Moon's orbit shape: regular or natural.")
-                .define("orbit_shape", "regular", List.of("regular", "natural")::contains);
+                .define("orbit_shape", "regular", value -> "regular".equals(value) || "natural".equals(value));
         STAR_SYSTEM_SEED = builder.comment("A signed 64-bit decimal seed. Leave blank to derive it from the world seed.")
                 .define("seed", "", ShipServerConfig::validStarSystemSeed);
         builder.pop();
