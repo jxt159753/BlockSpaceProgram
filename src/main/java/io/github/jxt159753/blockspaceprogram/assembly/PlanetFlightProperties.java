@@ -46,6 +46,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
     }, buf -> new PlanetFlightProperties(buf.readDouble(), buf.readDouble(), buf.readDouble(),
             buf.readDouble(), buf.readDouble(), buf.readDouble()));
     private static volatile Map<ResourceLocation, Profile> planets = Map.of();
+    private static Map<ResourceLocation, PlanetFlightProperties> clientPlanets = Map.of();
 
     static void register(AddReloadListenerEvent event) {
         event.addListener(new SimpleJsonResourceReloadListener(new Gson(), "ship_flight") {
@@ -62,8 +63,21 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
 
     @Nullable
     static PlanetFlightProperties in(Level level) {
-        var profile = profile(level.dimension().location());
+        var dimension = level.dimension().location();
+        if (level.isClientSide()) {
+            return clientIn(dimension);
+        }
+        var profile = profile(dimension);
         return profile == null ? null : profile.flight();
+    }
+
+    public static void setClientProperties(Map<ResourceLocation, PlanetFlightProperties> properties) {
+        clientPlanets = Map.copyOf(properties);
+    }
+
+    @Nullable
+    public static PlanetFlightProperties clientIn(ResourceLocation dimension) {
+        return clientPlanets.get(dimension);
     }
 
     @Nullable

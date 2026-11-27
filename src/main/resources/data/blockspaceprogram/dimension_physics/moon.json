@@ -1,0 +1,6 @@
+{
+  "dimension": "blockspaceprogram:moon",
+  "base_gravity": [0, -1.6, 0],
+  "base_pressure": 0,
+  "universal_drag": 0
+}
