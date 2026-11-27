@@ -1,8 +1,8 @@
 package io.github.jxt159753.blockspaceprogram.client;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalShipView;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +19,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 /** Last authoritative orbit time and current ship conics, read on the client thread. */
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class ClientOrbitalState {
-    private static final Map<UUID, Orbit> SHIPS = new HashMap<>();
+    private static final Map<UUID, OrbitalShipView> SHIPS = new HashMap<>();
     private static long orbitTicks;
     private static boolean hasClock;
     private static ClientLevel clockLevel;
@@ -45,7 +45,7 @@ public final class ClientOrbitalState {
         return orbitSeconds() + ticks / OrbitalSavedData.TICKS_PER_SECOND;
     }
 
-    public static Map<UUID, Orbit> ships() {
+    public static Map<UUID, OrbitalShipView> ships() {
         return Collections.unmodifiableMap(SHIPS);
     }
 
@@ -57,9 +57,9 @@ public final class ClientOrbitalState {
         clockGameTime = clockLevel == null ? 0 : clockLevel.getGameTime();
     }
 
-    public static void receiveShip(UUID id, Optional<Orbit> orbit) {
-        if (orbit.isPresent()) {
-            SHIPS.put(id, orbit.get());
+    public static void receiveShip(UUID id, Optional<OrbitalShipView> ship) {
+        if (ship.isPresent()) {
+            SHIPS.put(id, ship.get());
         } else {
             SHIPS.remove(id);
         }

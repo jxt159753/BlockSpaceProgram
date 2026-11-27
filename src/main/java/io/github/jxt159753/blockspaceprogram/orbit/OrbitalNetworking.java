@@ -3,6 +3,8 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipOrbitHandoff;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
+import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
 import io.netty.buffer.ByteBuf;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,11 +32,31 @@ public final class OrbitalNetworking {
     }
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("1");
+        var registrar = event.registrar("2");
         registrar.playToClient(Clock.TYPE, Clock.CODEC,
                 (payload, context) -> ClientOrbitalState.receiveClock(payload.orbitTicks()));
         registrar.playToClient(ShipUpdate.TYPE, ShipUpdate.CODEC,
-                (payload, context) -> ClientOrbitalState.receiveShip(payload.id(), payload.orbit()));
+                (payload, context) -> ClientOrbitalState.receiveShip(payload.id(), payload.ship()));
+        registrar.playToClient(ManeuverFeedback.TYPE, ManeuverFeedback.CODEC,
+                (payload, context) -> OrbitalMapClient.receiveResult(payload.id(), payload.result()));
+        registrar.playToServer(ManeuverCommand.TYPE, ManeuverCommand.CODEC, (payload, context) -> {
+            if (context.player() instanceof ServerPlayer player) {
+                handleCommand(player, payload);
+            }
+        });
+    }
+
+    public static void sendManeuver(UUID ship, Optional<ManeuverNode> node) {
+        PacketDistributor.sendToServer(new ManeuverCommand(ship, node));
+    }
+
+    private static void handleCommand(ServerPlayer player, ManeuverCommand command) {
+        var server = player.serverLevel().getServer();
+        // Ownerless ships have no per-player access lists. Only the host or an operator may burn.
+        var result = player.hasPermissions(2) || server.isSingleplayerOwner(player.getGameProfile())
+                ? OrbitalSavedData.get(server).commandManeuver(command.id(), command.node(), server.registryAccess())
+                : ManeuverResult.FORBIDDEN;
+        PacketDistributor.sendToPlayer(player, new ManeuverFeedback(command.id(), result));
     }
 
     private static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
@@ -42,7 +64,8 @@ public final class OrbitalNetworking {
             OrbitalSavedData data = OrbitalSavedData.get(player.serverLevel().getServer());
             PacketDistributor.sendToPlayer(player, new Clock(data.orbitTicks()));
             for (OrbitingShip ship : data.ships()) {
-                PacketDistributor.sendToPlayer(player, new ShipUpdate(ship.id(), Optional.of(ship.orbit())));
+                var view = OrbitalShipView.of(ship, player.registryAccess());
+                PacketDistributor.sendToPlayer(player, new ShipUpdate(ship.id(), Optional.of(view)));
             }
         }
     }
@@ -50,7 +73,7 @@ public final class OrbitalNetworking {
     private static void afterServerTick(ServerTickEvent.Post event) {
         var server = event.getServer();
         OrbitalSavedData data = OrbitalSavedData.get(server);
-        data.advanceTick();
+        data.advanceTick(server.registryAccess());
         if (ModList.get().isLoaded("sable")) {
             ShipOrbitHandoff.tick(server, data);
         }
@@ -62,8 +85,8 @@ public final class OrbitalNetworking {
             PacketDistributor.sendToAllPlayers(new Clock(data.orbitTicks()));
         }
         for (UUID id : changes) {
-            var orbit = Optional.ofNullable(data.ship(id)).map(OrbitingShip::orbit);
-            PacketDistributor.sendToAllPlayers(new ShipUpdate(id, orbit));
+            var view = Optional.ofNullable(data.ship(id)).map(ship -> OrbitalShipView.of(ship, server.registryAccess()));
+            PacketDistributor.sendToAllPlayers(new ShipUpdate(id, view));
         }
     }
 
@@ -77,15 +100,40 @@ public final class OrbitalNetworking {
         }
     }
 
-    record ShipUpdate(UUID id, Optional<Orbit> orbit) implements CustomPacketPayload {
+    record ShipUpdate(UUID id, Optional<OrbitalShipView> ship) implements CustomPacketPayload {
         static final Type<ShipUpdate> TYPE = payloadType("orbital_ship");
         static final StreamCodec<ByteBuf, ShipUpdate> CODEC = StreamCodec.composite(
                 UUIDUtil.STREAM_CODEC, ShipUpdate::id,
-                ByteBufCodecs.optional(ByteBufCodecs.fromCodec(Orbit.CODEC)), ShipUpdate::orbit,
+                ByteBufCodecs.optional(OrbitalShipView.STREAM_CODEC), ShipUpdate::ship,
                 ShipUpdate::new);
 
         @Override
         public Type<ShipUpdate> type() {
+            return TYPE;
+        }
+    }
+
+    private record ManeuverCommand(UUID id, Optional<ManeuverNode> node) implements CustomPacketPayload {
+        private static final Type<ManeuverCommand> TYPE = payloadType("orbital_maneuver");
+        private static final StreamCodec<ByteBuf, ManeuverCommand> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, ManeuverCommand::id,
+                ByteBufCodecs.optional(ManeuverNode.STREAM_CODEC), ManeuverCommand::node, ManeuverCommand::new);
+
+        @Override
+        public Type<ManeuverCommand> type() {
+            return TYPE;
+        }
+    }
+
+    private record ManeuverFeedback(UUID id, ManeuverResult result) implements CustomPacketPayload {
+        private static final Type<ManeuverFeedback> TYPE = payloadType("orbital_maneuver_feedback");
+        private static final StreamCodec<ByteBuf, ManeuverResult> RESULT_CODEC =
+                ByteBufCodecs.VAR_INT.map(index -> ManeuverResult.values()[index], ManeuverResult::ordinal);
+        private static final StreamCodec<ByteBuf, ManeuverFeedback> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, ManeuverFeedback::id, RESULT_CODEC, ManeuverFeedback::result, ManeuverFeedback::new);
+
+        @Override
+        public Type<ManeuverFeedback> type() {
             return TYPE;
         }
     }

@@ -117,7 +117,8 @@ public final class ShipOrbitHandoff {
         }
         var existing = data.ship(id);
         if (existing != null) {
-            data.put(existing.withOrbit(orbit));
+            // A debug placement replaces the planned path, which invalidates any queued burn.
+            data.put(new OrbitingShip(id, orbit, existing.orientation(), existing.angularVelocity(), existing.shipData()));
             return;
         }
         var ship = physicalShip(level, id);

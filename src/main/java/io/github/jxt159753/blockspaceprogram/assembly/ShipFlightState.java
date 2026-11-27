@@ -64,9 +64,8 @@ final class ShipFlightState {
             var properties = part.properties();
             int group = StagePerformance.tankGroup(design, branch, groups);
             groups[index] = group;
-            double capacity = properties.fuelCapacity().values().stream().mapToDouble(Double::doubleValue).sum();
-            double remaining = savedFuel.size() == count ? savedFuel.getDouble(index) : capacity;
-            fuel[index] = !isDamaged(index) && Double.isFinite(remaining) ? Math.clamp(remaining, 0, capacity) : 0;
+            double capacity = StagePerformance.fuelCapacity(node);
+            fuel[index] = initialFuel(savedFuel, count, index, capacity, isDamaged(index));
             dryMass += properties.mass();
 
             var dry = PartBox.fromPart(part, node.pose().origin(), node.pose().rotation());
@@ -96,7 +95,7 @@ final class ShipFlightState {
         if (dryMass == 0) {
             // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
             PartBox first = wetParts.getFirst();
-            wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + MASSLESS_FRAGMENT_DRY_MASS));
+            wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + flightDryMass(dryMass)));
         }
         cells = ShipCollisionLayout.rasterize(wetParts);
         seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
@@ -112,7 +111,16 @@ final class ShipFlightState {
         return Math.min(engineStage, firstCut - 1);
     }
 
-    private static boolean hasEngine(ShipDesign.Node node) {
+    static double initialFuel(ListTag savedFuel, int partCount, int index, double capacity, boolean damaged) {
+        double remaining = savedFuel.size() == partCount ? savedFuel.getDouble(index) : capacity;
+        return !damaged && Double.isFinite(remaining) ? Math.clamp(remaining, 0, capacity) : 0;
+    }
+
+    static double flightDryMass(double dryMass) {
+        return dryMass == 0 ? MASSLESS_FRAGMENT_DRY_MASS : dryMass;
+    }
+
+    static boolean hasEngine(ShipDesign.Node node) {
         var props = node.part().properties();
         return node.engineStage() >= 0 && props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
     }
