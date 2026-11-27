@@ -6,6 +6,8 @@ import java.util.function.BooleanSupplier;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Quaterniondc;
+import org.joml.Vector3d;
 
 /** Near-surface flight telemetry and setpoints. Use on the server thread while the ship is loaded. */
 public interface ShipFlightControl {
@@ -46,15 +48,26 @@ public interface ShipFlightControl {
         CONNECTED, BUSY, TICKET_LIMIT
     }
 
-    record Attitude(double pitch, double yaw, double roll) {}
+    record Attitude(double pitch, double yaw, double roll) {
+        public static Attitude fromOrientation(Quaterniondc orientation) {
+            var angles = orientation.getEulerAnglesYXZ(new Vector3d());
+            return new Attitude(Math.toDegrees(angles.x), Math.toDegrees(angles.y), Math.toDegrees(angles.z));
+        }
+    }
 
     record Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
                      Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double thrust,
                      double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
                      AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
-                     @Nullable PlanetFlightProperties planet) {
-        public double verticalSpeed() {
-            return velocity.y;
+                     @Nullable PlanetFlightProperties planet, double verticalSpeed) {
+        public Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
+                         Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double thrust,
+                         double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
+                         AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
+                         @Nullable PlanetFlightProperties planet) {
+            this(shipId, dimension, position, velocity, altitude, attitude, angularVelocity, mass, fuel, thrust,
+                    availableThrust, gravity, thrustToWeight, throttle, stage, attitudeMode, throttleMode, axes,
+                    landed, planet, velocity.y);
         }
     }
 }

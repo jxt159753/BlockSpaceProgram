@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.Codec;
 import io.github.jxt159753.blockspaceprogram.assembly.OrbitalShipPropulsion;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControls;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -34,6 +35,9 @@ public final class OrbitalSavedData extends SavedData {
     private final StarSystem starSystem;
     private final OrbitalSystem system;
     private final Map<UUID, OrbitingShip> ships = new HashMap<>();
+    // Drafts and physics setpoints are session state. Only armed burns belong in the save.
+    private final Map<UUID, ManeuverNode> maneuverDrafts = new HashMap<>();
+    private final Map<UUID, ShipFlightControls> handoffControls = new HashMap<>();
     private final Set<UUID> activeShips = new HashSet<>();
     private final Set<UUID> changes = new HashSet<>();
     private long orbitTicks;
@@ -83,8 +87,19 @@ public final class OrbitalSavedData extends SavedData {
 
     public void put(OrbitingShip ship) {
         index(ship);
+        maneuverDrafts.remove(ship.id());
         changes.add(ship.id());
         setDirty();
+    }
+
+    void store(OrbitingShip ship, ShipFlightControls controls) {
+        put(ship);
+        handoffControls.put(ship.id(), controls);
+    }
+
+    @Nullable
+    ShipFlightControls handoffControls(UUID id) {
+        return handoffControls.get(id);
     }
 
     @Nullable
@@ -92,6 +107,8 @@ public final class OrbitalSavedData extends SavedData {
         OrbitingShip removed = ships.remove(id);
         if (removed != null) {
             activeShips.remove(id);
+            maneuverDrafts.remove(id);
+            handoffControls.remove(id);
             changes.add(id);
             setDirty();
         }
@@ -105,15 +122,35 @@ public final class OrbitalSavedData extends SavedData {
         }
         if (command.isEmpty()) {
             if (ship.maneuver().isEmpty()) {
-                return ManeuverResult.NO_NODE;
+                return maneuverDrafts.remove(id) == null ? ManeuverResult.NO_NODE : ManeuverResult.CANCELED;
             }
             put(ship.withManeuver(Optional.empty()));
             return ManeuverResult.CANCELED;
         }
+        return submitManeuver(ship, command.get(), registries, true);
+    }
+
+    ManeuverResult planManeuver(OrbitingShip ship, ManeuverNode node, HolderLookup.Provider registries) {
+        return submitManeuver(ship, node, registries, false);
+    }
+
+    ManeuverResult executeManeuver(OrbitingShip ship, HolderLookup.Provider registries) {
         if (ship.maneuver().isPresent()) {
             return ManeuverResult.ALREADY_QUEUED;
         }
-        ManeuverNode node = command.get();
+        var draft = maneuverDrafts.get(ship.id());
+        return draft == null ? ManeuverResult.NO_NODE : submitManeuver(ship, draft, registries, true);
+    }
+
+    Optional<ManeuverNode> maneuverDraft(UUID id) {
+        return Optional.ofNullable(maneuverDrafts.get(id));
+    }
+
+    private ManeuverResult submitManeuver(OrbitingShip ship, ManeuverNode node, HolderLookup.Provider registries,
+            boolean queue) {
+        if (ship.maneuver().isPresent()) {
+            return ManeuverResult.ALREADY_QUEUED;
+        }
         double now = orbitSeconds();
         if (!node.valid() || node.seconds() <= now || node.seconds() > now + ManeuverNode.MAX_LEAD_SECONDS
                 || node.deltaV().lengthSqr() == 0) {
@@ -129,8 +166,12 @@ public final class OrbitalSavedData extends SavedData {
         } catch (IllegalArgumentException exception) {
             return ManeuverResult.INVALID_NODE;
         }
-        put(ship.withManeuver(command));
-        return ManeuverResult.QUEUED;
+        if (queue) {
+            put(ship.withManeuver(Optional.of(node)));
+            return ManeuverResult.QUEUED;
+        }
+        maneuverDrafts.put(ship.id(), node);
+        return ManeuverResult.PLANNED;
     }
 
     double nextManeuverSeconds() {
@@ -241,6 +282,7 @@ public final class OrbitalSavedData extends SavedData {
     }
 
     public enum ManeuverResult {
-        QUEUED, CANCELED, FORBIDDEN, MISSING_SHIP, NO_NODE, ALREADY_QUEUED, INVALID_NODE, INSUFFICIENT_FUEL
+        QUEUED, CANCELED, FORBIDDEN, MISSING_SHIP, NO_NODE, ALREADY_QUEUED, INVALID_NODE, INSUFFICIENT_FUEL,
+        PLANNED // Server-side draft result. The map protocol only uses the previous values.
     }
 }

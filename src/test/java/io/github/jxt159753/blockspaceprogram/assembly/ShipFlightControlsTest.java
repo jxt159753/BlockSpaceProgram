@@ -82,16 +82,25 @@ public class ShipFlightControlsTest {
     }
 
     @Test
-    public void handoffFromRemoteControlCutsThrottleAndHoldsArrivalAttitude() {
+    public void handoffKeepsTheRemoteControllerAndItsSetpoints() {
         var source = new ShipFlightControls();
-        source.connect(() -> true);
+        var connected = new AtomicBoolean(true);
+        source.connect(connected::get);
         source.setThrottle(DIRECT, 0.8);
-        source.resolveThrottle(0, 0, 0, 0, 0);
+        source.setAttitudeMode(PROGRADE, new Quaterniond());
         var rotation = new Quaterniond().rotationY(1.2);
         var arrivalAttitude = new Quaterniond().rotationX(0.7);
-        var target = new ShipFlightControls();
-        target.inheritForHandoff(source, rotation, arrivalAttitude);
+        var onRails = new ShipFlightControls();
+        onRails.inheritForHandoff(source, rotation, arrivalAttitude);
 
+        assertSame(source.remote(), onRails.remote());
+        assertEquals(PROGRADE, onRails.attitudeMode());
+        assertEquals(DIRECT, onRails.throttleMode());
+        assertEquals(0.8, onRails.resolveThrottle(0, 0, 0, 0, 0), 0);
+
+        connected.set(false);
+        var target = new ShipFlightControls();
+        target.inheritForHandoff(onRails, new Quaterniond(), arrivalAttitude);
         assertNull(target.remote());
         assertEquals(MANUAL, target.throttleMode());
         assertEquals(0, target.resolveThrottle(0, 0, 0, 0, 0), 0);

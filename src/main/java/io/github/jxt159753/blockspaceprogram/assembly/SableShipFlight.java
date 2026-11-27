@@ -450,7 +450,12 @@ public final class SableShipFlight implements ShipFlightControl {
         next.keys = keys;
         next.pressedKeys = pressedKeys;
         next.stageRequested = stageRequested;
-        next.controls.inheritForHandoff(controls, rotation, after.orientation());
+        try {
+            next.inheritHandoffControls(controls, rotation);
+        } catch (RuntimeException error) {
+            next.removeForOrbit();
+            throw error;
+        }
         if (inputExpiresAt > source.getGameTime()) {
             next.inputExpiresAt = target.getGameTime() + inputExpiresAt - source.getGameTime();
         }
@@ -474,11 +479,29 @@ public final class SableShipFlight implements ShipFlightControl {
             next.removeForOrbit();
             return null;
         }
-        next.syncStatus();
         // A client that changed levels can reuse the source plot's network address in its new level.
         moved.forEach(member -> body.subLevel().getTrackingPlayers().remove(member.player().getUUID()));
         removeForOrbit();
         return replacement;
+    }
+
+    public ShipFlightControls handoffControls(Quaterniondc rotation, Quaterniondc orientation) {
+        var snapshot = new ShipFlightControls();
+        snapshot.inheritForHandoff(controls, rotation, orientation);
+        return snapshot;
+    }
+
+    public void inheritHandoffControls(ShipFlightControls source, Quaterniondc rotation) {
+        var orientation = controlOrientation();
+        controls.inheritForHandoff(source, rotation, orientation);
+        if (controls.remote() != null) {
+            if (hasRemoteTicketCapacity()) {
+                setRemoteTicket(true);
+            } else {
+                controls.disconnect(orientation);
+            }
+        }
+        syncStatus();
     }
 
     public void removeForOrbit() {
@@ -653,8 +676,7 @@ public final class SableShipFlight implements ShipFlightControl {
         double y = motion.center().y;
         double gravity = gravityAt(planet, subLevel.logicalPose().position()).length();
         double mass = subLevel.getMassTracker().getMass();
-        var angles = motion.orientation().getEulerAnglesYXZ(new Vector3d());
-        var attitude = new Attitude(Math.toDegrees(angles.x), Math.toDegrees(angles.y), Math.toDegrees(angles.z));
+        var attitude = Attitude.fromOrientation(motion.orientation());
         return new Telemetry(ship.getUUID(), level.dimension().location(), motion.center(), motion.velocity(),
                 y - (planet == null ? 0 : planet.seaLevel()), attitude, motion.angularVelocity(),
                 mass, state.remainingFuel(), thrust, state.availableThrust().length(), gravity,
@@ -700,8 +722,7 @@ public final class SableShipFlight implements ShipFlightControl {
         if (controls.remote() != null) {
             return RemoteResult.BUSY;
         }
-        long loaded = flights.active.values().stream().filter(flight -> flight.remoteTicket).count();
-        if (loaded >= ShipServerConfig.MAX_REMOTE_SHIPS.get()) {
+        if (!hasRemoteTicketCapacity()) {
             return RemoteResult.TICKET_LIMIT;
         }
         controls.connect(connection);
@@ -711,12 +732,16 @@ public final class SableShipFlight implements ShipFlightControl {
 
     @Override
     public boolean releaseRemote(BooleanSupplier connection) {
-        if (controls.remote() != connection) {
+        if (!controls.releaseRemote(connection, controlOrientation())) {
             return false;
         }
-        controls.disconnect(controlOrientation());
         setRemoteTicket(false);
         return true;
+    }
+
+    private boolean hasRemoteTicketCapacity() {
+        return flights.active.values().stream().filter(flight -> flight.remoteTicket).count()
+                < ShipServerConfig.MAX_REMOTE_SHIPS.get();
     }
 
     private void checkRemoteControl() {

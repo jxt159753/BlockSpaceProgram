@@ -13,7 +13,7 @@
 
 | 方法 | 行为 |
 | --- | --- |
-| `getTelemetry()` | 返回下表中的当前飞行数据 |
+| `getTelemetry()` | 返回当前飞行数据和可用的轨道遥测 |
 | `setThrottle(value)` | 设置 0 到 1 的固定节流 |
 | `setVerticalSpeed(mps)` | 设置目标垂直速度，负数表示下降 |
 | `setThrustToWeight(ratio)` | 设置非负的目标推重比 |
@@ -38,8 +38,45 @@
 
 电脑收到 `bsp_ship_fuel_depleted`、`bsp_ship_landed` 或 `bsp_ship_stage` 时，可用 `os.pullEvent()` 读取事件。参数依次为事件名、外设连接名、飞船 UUID 和当前级。燃料事件表示当前级的发动机因供油组耗尽而熄火。
 
-驾驶员按住某一轴的键时，该轴由驾驶员控制。按 X 关闭节流并清除自动节流设定值。电脑关机、断开线路、终端拆除或所在区块卸载后，飞船在下一次物理计算中关闭节流，并保持当时的姿态。飞船离开终端所在维度时也会执行同样的断开行为。开机后脚本可以重新设置目标。终端绑定随存档保存，控制权与设定值在重启后重置。
+驾驶员按住某一轴的键时，该轴由驾驶员控制。按 X 关闭节流并清除自动节流设定值。已绑定的飞船跨维度或进入轨道层时，终端仍可查询遥测，飞控模式和设定值会随船交接。飞船按轨道数据传播时，物理飞控暂停，设定值在恢复实体后继续生效。节流、姿态和分级指令需要已加载的实体飞船。
 
-每艘船同时接受一台电脑的设定值。其他已连接的电脑可查询数据和接收事件。在终端继续加载的条件下，Sable 会为获得控制权的船保留区块加载票。每维度默认最多 8 艘，可在 `config/blockspaceprogram-server.toml` 的 `[flight]` 下调整 `maxRemoteShips`。释放控制或断开连接会移除这张票。 [性能预算 #22](https://github.com/jxt159753/BlockSpaceProgram/issues/22)
+电脑关机、断开线路、终端拆除或所在区块卸载后，飞船在下一次物理计算中关闭节流，并保持当时的姿态。船在轨道数据中时，可用 `releaseControl()` 主动交还之前取得的控制权。终端绑定随存档保存，控制权与设定值在重启后重置。
+
+每艘实体飞船同时接受一台电脑的物理飞控设定值。在终端继续加载的条件下，Sable 会为获得控制权的船保留区块加载票。每维度默认最多 8 艘，可在 `config/blockspaceprogram-server.toml` 的 `[flight]` 下调整 `maxRemoteShips`。释放控制或断开连接会移除这张票。恢复实体时如果所在维度的加载票已用完，飞船会关闭节流并保持当前姿态。 [性能预算 #22](https://github.com/jxt159753/BlockSpaceProgram/issues/22)
 
 Java 调用方可在服务端从 `AssembledShipEntity.flightControl()` 获取飞控接口，并订阅 `ShipFlightEvent`。接口使用 Java 的零基分级和与 Lua 相同的物理单位。
+
+## 轨道遥测与机动
+
+在轨时，`getTelemetry().orbit` 提供下列字段。维度内飞行时该字段为 `nil`。轨道局部物理区内的状态也可用于读取轨道，纯径向等无法换算为轨道根数的状态返回 `nil`。
+
+| 字段 | 单位或含义 |
+| --- | --- |
+| `soi` | 当前影响球的天体 ID，例如 `minecraft:overworld` |
+| `seconds` | 共享轨道时钟上的当前时刻，单位为秒 |
+| `onRails` | 飞船按轨道数据传播时为 `true`，在轨道局部物理区内为 `false` |
+| `position`、`velocity` | 相对当前天体的惯性坐标和速度，单位为 m 和 m/s，表键为 `x`、`y`、`z` |
+| `periapsis`、`apoapsis`、`period` | 近点海拔、远点海拔、周期，与轨道地图单位一致。开放轨道的远点和周期为 `nil` |
+| `elements` | `semiMajorAxis`、`semiLatusRectum` 为 m，`eccentricity` 无量纲，`inclination`、`longitudeOfAscendingNode`、`argumentOfPeriapsis`、`meanAnomalyAtEpoch` 为弧度，`epochSeconds` 为历元秒数。抛物线的 `semiMajorAxis` 为 `nil` |
+| `maneuver` | 节点的 `seconds`、`prograde`、`normal`、`radial` 和 `queued`。没有草稿或已排队节点时为 `nil` |
+
+飞船按轨道数据传播时，顶层的 `dimension` 为 `blockspaceprogram:orbital_space`，顶层的 `position` 和 `velocity` 也使用天体惯性坐标。此时 `verticalSpeed` 为径向速度，姿态和角速度使用惯性轴，`throttle`、`thrust` 和 `axes` 为 0。
+
+| 方法 | 行为 |
+| --- | --- |
+| `addManeuverNode(seconds, prograde, normal, radial)` | 新建或替换未排队的草稿。时间为绝对轨道秒数，必须在未来 4 小时内。Δv 沿顺向、法向和径向向外，各分量单位为 m/s，范围为 −10,000 到 10,000 |
+| `executeManeuverNode()` | 校验草稿并排队。模组按轨道地图的流程，在指定时刻改变轨道并消耗燃料 |
+| `deleteManeuverNode()` | 删除草稿或取消已排队的节点。删除成功时返回 `true`，没有节点时返回 `false` |
+| `warpTo(seconds)` | 在未开放联机的单人存档里，安排轨道时钟快进到指定时刻。目标向上取整到轨道刻。遇到点火、下降或并入物理区前恢复 1 倍。专用服与开放联机的存档会抛出 Lua 错误 |
+
+机动节点用于 `orbit.onRails` 为 `true` 的飞船。每艘船有一个节点位置。草稿保留到执行、删除、离开轨道数据或关闭存档。Lua 和地图的已排队节点共用同一位置。可在母星低轨运行 [轨道机动脚本](examples/orbital-maneuver.lua)，比较点火前后的远点和燃料。
+
+飞船进入轨道并滑行后，地面终端即可请求快进。`warpTo` 返回后，脚本可通过 `getTelemetry().orbit.seconds` 读取时钟。命令 `/bsp_warp stop` 可手动恢复常速。 [时间加速规则](orbit.md#时间加速)
+
+| 事件名 | `os.pullEvent()` 的后续参数 |
+| --- | --- |
+| `bsp_ship_entered_orbit` | 外设连接名、飞船 UUID、进入时的天体 ID |
+| `bsp_ship_left_orbit` | 外设连接名、飞船 UUID、返回的维度 ID |
+| `bsp_ship_soi_changed` | 外设连接名、飞船 UUID、原天体 ID、新天体 ID |
+
+Java 调用方可在服务端用 `OrbitalFlightControl(server, shipId, ownerId)` 查询并控制已验证归属的飞船。轨道事件由 `ShipOrbitEvent` 发布。 [KubeJS 飞行事件](flight-kubejs.md)

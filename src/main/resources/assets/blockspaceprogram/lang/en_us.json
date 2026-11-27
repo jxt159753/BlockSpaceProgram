@@ -161,7 +161,7 @@
   "flight.blockspaceprogram.throttle.thrust_to_weight": "Thrust-to-weight",
   "terminal.blockspaceprogram.target": "%s  (%s, %s, %s)",
   "terminal.blockspaceprogram.bound": "Bound to %s",
-  "terminal.blockspaceprogram.bound_unavailable": "Bound ship is unavailable",
+  "terminal.blockspaceprogram.bound_unavailable": "Bound ship is outside this list",
   "terminal.blockspaceprogram.unbound": "No ship bound",
   "terminal.blockspaceprogram.no_ships": "No owned ships are loaded here.",
   "terminal.blockspaceprogram.unavailable": "This ship is no longer available.",

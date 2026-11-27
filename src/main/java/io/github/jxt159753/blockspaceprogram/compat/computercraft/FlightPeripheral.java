@@ -13,16 +13,23 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.AttitudeMode;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.ThrottleMode;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightEvent;
+import io.github.jxt159753.blockspaceprogram.orbit.ManeuverNode;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalFlightControl;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalFlightControl.OrbitTelemetry;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
+import io.github.jxt159753.blockspaceprogram.orbit.ShipOrbitEvent;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import org.jetbrains.annotations.Nullable;
 
 /** ComputerCraft adapter for a ground terminal. All world access runs on the server thread. */
@@ -39,6 +46,7 @@ public final class FlightPeripheral implements IPeripheral {
         modBus.addListener((RegisterCapabilitiesEvent event) -> event.registerBlockEntity(PeripheralCapability.get(),
                 BlockSpaceProgram.FLIGHT_TERMINAL_ENTITY.get(), (terminal, side) -> new FlightPeripheral(terminal)));
         NeoForge.EVENT_BUS.addListener(FlightPeripheral::onFlightEvent);
+        NeoForge.EVENT_BUS.addListener(FlightPeripheral::onOrbitEvent);
     }
 
     @Override
@@ -72,7 +80,11 @@ public final class FlightPeripheral implements IPeripheral {
 
     @LuaFunction(mainThread = true)
     public final Map<String, Object> getTelemetry() throws LuaException {
-        var data = boundFlight().telemetry();
+        var telemetry = orbitalControl().telemetry();
+        if (telemetry == null) {
+            throw new LuaException("No loaded ship is bound to this flight terminal");
+        }
+        var data = telemetry.flight();
         var result = new LinkedHashMap<String, Object>();
         result.put("ship", data.shipId().toString());
         result.put("dimension", data.dimension().toString());
@@ -100,6 +112,9 @@ public final class FlightPeripheral implements IPeripheral {
             result.put("planet", Map.of("seaLevel", planet.seaLevel(), "radius", planet.radius(),
                     "surfaceGravity", planet.surfaceGravity(), "seaLevelDensity", planet.seaLevelDensity(),
                     "atmosphereTop", planet.atmosphereTop(), "scaleHeight", planet.scaleHeight()));
+        }
+        if (telemetry.orbit() != null) {
+            result.put("orbit", orbitTable(telemetry.orbit()));
         }
         return result;
     }
@@ -163,7 +178,59 @@ public final class FlightPeripheral implements IPeripheral {
     @LuaFunction(mainThread = true)
     public final boolean releaseControl(IComputerAccess computer) throws LuaException {
         var attachment = computers.get(computer);
-        return attachment != null && attachment.connection != null && boundFlight().releaseRemote(attachment.connection);
+        if (attachment == null || attachment.connection == null) {
+            return false;
+        }
+        var flight = terminal.flightControl();
+        return flight == null ? orbitalControl().releaseOnRails(attachment.connection)
+                : flight.releaseRemote(attachment.connection);
+    }
+
+    @LuaFunction(mainThread = true)
+    public final void addManeuverNode(IArguments args) throws LuaException {
+        double time = args.getFiniteDouble(0);
+        var deltaV = new Vec3(args.getFiniteDouble(1), args.getFiniteDouble(2), args.getFiniteDouble(3));
+        checkManeuver(orbitalControl().addManeuverNode(new ManeuverNode(time, deltaV)));
+    }
+
+    @LuaFunction(mainThread = true)
+    public final boolean deleteManeuverNode() throws LuaException {
+        var result = orbitalControl().deleteManeuverNode();
+        if (result == ManeuverResult.NO_NODE) {
+            return false;
+        }
+        checkManeuver(result);
+        return true;
+    }
+
+    @LuaFunction(mainThread = true)
+    public final void executeManeuverNode() throws LuaException {
+        checkManeuver(orbitalControl().executeManeuverNode());
+    }
+
+    @LuaFunction(mainThread = true)
+    public final void warpTo(IArguments args) throws LuaException {
+        switch (orbitalControl().warpTo(args.getFiniteDouble(0))) {
+            case STARTED -> { }
+            case MULTIPLAYER -> throw new LuaException("Time warp is only available in a private singleplayer world");
+            case FORBIDDEN -> throw new LuaException("Only the singleplayer owner may request time warp");
+            case NOT_IN_ORBIT -> throw new LuaException("The bound ship is not in orbit");
+            case NOT_COASTING -> throw new LuaException("Time warp requires coasting in orbit");
+            case INVALID_TIME -> throw new LuaException("Expected a future orbital time in seconds");
+            case BUSY -> throw new LuaException("The orbital region is running a benchmark");
+        }
+    }
+
+    private static void checkManeuver(ManeuverResult result) throws LuaException {
+        switch (result) {
+            case PLANNED, QUEUED, CANCELED -> { }
+            case MISSING_SHIP -> throw new LuaException("The bound ship must be on rails to plan a maneuver");
+            case FORBIDDEN -> throw new LuaException("This ship is unavailable for maneuver commands");
+            case NO_NODE -> throw new LuaException("No maneuver node has been added");
+            case ALREADY_QUEUED -> throw new LuaException("A maneuver is already queued for this ship");
+            case INVALID_NODE -> throw new LuaException("Invalid maneuver time or delta-v");
+            case INSUFFICIENT_FUEL -> throw new LuaException("Insufficient fuel for the maneuver");
+        }
     }
 
     private ShipFlightControl commandFlight(IComputerAccess computer) throws LuaException {
@@ -191,6 +258,15 @@ public final class FlightPeripheral implements IPeripheral {
         return flight;
     }
 
+    private OrbitalFlightControl orbitalControl() throws LuaException {
+        var id = terminal.shipId();
+        var owner = terminal.ownerId();
+        if (terminal.isAvailable() && terminal.getLevel() instanceof ServerLevel level && id != null && owner != null) {
+            return new OrbitalFlightControl(level.getServer(), id, owner);
+        }
+        throw new LuaException("No loaded ship is bound to this flight terminal");
+    }
+
     private static double axis(IArguments args, int index) throws LuaException {
         double value = args.getFiniteDouble(index);
         if (value < -1 || value > 1) {
@@ -203,6 +279,38 @@ public final class FlightPeripheral implements IPeripheral {
         return Map.of("x", v.x, "y", v.y, "z", v.z);
     }
 
+    private static Map<String, Object> orbitTable(OrbitTelemetry reading) {
+        var orbit = new LinkedHashMap<String, Object>();
+        orbit.put("soi", reading.orbit().center().toString());
+        orbit.put("seconds", reading.seconds());
+        orbit.put("onRails", reading.onRails());
+        orbit.put("position", vector(reading.state().position()));
+        orbit.put("velocity", vector(reading.state().velocity()));
+        orbit.put("periapsis", reading.periapsis());
+        putFinite(orbit, "apoapsis", reading.apoapsis());
+        putFinite(orbit, "period", reading.period());
+        var elements = reading.orbit().elements();
+        var conic = new LinkedHashMap<String, Double>();
+        putFinite(conic, "semiMajorAxis", elements.semiMajorAxis());
+        conic.put("semiLatusRectum", elements.semiLatusRectum());
+        conic.put("eccentricity", elements.eccentricity());
+        conic.put("inclination", elements.inclination());
+        conic.put("longitudeOfAscendingNode", elements.longitudeOfAscendingNode());
+        conic.put("argumentOfPeriapsis", elements.argumentOfPeriapsis());
+        conic.put("meanAnomalyAtEpoch", elements.meanAnomalyAtEpoch());
+        conic.put("epochSeconds", elements.epochSeconds());
+        orbit.put("elements", conic);
+        reading.maneuver().ifPresent(node -> orbit.put("maneuver", Map.of("seconds", node.seconds(),
+                "prograde", node.deltaV().x, "normal", node.deltaV().y, "radial", node.deltaV().z, "queued", reading.queued())));
+        return orbit;
+    }
+
+    private static void putFinite(Map<String, ? super Double> table, String key, double value) {
+        if (Double.isFinite(value)) {
+            table.put(key, value);
+        }
+    }
+
     private static void onFlightEvent(ShipFlightEvent event) {
         String name = switch (event.kind()) {
             case FUEL_DEPLETED -> "bsp_ship_fuel_depleted";
@@ -212,13 +320,42 @@ public final class FlightPeripheral implements IPeripheral {
         String shipId = event.ship().getUUID().toString();
         for (var peripheral : ATTACHED) {
             if (peripheral.terminal.isBoundTo(event.ship())) {
-                for (var computer : peripheral.computers.keySet()) {
-                    try {
-                        computer.queueEvent(name, computer.getAttachmentName(), shipId, event.stage() + 1);
-                    } catch (NotAttachedException ignored) {
-                        // The computer detached while the event was queued.
-                    }
+                peripheral.queueEvent(name, shipId, event.stage() + 1);
+            }
+        }
+    }
+
+    private static void onOrbitEvent(ShipOrbitEvent event) {
+        String name = switch (event.kind()) {
+            case ENTERED_ORBIT -> "bsp_ship_entered_orbit";
+            case LEFT_ORBIT -> "bsp_ship_left_orbit";
+            case SOI_CHANGED -> "bsp_ship_soi_changed";
+        };
+        var server = ServerLifecycleHooks.getCurrentServer();
+        String shipId = event.shipId().toString();
+        String center = event.center().toString();
+        for (var peripheral : ATTACHED) {
+            if (peripheral.terminal.getLevel() instanceof ServerLevel level && level.getServer() == server
+                    && peripheral.terminal.isBoundTo(event.shipId(), event.ownerId())) {
+                if (event.previousCenter() == null) {
+                    peripheral.queueEvent(name, shipId, center);
+                } else {
+                    peripheral.queueEvent(name, shipId, event.previousCenter().toString(), center);
                 }
+            }
+        }
+    }
+
+    private void queueEvent(String name, String shipId, Object... details) {
+        var args = new Object[details.length + 2];
+        args[1] = shipId;
+        System.arraycopy(details, 0, args, 2, details.length);
+        for (var computer : computers.keySet()) {
+            try {
+                args[0] = computer.getAttachmentName();
+                computer.queueEvent(name, args.clone());
+            } catch (NotAttachedException ignored) {
+                // The computer detached while the event was queued.
             }
         }
     }

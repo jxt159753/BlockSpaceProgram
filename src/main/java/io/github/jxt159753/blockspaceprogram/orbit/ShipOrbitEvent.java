@@ -11,23 +11,29 @@ public final class ShipOrbitEvent extends Event {
     private final UUID shipId;
     @Nullable private final UUID ownerId;
     @Nullable private final ResourceLocation previousCenter;
+    private final ResourceLocation center;
     private final Orbit orbit;
 
     private ShipOrbitEvent(Kind kind, UUID shipId, @Nullable UUID ownerId, @Nullable ResourceLocation previousCenter,
-            Orbit orbit) {
+            ResourceLocation center, Orbit orbit) {
         this.kind = kind;
         this.shipId = shipId;
         this.ownerId = ownerId;
         this.previousCenter = previousCenter;
+        this.center = center;
         this.orbit = orbit;
     }
 
     static ShipOrbitEvent enteredOrbit(UUID shipId, @Nullable UUID ownerId, Orbit orbit) {
-        return new ShipOrbitEvent(Kind.ENTERED_ORBIT, shipId, ownerId, null, orbit);
+        return new ShipOrbitEvent(Kind.ENTERED_ORBIT, shipId, ownerId, null, orbit.center(), orbit);
     }
 
     static ShipOrbitEvent soiChanged(UUID shipId, @Nullable UUID ownerId, Orbit before, Orbit after) {
-        return new ShipOrbitEvent(Kind.SOI_CHANGED, shipId, ownerId, before.center(), after);
+        return new ShipOrbitEvent(Kind.SOI_CHANGED, shipId, ownerId, before.center(), after.center(), after);
+    }
+
+    static ShipOrbitEvent leftOrbit(UUID shipId, @Nullable UUID ownerId, ResourceLocation destination, Orbit orbit) {
+        return new ShipOrbitEvent(Kind.LEFT_ORBIT, shipId, ownerId, null, destination, orbit);
     }
 
     public Kind kind() {
@@ -48,12 +54,17 @@ public final class ShipOrbitEvent extends Event {
         return previousCenter;
     }
 
-    /** The new conic. In the local physics region, a SOI change reports the shared reference orbit. */
+    /** The new SOI, or the destination dimension for an exit. */
+    public ResourceLocation center() {
+        return center;
+    }
+
+    /** The transition conic, or the last conic on exit. Local SOI changes and exits report the shared reference. */
     public Orbit orbit() {
         return orbit;
     }
 
     public enum Kind {
-        ENTERED_ORBIT, SOI_CHANGED
+        ENTERED_ORBIT, SOI_CHANGED, LEFT_ORBIT
     }
 }

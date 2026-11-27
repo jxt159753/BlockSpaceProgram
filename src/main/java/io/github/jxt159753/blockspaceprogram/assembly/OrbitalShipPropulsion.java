@@ -17,9 +17,11 @@ public final class OrbitalShipPropulsion {
     private final double[] groupFuel;
     private final double[] flow;
     private final VacuumPropulsion propulsion;
+    private final int stage;
 
     private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ListTag savedFuel, long damage) {
         this.shipData = shipData;
+        this.stage = stage;
         int count = design.nodes().size();
         partFuel = new double[count];
         groups = StagePerformance.tankGroups(design);
@@ -66,6 +68,10 @@ public final class OrbitalShipPropulsion {
 
     public VacuumPropulsion propulsion() {
         return propulsion;
+    }
+
+    public int stage() {
+        return stage;
     }
 
     public CompoundTag afterBurn(double seconds) {

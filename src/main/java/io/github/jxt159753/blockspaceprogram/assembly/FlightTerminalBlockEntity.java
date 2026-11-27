@@ -49,8 +49,13 @@ public final class FlightTerminalBlockEntity extends BlockEntity {
     }
 
     @Nullable
-    UUID shipId() {
+    public UUID shipId() {
         return shipId;
+    }
+
+    @Nullable
+    public UUID ownerId() {
+        return owner;
     }
 
     public int bindingRevision() {
@@ -62,23 +67,24 @@ public final class FlightTerminalBlockEntity extends BlockEntity {
     }
 
     public boolean isBoundTo(AssembledShipEntity ship) {
-        return isAvailable() && ship.level() == level && ship.getUUID().equals(shipId)
-                && owner != null && owner.equals(ship.owner());
+        return level instanceof ServerLevel server && server.getServer() == ship.getServer()
+                && isBoundTo(ship.getUUID(), ship.owner());
+    }
+
+    public boolean isBoundTo(UUID id, @Nullable UUID shipOwner) {
+        return isAvailable() && id.equals(shipId) && owner != null && owner.equals(shipOwner);
     }
 
     @Nullable
     public ShipFlightControl flightControl() {
-        return shipId == null ? null : resolve(shipId);
+        var ship = shipId == null ? null : resolve(shipId);
+        return ship == null ? null : ship.flightControl();
     }
 
     @Nullable
-    private ShipFlightControl resolve(UUID target) {
-        if (isAvailable() && level instanceof ServerLevel server
-                && server.getEntity(target) instanceof AssembledShipEntity ship
-                && owner != null && owner.equals(ship.owner())) {
-            return ship.flightControl();
-        }
-        return null;
+    private AssembledShipEntity resolve(UUID target) {
+        return owner != null && isAvailable() && level instanceof ServerLevel server
+                ? AssembledShipEntity.findOwnedFlight(server.getServer(), target, owner) : null;
     }
 
     @Override

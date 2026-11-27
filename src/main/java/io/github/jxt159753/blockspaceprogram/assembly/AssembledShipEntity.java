@@ -15,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -226,6 +227,17 @@ public final class AssembledShipEntity extends Entity {
 
     static List<AssembledShipEntity> ownedFlights(ServerLevel level, UUID owner) {
         return ModList.get().isLoaded("sable") ? SableShipFlight.ownedShips(level, owner) : List.of();
+    }
+
+    @Nullable
+    public static AssembledShipEntity findOwnedFlight(MinecraftServer server, UUID id, UUID owner) {
+        for (var level : server.getAllLevels()) {
+            if (level.getEntity(id) instanceof AssembledShipEntity ship && owner.equals(ship.owner())
+                    && ship.flightControl() != null) {
+                return ship;
+            }
+        }
+        return null;
     }
 
     public CompoundTag orbitSnapshot() {
