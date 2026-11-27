@@ -28,6 +28,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 | `./gradlew runServer` | 在 `runs/server/` 启动无 GUI 的开发服务器，本机可用 `localhost:25565` 连接 |
 | `./gradlew runData` | 运行数据生成器，生成的资源写入 `src/generated/resources/` |
 
+候选维度池的专用服实测和复测步骤见原型记录。 [候选维度池原型](experiments/candidate-dimensions/README.md)
+
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。
 
 ## 许可证

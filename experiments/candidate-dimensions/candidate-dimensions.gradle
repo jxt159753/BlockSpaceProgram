@@ -1,0 +1,28 @@
+def runName = providers.gradleProperty('candidateDimensionsRun').orElse('manual')
+def satelliteCount = providers.gradleProperty('candidateDimensionsSatelliteCount').orElse('3')
+def benchmark = providers.gradleProperty('candidateDimensionsBenchmark').isPresent()
+
+sourceSets {
+    candidateDimensions {
+        java.srcDirs = ['experiments/candidate-dimensions/java']
+    }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.candidateDimensions)
+neoForge.mods[mod_id].sourceSet(sourceSets.candidateDimensions)
+neoForge.runs.register('candidateDimensions') {
+    server()
+    gameDirectory = file("runs/candidateDimensions/${runName.get()}")
+    programArgument '--nogui'
+    jvmArguments.addAll('-Xms2G', '-Xmx2G')
+    systemProperty 'bsp.candidateDimensions.satelliteCount', satelliteCount.get()
+    systemProperty 'bsp.candidateDimensions.benchmark', benchmark.toString()
+}
+
+tasks.named('runCandidateDimensions', JavaExec) {
+    standardInput = System.in
+}
+
+dependencies {
+    candidateDimensionsCompileOnly sourceSets.main.output
+}
