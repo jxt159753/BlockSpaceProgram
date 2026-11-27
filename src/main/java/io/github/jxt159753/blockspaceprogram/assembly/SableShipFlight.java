@@ -604,6 +604,13 @@ public final class SableShipFlight implements ShipFlightControl {
         }
     }
 
+    private void moveHullRider(ServerPlayer player, Vec3 local) {
+        Vec3 position = worldPoint(local);
+        if (movePlayer(player, body.subLevel().getLevel(), position, Vec3.ZERO, player.getYRot(), player.getXRot())) {
+            SableHullInteractions.awaitPlot(player, body.subLevel(), position);
+        }
+    }
+
     private boolean hasPilot() {
         return ship.getFirstPassenger() instanceof ServerPlayer player && player.isAlive() && !player.isSpectator();
     }
@@ -878,9 +885,6 @@ public final class SableShipFlight implements ShipFlightControl {
     @Nullable
     private DockingShip dockingCandidate() {
         ShipDesign design = ship.design();
-        if (design.hasHull()) {
-            return null;
-        }
         var released = ship.dockingState().released();
         ShipDesign closed = ShipDocking.closeAlignedPorts(design, state.damagedParts(), released);
         if (closed != design) {
@@ -898,7 +902,9 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     private boolean tryDock(DockingShip primary, DockingShip incoming, CaptureLimits limits) {
-        if (primary.layout.nodes().size() + incoming.layout.nodes().size() > ShipDesign.MAX_PARTS
+        int nodes = primary.layout.nodes().size() + incoming.layout.nodes().size();
+        int parts = primary.layout.partCount() + incoming.layout.partCount();
+        if (parts > ShipDesign.MAX_PARTS || nodes - parts > ShipDesign.MAX_HULL_NODES || nodes > ShipDesign.MAX_NODES
                 || primary.layout.stageCount() + incoming.layout.stageCount() > ShipDesign.MAX_STAGES) {
             return false;
         }
@@ -928,7 +934,7 @@ public final class SableShipFlight implements ShipFlightControl {
         var level = body.subLevel().getLevel();
         int offset = primary.layout.nodes().size();
         var layout = ShipDocking.merge(primary.layout, incoming.layout, frame, first, second);
-        if (!layout.isValidLayout() || !fitsDockedLayout(layout, offset, other)) {
+        if (layout == null || !layout.isValidLayout() || !fitsDockedLayout(layout, offset, other)) {
             return false;
         }
         var ownState = ship.dockingState().snapshot(primary.layout, state.stage(), ship.dockingIdentity());
@@ -956,12 +962,16 @@ public final class SableShipFlight implements ShipFlightControl {
         next.airborne = airborne;
         next.landed = landed;
         var existing = riders();
+        var standing = hullRiders(primary.layout);
+        var incomingStanding = other.hullRiders(incoming.layout);
         ship.useFlightFragment(layout, next);
         ship.setDockingState(docking);
         detach();
         next.attach();
         existing.forEach(rider -> next.moveRider(rider.player(), rider.pod()));
         other.riders().forEach(rider -> next.moveRider(rider.player(), rider.pod() + offset));
+        standing.forEach(rider -> next.moveHullRider(rider.player(), rider.local()));
+        incomingStanding.forEach(rider -> next.moveHullRider(rider.player(), frame.point(rider.local())));
         other.removeForOrbit();
         removeBodyNow();
         return true;
@@ -1083,10 +1093,10 @@ public final class SableShipFlight implements ShipFlightControl {
                         owner.inheritOwner(ship);
                     }
                 }
-                // Released ships recover the axes of their original root. Other fragments keep the old grid.
-                boolean keepOrigin = index == 0 && (!design.hasHull()
-                        || members.stream().anyMatch(member -> design.nodes().get(member).hull() != null));
-                var frame = original != null ? design.nodes().get(root).pose() : keepOrigin ? PartPose.ROOT
+                // A hull fragment stays on the block grid even if its root pod is tilted or off-grid.
+                boolean hasHull = members.stream().anyMatch(member -> design.nodes().get(member).hull() != null);
+                boolean keepOrigin = index == 0 && (!design.hasHull() || hasHull);
+                var frame = original != null && !hasHull ? design.nodes().get(root).pose() : keepOrigin ? PartPose.ROOT
                         : new PartPose(BlockPos.containing(design.nodes().get(root).bounds().getCenter()).multiply(4),
                                 PartPose.ROOT.rotation());
                 int[] indices = ShipDesign.indices(design.nodes().size(), members);
@@ -1153,11 +1163,7 @@ public final class SableShipFlight implements ShipFlightControl {
         }
         for (var rider : standing) {
             var fragment = fragments.get(componentForPart[rider.node()]);
-            var player = rider.player();
-            Vec3 position = fragment.flight.worldPoint(fragment.frame.localPoint(rider.local()));
-            if (movePlayer(player, level, position, Vec3.ZERO, player.getYRot(), player.getXRot())) {
-                SableHullInteractions.awaitPlot(player, fragment.flight.body.subLevel(), position);
-            }
+            fragment.flight.moveHullRider(rider.player(), fragment.frame.localPoint(rider.local()));
         }
         removeBodyNow();
         cleanupDebris(level);

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -39,10 +40,10 @@ final class ShipDocking {
     static List<Port> openPorts(ShipDesign design, long damage, Set<PortKey> released) {
         var ports = new ArrayList<Port>();
         for (int index = 0; index < design.nodes().size(); index++) {
-            if ((damage & 1L << index) != 0) {
+            var node = design.nodes().get(index);
+            if (node.part() == null || (damage & 1L << index) != 0) {
                 continue;
             }
-            var node = design.nodes().get(index);
             var connectors = node.part().connectors();
             for (int marker = 0; marker < connectors.size(); marker++) {
                 var connector = connectors.get(marker);
@@ -84,21 +85,43 @@ final class ShipDocking {
         return best;
     }
 
+    @Nullable
     static ShipDesign merge(ShipDesign primary, ShipDesign incoming, PartPose frame, Port first, Port second) {
+        var rotation = frame.rotation();
+        var translation = frame.origin();
+        if (incoming.hasHull() && (rotation.rotate(Direction.UP) != Direction.UP
+                || translation.getX() % 4 != 0 || translation.getY() % 4 != 0 || translation.getZ() % 4 != 0)) {
+            return null;
+        }
         int offset = primary.nodes().size();
         int stageOffset = primary.stageCount();
         var nodes = new ArrayList<>(primary.nodes());
         for (var node : incoming.nodes()) {
-            nodes.add(new Node(node.part(), node.pose().in(frame),
-                    node.engineStage() < 0 ? -1 : node.engineStage() + stageOffset));
+            var pose = node.pose().in(frame);
+            if (node.hull() == null) {
+                nodes.add(new Node(node.part(), pose, node.engineStage() < 0 ? -1 : node.engineStage() + stageOffset));
+            } else {
+                nodes.add(Node.hull(node.hull().rotate(rotation), BlockPos.containing(pose.position())));
+            }
         }
         var links = new ArrayList<>(primary.links());
         for (var link : incoming.links()) {
-            var shifted = link.withNodes(link.first().node() + offset, link.second().node() + offset);
-            links.add(link.separationStage() < 0 ? shifted : shifted.withStage(link.separationStage() + stageOffset));
+            links.add(new Link(mergeEndpoint(incoming, frame, offset, link.first()),
+                    mergeEndpoint(incoming, frame, offset, link.second()), link.surface(), link.separable(),
+                    link.separationStage() < 0 ? -1 : link.separationStage() + stageOffset));
         }
         links.add(new Link(first.endpoint(), second.endpoint().withNode(second.endpoint().node() + offset), false, true, -1));
         return new ShipDesign(nodes, links, stageOffset + incoming.stageCount());
+    }
+
+    private static Endpoint mergeEndpoint(ShipDesign incoming, PartPose frame, int offset, Endpoint endpoint) {
+        int index = endpoint.node() + offset;
+        if (incoming.nodes().get(endpoint.node()).hull() == null) {
+            return endpoint.withNode(index);
+        }
+        // Hull rotation is baked into its blocks, so its attachment faces rotate in node coordinates.
+        var rotation = frame.rotation();
+        return new Endpoint(index, endpoint.marker(), rotation.rotate(endpoint.normal()), PartPose.rotate(rotation, endpoint.anchor()));
     }
 
     static ShipDesign closeAlignedPorts(ShipDesign design, long damage, Set<PortKey> released) {
