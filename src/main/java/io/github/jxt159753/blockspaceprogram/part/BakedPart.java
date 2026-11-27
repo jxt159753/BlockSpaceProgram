@@ -138,7 +138,7 @@ public record BakedPart(
         return new AABB(Vec3.ZERO, modelToLocal(geometry.size()));
     }
 
-    static Optional<BakedPart> bake(Map<BlockPos, BlockState> structure) {
+    public static Optional<BakedPart> bake(Map<BlockPos, BlockState> structure) {
         BlockPos origin = new BlockPos(
                 structure.keySet().stream().mapToInt(BlockPos::getX).min().orElseThrow(),
                 structure.keySet().stream().mapToInt(BlockPos::getY).min().orElseThrow(),

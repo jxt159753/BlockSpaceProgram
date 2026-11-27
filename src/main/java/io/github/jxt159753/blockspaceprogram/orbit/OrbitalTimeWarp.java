@@ -42,7 +42,12 @@ final class OrbitalTimeWarp {
     private static int changeRate(ServerPlayer player, int change) {
         var server = player.serverLevel().getServer();
         var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
-        var warp = OrbitalRegion.get(server).timeWarp();
+        var region = OrbitalRegion.get(server);
+        if (region.benchmarking()) {
+            player.sendSystemMessage(BenchmarkReport.text("orbital_busy"));
+            return 0;
+        }
+        var warp = region.timeWarp();
         if (change > 0) {
             if (space == null || !player.isAlive() || OrbitalRegion.referenceFor(player) == null) {
                 player.displayClientMessage(Component.translatable(MESSAGE + "in_orbit"), true);

@@ -21,6 +21,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -49,6 +50,7 @@ public final class OrbitalRegion extends SavedData {
     private final OrbitalTimeWarp timeWarp = new OrbitalTimeWarp();
     @Nullable private Orbit reference;
     @Nullable private UUID anchor;
+    @Nullable private BenchmarkOrbit benchmark;
 
     private OrbitalRegion() {}
 
@@ -69,7 +71,12 @@ public final class OrbitalRegion extends SavedData {
 
     @Nullable
     public static Orbit referenceFor(ServerPlayer player) {
-        return inSpace(player) ? get(player.serverLevel().getServer()).reference : null;
+        if (!inSpace(player)) {
+            return null;
+        }
+        var region = get(player.serverLevel().getServer());
+        var benchmark = region.benchmark;
+        return benchmark != null && player.getUUID().equals(benchmark.observer()) ? benchmark.reference() : region.reference;
     }
 
     public static boolean inSpace(ServerPlayer player) {
@@ -89,11 +96,48 @@ public final class OrbitalRegion extends SavedData {
         return new Quaterniond().rotationX(Math.PI / 2);
     }
 
+    boolean availableForBenchmark(ServerLevel space) {
+        return benchmark == null && reference == null && space.players().isEmpty() && SableShipFlight.activeShips(space).isEmpty();
+    }
+
+    boolean enterBenchmark(ServerPlayer player, ServerLevel space, Vec3 position, float yaw, float pitch) {
+        var body = SYSTEM.body(Level.OVERWORLD.location());
+        double epoch = OrbitalSavedData.get(space.getServer()).orbitSeconds();
+        var orbit = new Orbit(body.id(), new OrbitElements(body.radius() + 10_000, 0, 0, 0, 0, 0, epoch));
+        timeWarp.reset(space);
+        if (!SableShipFlight.movePlayer(player, space, position, Vec3.ZERO, yaw, pitch)) {
+            return false;
+        }
+        benchmark = new BenchmarkOrbit(orbit, player.getUUID());
+        members.put(player.getUUID(), player);
+        // Use the orbital dimension's base physics without tidal forces for the controlled scene.
+        SableShipFlight.setOrbitalGravity(space, null);
+        return true;
+    }
+
+    boolean benchmarking() {
+        return benchmark != null;
+    }
+
+    void addBenchmarkShip(AssembledShipEntity ship) {
+        members.put(ship.getUUID(), ship);
+    }
+
+    boolean hasBenchmarkShip(AssembledShipEntity ship) {
+        return benchmark != null && members.get(ship.getUUID()) == ship;
+    }
+
+    void endBenchmark() {
+        benchmark = null;
+        members.clear();
+    }
+
     void enter(OrbitalSavedData data, AssembledShipEntity ship, Orbit orbit, Motion motion, Quaterniondc rotation) {
         var space = ship.getServer().getLevel(BlockSpaceProgram.ORBITAL_SPACE);
         if (space == null) {
             return;
         }
+        BenchmarkCommands.interruptOrbital(space);
         double now = data.orbitSeconds();
         Orbit path = reference == null ? orbit : reference;
         var frame = new Frame(path, now);
@@ -112,6 +156,10 @@ public final class OrbitalRegion extends SavedData {
     }
 
     void tick(ServerLevel space, OrbitalSavedData data, double previousSeconds, boolean warped) {
+        if (benchmark != null) {
+            syncMembers(space);
+            return;
+        }
         if (reference == null) {
             return;
         }
@@ -329,6 +377,7 @@ public final class OrbitalRegion extends SavedData {
         if (space == null || !saved.contains("orbit")) {
             return;
         }
+        BenchmarkCommands.interruptOrbital(space);
         double now = data.orbitSeconds();
         UUID shipId = saved.hasUUID("ship") ? saved.getUUID("ship") : null;
         if (shipId != null) {
@@ -460,6 +509,8 @@ public final class OrbitalRegion extends SavedData {
         }
         return tag;
     }
+
+    private record BenchmarkOrbit(Orbit reference, UUID observer) {}
 
     private record Frame(OrbitalState origin, Vec3 gravityOrigin, double mu, double seconds) {
         Frame(Orbit orbit, double seconds) {

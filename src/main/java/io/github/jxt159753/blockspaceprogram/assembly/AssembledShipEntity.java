@@ -97,7 +97,13 @@ public final class AssembledShipEntity extends Entity {
 
     @Nullable
     public ShipDesign design() {
-        return design(entityData.get(BLUEPRINT));
+        var blueprint = entityData.get(BLUEPRINT);
+        var benchmark = blueprint.get(BlockSpaceProgram.BENCHMARK_LAYOUT);
+        return benchmark == null ? design(blueprint) : benchmark;
+    }
+
+    public boolean isBenchmark() {
+        return entityData.get(BLUEPRINT).has(BlockSpaceProgram.BENCHMARK_LAYOUT);
     }
 
     @Nullable
@@ -120,7 +126,15 @@ public final class AssembledShipEntity extends Entity {
     }
 
     @Nullable
-    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation, UUID owner) {
+    public static AssembledShipEntity spawnBenchmark(ServerLevel level, ShipDesign design, Vec3 origin) {
+        var blueprint = new ItemStack(BlockSpaceProgram.SHIP_BLUEPRINT.get());
+        blueprint.set(BlockSpaceProgram.BENCHMARK_LAYOUT, design);
+        return spawn(level, blueprint, origin, OctahedralGroup.IDENTITY, null);
+    }
+
+    @Nullable
+    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation,
+            @Nullable UUID owner) {
         var ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
         ship.owner = owner;
         ship.setBlueprint(blueprint);
@@ -391,6 +405,9 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     public InteractionResult interact(Player player, InteractionHand hand) {
+        if (isBenchmark()) {
+            return InteractionResult.PASS;
+        }
         ItemStack stack = player.getItemInHand(hand);
         if (stack.isEmpty() && hand == InteractionHand.MAIN_HAND) {
             stack = player.getOffhandItem();
@@ -422,7 +439,7 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     protected boolean canAddPassenger(Entity passenger) {
-        return isFlyingShip() && passenger instanceof Player player && availableSeat(player) >= 0;
+        return !isBenchmark() && isFlyingShip() && passenger instanceof Player player && availableSeat(player) >= 0;
     }
 
     @Override
@@ -571,10 +588,18 @@ public final class AssembledShipEntity extends Entity {
     }
 
     @Override
+    public boolean shouldBeSaved() {
+        return !isBenchmark() && super.shouldBeSaved();
+    }
+
+    @Override
     public void remove(RemovalReason reason) {
         super.remove(reason);
         if (flight != null && reason.shouldDestroy()) {
             flight.discard();
+            if (isBenchmark()) {
+                flight.removeBodyNow();
+            }
         }
     }
 

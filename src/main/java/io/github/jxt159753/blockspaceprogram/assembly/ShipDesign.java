@@ -23,6 +23,7 @@ import net.minecraft.world.phys.Vec3;
 public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     // With the blueprint in hand, the main inventory and offhand can supply 36 unstackable parts.
     public static final int MAX_PARTS = 36;
+    public static final int BENCHMARK_MAX_PARTS = 50;
     public static final int MAX_STAGES = MAX_PARTS * 2;
     static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;
     static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
@@ -38,10 +39,16 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.hasBlueprintRoot()
             ? DataResult.success(design) : DataResult.error(() -> "Invalid ship blueprint root"));
 
-    public static final StreamCodec<FriendlyByteBuf, ShipDesign> STREAM_CODEC = StreamCodec.composite(
-            Node.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_PARTS)), ShipDesign::nodes,
-            Link.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_LINKS)), ShipDesign::links,
-            ByteBufCodecs.VAR_INT, ShipDesign::stageCount, ShipDesign::new);
+    public static final StreamCodec<FriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS);
+    public static final StreamCodec<FriendlyByteBuf, ShipDesign> BENCHMARK_STREAM_CODEC =
+            streamCodec(BENCHMARK_MAX_PARTS, BENCHMARK_MAX_PARTS - 1);
+
+    private static StreamCodec<FriendlyByteBuf, ShipDesign> streamCodec(int parts, int links) {
+        return StreamCodec.composite(
+                Node.STREAM_CODEC.apply(ByteBufCodecs.list(parts)), ShipDesign::nodes,
+                Link.STREAM_CODEC.apply(ByteBufCodecs.list(links)), ShipDesign::links,
+                ByteBufCodecs.VAR_INT, ShipDesign::stageCount, ShipDesign::new);
+    }
 
     public ShipDesign {
         nodes = List.copyOf(nodes);
