@@ -57,9 +57,9 @@ public final class ShipServerConfig {
         FACILITY = new FacilityConfig(builder, BakedPart.MAX_BLOCKS);
         builder.comment("Star system settings only apply when creating a world.").push("star_system");
         STAR_SYSTEM_SPACING = builder.comment("The Moon's orbital spacing: near, medium, or far.")
-                .define("orbit_spacing", "medium", List.of("near", "medium", "far")::contains);
+                .define("orbit_spacing", "medium", value -> value != null && List.of("near", "medium", "far").contains(value));
         STAR_SYSTEM_SHAPE = builder.comment("The Moon's orbit shape: regular or natural.")
-                .define("orbit_shape", "regular", List.of("regular", "natural")::contains);
+                .define("orbit_shape", "regular", value -> value != null && List.of("regular", "natural").contains(value));
         STAR_SYSTEM_SEED = builder.comment("A signed 64-bit decimal seed. Leave blank to derive it from the world seed.")
                 .define("seed", "", ShipServerConfig::validStarSystemSeed);
         builder.pop();
