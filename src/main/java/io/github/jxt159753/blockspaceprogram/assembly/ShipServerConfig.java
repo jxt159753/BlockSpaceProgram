@@ -1,9 +1,12 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import io.github.jxt159753.blockspaceprogram.facility.FacilityConfig;
+import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class ShipServerConfig {
     public static final ModConfigSpec SPEC;
+    public static final FacilityConfig FACILITY;
     static final ModConfigSpec.IntValue MAX_DEBRIS;
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
@@ -47,6 +50,7 @@ public final class ShipServerConfig {
         ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for an uncrewed ship to enter local physics.")
                 .defineInRange("maxEntrySpeed", 40.0, 0.0, 1_000.0);
         builder.pop();
+        FACILITY = new FacilityConfig(builder, BakedPart.MAX_BLOCKS);
         SPEC = builder.build();
     }
 

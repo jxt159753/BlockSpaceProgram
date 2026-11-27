@@ -1,6 +1,8 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -15,37 +17,48 @@ import org.jetbrains.annotations.Nullable;
 public final class AssemblyMenu extends AbstractContainerMenu {
     private final ContainerLevelAccess access;
     private final Inventory inventory;
+    private final int maximumParts;
+    private final double maximumMass;
     @Nullable
     private final PlacedPartEntity worldPod;
     @Nullable
     private WorldAssembly.Inspection worldView;
     private ShipDesign design = ShipDesign.EMPTY;
     private int revision;
-    private String message = "";
-    private int messageCount;
-
-    public AssemblyMenu(int id, Inventory inventory) {
-        this(id, inventory, ContainerLevelAccess.NULL);
-    }
+    @Nullable
+    private Component message;
 
     AssemblyMenu(int id, Inventory inventory, ContainerLevelAccess access) {
-        this(id, inventory, BlockSpaceProgram.ASSEMBLY_MENU.get(), access, null);
+        this(id, inventory, BlockSpaceProgram.ASSEMBLY_MENU.get(), access, null, 0, 0);
     }
 
     AssemblyMenu(int id, Inventory inventory, PlacedPartEntity pod) {
-        this(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, pod);
+        this(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, pod, 0, 0);
     }
 
-    public static AssemblyMenu worldClient(int id, Inventory inventory) {
-        return new AssemblyMenu(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), ContainerLevelAccess.NULL, null);
+    public static AssemblyMenu tableClient(int id, Inventory inventory, @Nullable RegistryFriendlyByteBuf data) {
+        return client(id, inventory, BlockSpaceProgram.ASSEMBLY_MENU.get(), data);
+    }
+
+    public static AssemblyMenu worldClient(int id, Inventory inventory, @Nullable RegistryFriendlyByteBuf data) {
+        return client(id, inventory, BlockSpaceProgram.WORLD_ASSEMBLY_MENU.get(), data);
+    }
+
+    private static AssemblyMenu client(int id, Inventory inventory, MenuType<AssemblyMenu> type,
+            @Nullable RegistryFriendlyByteBuf data) {
+        int parts = data != null && data.isReadable() ? data.readVarInt() : 0;
+        double mass = data != null && data.isReadable() ? data.readDouble() : 0;
+        return new AssemblyMenu(id, inventory, type, ContainerLevelAccess.NULL, null, parts, mass);
     }
 
     private AssemblyMenu(int id, Inventory inventory, MenuType<AssemblyMenu> type, ContainerLevelAccess access,
-            @Nullable PlacedPartEntity worldPod) {
+            @Nullable PlacedPartEntity worldPod, int maximumParts, double maximumMass) {
         super(type, id);
         this.access = access;
         this.inventory = inventory;
         this.worldPod = worldPod;
+        this.maximumParts = maximumParts;
+        this.maximumMass = maximumMass;
         if (isWorldAssembly()) {
             return;
         }
@@ -119,19 +132,26 @@ public final class AssemblyMenu extends AbstractContainerMenu {
         return revision;
     }
 
-    public String message() {
-        return message;
+    public int maximumParts() {
+        return maximumParts == 0 ? ShipDesign.MAX_PARTS : Math.min(maximumParts, ShipDesign.MAX_PARTS);
     }
 
-    public int messageCount() {
-        return messageCount;
+    public double maximumMass() {
+        return maximumMass;
+    }
+
+    @Nullable
+    public Component message() {
+        return message;
     }
 
     void receive(AssemblyNetworking.State state) {
         design = state.design();
         revision = state.revision();
-        message = state.message();
-        messageCount = state.count();
+        message = state.notice();
+        if (message == null && !state.message().isEmpty()) {
+            message = Component.translatable("assembly.blockspaceprogram." + state.message(), state.count());
+        }
     }
 
     void place(ServerPlayer player, AssemblyNetworking.Place payload) {
@@ -159,11 +179,11 @@ public final class AssemblyMenu extends AbstractContainerMenu {
         if (worldPod != null) {
             switch (payload.action()) {
                 case ASSEMBLE -> {
-                    String error = WorldAssembly.assemble(player, worldPod);
+                    var error = WorldAssembly.assemble(player, worldPod);
                     if (error == null) {
                         player.closeContainer();
                     } else {
-                        sync(player, error, 0);
+                        sync(player, error);
                     }
                     return;
                 }
@@ -211,6 +231,11 @@ public final class AssemblyMenu extends AbstractContainerMenu {
             case SAVE -> {
                 ItemStack stack = inventorySlot(index);
                 if (stack.is(BlockSpaceProgram.SHIP_BLUEPRINT.get()) && !stack.has(BlockSpaceProgram.SHIP_DESIGN) && design.isValid()) {
+                    var rejection = ShipFacilityLimits.checkParts(player, design);
+                    if (rejection != null) {
+                        sync(player, rejection);
+                        return;
+                    }
                     stack.set(BlockSpaceProgram.SHIP_DESIGN, design);
                     player.getInventory().setChanged();
                     feedback = "saved";
@@ -253,6 +278,10 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     }
 
     private void sync(ServerPlayer player, String feedback, int count) {
-        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, feedback, count));
+        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, feedback, count, null));
+    }
+
+    private void sync(ServerPlayer player, Component notice) {
+        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, "", 0, notice));
     }
 }
