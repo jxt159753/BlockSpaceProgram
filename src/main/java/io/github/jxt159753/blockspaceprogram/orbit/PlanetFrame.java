@@ -21,21 +21,23 @@ public record PlanetFrame(Vec3 dimensionPosition, Vec3 relativePosition, Vec3 ea
         return Math.abs(position.z) < worldWidth(body) / 4;
     }
 
-    public static PlanetFrame atDimension(CelestialBody body, double seaLevel, Vec3 position, double seconds) {
+    public static PlanetFrame atDimension(OrbitalSystem system, CelestialBody body, double seaLevel, Vec3 position,
+                                          double seconds) {
         double width = worldWidth(body);
-        var spin = spin(body, seconds);
+        var spin = spin(system, body, seconds);
         double longitude = FULL_TURN * Math.IEEEremainder(position.x / width, 1) + spin.angle();
         double latitude = Mth.clamp(-FULL_TURN * position.z / width, -Math.PI / 2, Math.PI / 2);
         double radius = body.radius() + position.y - seaLevel;
         return at(position, radius, longitude, latitude, spin.rate());
     }
 
-    public static PlanetFrame atOrbit(CelestialBody body, double seaLevel, Vec3 relativePosition, double seconds) {
+    public static PlanetFrame atOrbit(OrbitalSystem system, CelestialBody body, double seaLevel, Vec3 relativePosition,
+                                      double seconds) {
         double width = worldWidth(body);
         double radius = relativePosition.length();
         double horizontal = Math.hypot(relativePosition.x, relativePosition.y);
         double latitude = Math.atan2(relativePosition.z, horizontal);
-        var spin = spin(body, seconds);
+        var spin = spin(system, body, seconds);
         // The poles have no unique longitude. Use a block center just inside the central meridian.
         boolean atPole = horizontal <= 1e-12 * radius;
         double longitude = atPole ? 0 : wrap(Math.atan2(relativePosition.y, relativePosition.x) - spin.angle());
@@ -44,8 +46,8 @@ public record PlanetFrame(Vec3 dimensionPosition, Vec3 relativePosition, Vec3 ea
         return at(position, radius, longitude + spin.angle(), -FULL_TURN * z / width, spin.rate());
     }
 
-    public static Vec3 primeMeridian(CelestialBody body, double seconds) {
-        double angle = spin(body, seconds).angle();
+    public static Vec3 primeMeridian(OrbitalSystem system, CelestialBody body, double seconds) {
+        double angle = spin(system, body, seconds).angle();
         return new Vec3(Math.cos(angle), Math.sin(angle), 0);
     }
 
@@ -87,13 +89,13 @@ public record PlanetFrame(Vec3 dimensionPosition, Vec3 relativePosition, Vec3 ea
         return wrapped >= Math.PI ? wrapped - FULL_TURN : wrapped;
     }
 
-    private static Spin spin(CelestialBody body, double seconds) {
+    private static Spin spin(OrbitalSystem system, CelestialBody body, double seconds) {
         if (body.orbit() == null) {
             return new Spin(FULL_TURN * (seconds % MOTHER_ROTATION_SECONDS) / MOTHER_ROTATION_SECONDS,
                     FULL_TURN / MOTHER_ROTATION_SECONDS);
         }
-        // The M3 satellite keeps its prime meridian facing the parent.
-        var state = OrbitalSystem.M3.relativeState(body.orbit(), seconds);
+        // The satellite's prime meridian tracks the parent's longitude.
+        var state = system.relativeState(body.orbit(), seconds);
         Vec3 r = state.position();
         Vec3 v = state.velocity();
         double rate = (r.x * v.y - r.y * v.x) / (r.x * r.x + r.y * r.y);

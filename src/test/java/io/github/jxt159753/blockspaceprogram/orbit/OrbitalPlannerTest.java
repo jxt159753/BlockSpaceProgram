@@ -8,7 +8,7 @@ import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class OrbitalPlannerTest {
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
+    private static final OrbitalSystem SYSTEM = OrbitalSystem.legacy();
     private static final Orbit LOW_ORBIT = new Orbit(OrbitalSystem.MOTHER_PLANET,
             OrbitElements.fromSemiMajorAxis(70_000, 0, 0, 0, 0, 0, 0));
 

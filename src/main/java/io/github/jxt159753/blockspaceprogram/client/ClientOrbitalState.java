@@ -1,8 +1,10 @@
 package io.github.jxt159753.blockspaceprogram.client;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitElements;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalShipView;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,16 +18,25 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 
-/** Last authoritative orbit time and current ship conics, read on the client thread. */
+/** The server's star system, last authoritative orbit time and current ship conics. */
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class ClientOrbitalState {
     private static final Map<UUID, OrbitalShipView> SHIPS = new HashMap<>();
+    private static OrbitalSystem system = OrbitalSystem.legacy();
     private static long orbitTicks;
     private static boolean hasClock;
     private static ClientLevel clockLevel;
     private static long clockGameTime;
 
     private ClientOrbitalState() {}
+
+    public static OrbitalSystem system() {
+        return system;
+    }
+
+    public static void receiveSystem(OrbitElements moonOrbit) {
+        system = OrbitalSystem.withMoonOrbit(moonOrbit);
+    }
 
     public static double orbitSeconds() {
         return orbitTicks / (double) OrbitalSavedData.TICKS_PER_SECOND;
@@ -68,6 +79,7 @@ public final class ClientOrbitalState {
     @SubscribeEvent
     public static void onDisconnect(ClientPlayerNetworkEvent.LoggingOut event) {
         SHIPS.clear();
+        system = OrbitalSystem.legacy();
         orbitTicks = 0;
         hasClock = false;
         clockLevel = null;

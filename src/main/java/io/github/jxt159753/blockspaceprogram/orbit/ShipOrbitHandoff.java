@@ -22,11 +22,11 @@ import org.slf4j.Logger;
 /** Moves ships between dimension-local Sable bodies and the shared orbit store on the server thread. */
 final class ShipOrbitHandoff {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
 
     private ShipOrbitHandoff() {}
 
     static void tick(MinecraftServer server, OrbitalSavedData data, double previousSeconds, boolean warped) {
+        var system = data.system();
         var region = OrbitalRegion.get(server);
         var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
         if (space != null) {
@@ -36,7 +36,7 @@ final class ShipOrbitHandoff {
             if (level == space) {
                 continue;
             }
-            var body = SYSTEM.findBody(level.dimension().location());
+            var body = system.findBody(level.dimension().location());
             var boundary = boundary(level, body);
             double ascentY = boundary == null ? Double.POSITIVE_INFINITY : boundary.seaLevel() + boundary.ascent();
             var ascents = SableShipFlight.takeAscents(level, ascentY);
@@ -49,7 +49,8 @@ final class ShipOrbitHandoff {
                     try {
                         var motion = flight.motion();
                         if (PlanetFrame.isInProjection(body, motion.center())) {
-                            var frame = PlanetFrame.atDimension(body, boundary.seaLevel(), motion.center(), data.orbitSeconds());
+                            var frame = PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(),
+                                    data.orbitSeconds());
                             var orbit = fit(body, frame.toOrbit(motion.velocity()), data.orbitSeconds());
                             if (flight.carriesPlayer()) {
                                 region.enter(data, ship, orbit, motion, frame.dimensionToInertialRotation());
@@ -78,12 +79,13 @@ final class ShipOrbitHandoff {
     }
 
     private static void checkDescents(MinecraftServer server, OrbitalSavedData data) {
+        var system = data.system();
         double now = data.orbitSeconds();
         boolean retry = data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0;
         var landed = new ArrayList<UUID>();
         for (OrbitingShip ship : data.ships()) {
             var orbit = ship.orbit();
-            var body = SYSTEM.body(orbit.center());
+            var body = system.body(orbit.center());
             var elements = orbit.elements();
             // Skip orbits that never enter the descent shell before looking up the target level.
             var profile = PlanetFlightProperties.profile(body.id());
@@ -107,10 +109,10 @@ final class ShipOrbitHandoff {
                     continue;
                 }
                 // Use the boundary state even when a fast ship has passed through it during this tick.
-                var state = SYSTEM.relativeState(orbit, crossing);
-                var frame = PlanetFrame.atOrbit(body, boundary.seaLevel(), state.position(), crossing);
+                var state = system.relativeState(orbit, crossing);
+                var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), state.position(), crossing);
                 var motion = toDimension(ship, frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()));
-                checkEnergy(body, state, PlanetFrame.atDimension(body, boundary.seaLevel(), motion.center(), crossing)
+                checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), crossing)
                         .toOrbit(motion.velocity()));
                 if (validPosition(level, motion.center())
                         && AssembledShipEntity.restoreFromOrbit(level, ship.id(), tag, motion, true) != null) {
@@ -125,8 +127,9 @@ final class ShipOrbitHandoff {
 
     static void placeInOrbit(ServerLevel level, UUID id, Orbit orbit) {
         var data = OrbitalSavedData.get(level.getServer());
-        var body = SYSTEM.body(orbit.center());
-        var state = SYSTEM.relativeState(orbit, data.orbitSeconds());
+        var system = data.system();
+        var body = system.body(orbit.center());
+        var state = system.relativeState(orbit, data.orbitSeconds());
         var profile = PlanetFlightProperties.profile(body.id());
         double minimumAltitude = profile == null ? 0 : profile.handoff().map(PlanetFlightProperties.HandoffHeights::descent)
                 .orElse(0.0);
@@ -145,9 +148,9 @@ final class ShipOrbitHandoff {
         if (flight.carriesPlayer()) {
             throw new IllegalArgumentException("The ship is carrying a player");
         }
-        var departure = SYSTEM.body(level.dimension().location());
+        var departure = system.body(level.dimension().location());
         var motion = flight.motion();
-        var frame = PlanetFrame.atDimension(departure, seaLevel(departure), motion.center(), data.orbitSeconds());
+        var frame = PlanetFrame.atDimension(system, departure, seaLevel(departure), motion.center(), data.orbitSeconds());
         depart(data, ship, flight, frame, motion, orbit);
     }
 
@@ -162,8 +165,9 @@ final class ShipOrbitHandoff {
             var motion = flight.motion();
             flight.setMotion(new Motion(position, velocity, motion.orientation(), motion.angularVelocity()));
         } else {
-            var body = SYSTEM.body(level.dimension().location());
-            var frame = PlanetFrame.atDimension(body, seaLevel(body), position, data.orbitSeconds());
+            var system = data.system();
+            var body = system.body(level.dimension().location());
+            var frame = PlanetFrame.atDimension(system, body, seaLevel(body), position, data.orbitSeconds());
             var motion = toDimension(existing, frame, position, velocity);
             if (AssembledShipEntity.restoreFromOrbit(level, id, existing.shipData(), motion, false) == null) {
                 throw new IllegalArgumentException("Unable to restore the saved ship in this dimension");
@@ -181,24 +185,25 @@ final class ShipOrbitHandoff {
         flight.removeForOrbit();
     }
 
-    static boolean returnFromRegion(MinecraftServer server, AssembledShipEntity ship, OrbitalState absolute, double now) {
-        var body = SYSTEM.centerAt(absolute.position(), now);
+    static boolean returnFromRegion(MinecraftServer server, OrbitalSystem system, AssembledShipEntity ship,
+                                     OrbitalState absolute, double now) {
+        var body = system.centerAt(absolute.position(), now);
         var level = server.getLevel(ResourceKey.create(Registries.DIMENSION, body.id()));
         var boundary = boundary(level, body);
         if (boundary == null) {
             return false;
         }
-        var state = absolute.subtract(SYSTEM.bodyState(body.id(), now));
+        var state = absolute.subtract(system.bodyState(body.id(), now));
         if (state.position().length() > body.radius() + boundary.descent() || state.position().dot(state.velocity()) >= 0) {
             return false;
         }
         var flight = ship.activeFlight();
         var before = flight.motion();
-        var frame = PlanetFrame.atOrbit(body, boundary.seaLevel(), state.position(), now);
+        var frame = PlanetFrame.atOrbit(system, body, boundary.seaLevel(), state.position(), now);
         var localToInertial = OrbitalRegion.toInertialRotation();
         var motion = toDimension(frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()),
                 new Quaterniond(localToInertial).mul(before.orientation()), OrbitalRegion.toInertial(before.angularVelocity()));
-        checkEnergy(body, state, PlanetFrame.atDimension(body, boundary.seaLevel(), motion.center(), now)
+        checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), now)
                 .toOrbit(motion.velocity()));
         return validPosition(level, motion.center()) && flight.transfer(level, motion,
                 frame.dimensionToInertialRotation().conjugate().mul(localToInertial), true) != null;

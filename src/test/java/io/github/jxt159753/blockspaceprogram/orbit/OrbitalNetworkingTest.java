@@ -18,6 +18,18 @@ import org.junit.Test;
 
 public class OrbitalNetworkingTest {
     @Test
+    public void starSystemSnapshotUsesSavedElementsAndClearsOnDisconnect() {
+        var orbit = StarSystem.generate(StarSystem.Spacing.NEAR, StarSystem.Shape.NATURAL, 53).moonOrbit();
+        var snapshot = roundTrip(OrbitalNetworking.StarSystemSnapshot.CODEC,
+                new OrbitalNetworking.StarSystemSnapshot(orbit));
+        assertEquals(orbit, snapshot.moonOrbit());
+        ClientOrbitalState.receiveSystem(snapshot.moonOrbit());
+        assertEquals(orbit, ClientOrbitalState.system().body(OrbitalSystem.MOON).orbit().elements());
+        ClientOrbitalState.onDisconnect(new ClientPlayerNetworkEvent.LoggingOut(null, null, null));
+        assertEquals(OrbitalSystem.LEGACY_MOON_ORBIT, ClientOrbitalState.system().body(OrbitalSystem.MOON).orbit().elements());
+    }
+
+    @Test
     public void packetRoundTripSynchronizesClockUpsertsAndRemovals() {
         var clock = roundTrip(OrbitalNetworking.Clock.CODEC, new OrbitalNetworking.Clock(12_345));
         ClientOrbitalState.receiveClock(clock.orbitTicks());

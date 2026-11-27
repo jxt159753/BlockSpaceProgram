@@ -9,7 +9,7 @@ import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class OrbitalTimeWarpTest {
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
+    private static final OrbitalSystem SYSTEM = OrbitalSystem.legacy();
 
     @Test
     public void stopsOnTheLastTickStrictlyBeforeAnEvent() {
@@ -45,7 +45,7 @@ public class OrbitalTimeWarpTest {
         double mu = SYSTEM.body(moon.center()).gravitationalParameter();
         double to = 100 + moon.elements().period(mu);
         var radii = Map.of(mother.center(), 65_000.0, moon.center(), 13_000.0);
-        double event = OrbitalTimeWarp.firstDescent(List.of(mother, moon), radii, Vec3.ZERO, 0, to);
+        double event = OrbitalTimeWarp.firstDescent(SYSTEM, List.of(mother, moon), radii, Vec3.ZERO, 0, to);
         assertTrue(event > 100 && event < to);
         var state = SYSTEM.relativeState(moon, event);
         assertEquals(13_000, state.position().length(), 1e-7);
@@ -60,10 +60,10 @@ public class OrbitalTimeWarpTest {
         double period = reference.elements().period(SYSTEM.body(reference.center()).gravitationalParameter());
         var radii = Map.of(reference.center(), 65_000.0);
         assertEquals(Double.POSITIVE_INFINITY,
-                OrbitalTimeWarp.firstDescent(List.of(reference), radii, Vec3.ZERO, 0, period), 0);
+                OrbitalTimeWarp.firstDescent(SYSTEM, List.of(reference), radii, Vec3.ZERO, 0, period), 0);
 
         Vec3 offset = new Vec3(300, 0, 0);
-        double event = OrbitalTimeWarp.firstDescent(List.of(reference), radii, offset, 0, period);
+        double event = OrbitalTimeWarp.firstDescent(SYSTEM, List.of(reference), radii, offset, 0, period);
         assertTrue(event > 0 && event < period / 2);
         assertEquals(65_000, SYSTEM.relativeState(reference, event).position().add(offset).length(), 0.01);
     }

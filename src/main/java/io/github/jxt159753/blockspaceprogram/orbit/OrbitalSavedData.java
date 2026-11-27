@@ -20,24 +20,46 @@ import net.minecraft.world.level.saveddata.SavedData;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
-/** One orbit clock and ship store for all dimensions. Access it on the server thread. */
+/** One star system, orbit clock and ship store for all dimensions. Access it on the server thread. */
 public final class OrbitalSavedData extends SavedData {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final OrbitalSystem SYSTEM = OrbitalSystem.M3;
     public static final int TICKS_PER_SECOND = 20;
     static final String STORAGE_ID = "blockspaceprogram_orbits";
-    static final Factory<OrbitalSavedData> FACTORY = new Factory<>(OrbitalSavedData::new, OrbitalSavedData::load);
+    static final Factory<OrbitalSavedData> FACTORY = new Factory<>(
+            () -> new OrbitalSavedData(StarSystem.LEGACY), OrbitalSavedData::load);
     private static final Codec<List<OrbitingShip>> SHIPS_CODEC = OrbitingShip.CODEC.listOf();
 
+    private final StarSystem starSystem;
+    private final OrbitalSystem system;
     private final Map<UUID, OrbitingShip> ships = new HashMap<>();
     private final Set<UUID> activeShips = new HashSet<>();
     private final Set<UUID> changes = new HashSet<>();
     private long orbitTicks;
 
-    private OrbitalSavedData() {}
+    OrbitalSavedData(StarSystem starSystem) {
+        this.starSystem = starSystem;
+        this.system = OrbitalSystem.withMoonOrbit(starSystem.moonOrbit());
+    }
 
     public static OrbitalSavedData get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(FACTORY, STORAGE_ID);
+        var overworld = server.overworld();
+        var storage = overworld.getDataStorage();
+        var data = storage.get(FACTORY, STORAGE_ID);
+        if (data == null) {
+            boolean initialized = server.getWorldData().overworldData().isInitialized();
+            data = new OrbitalSavedData(initialized ? StarSystem.LEGACY : StarSystem.forNewWorld(overworld.getSeed()));
+            data.setDirty();
+            storage.set(STORAGE_ID, data);
+        }
+        return data;
+    }
+
+    public OrbitalSystem system() {
+        return system;
+    }
+
+    StarSystem starSystem() {
+        return starSystem;
     }
 
     public long orbitTicks() {
@@ -101,7 +123,7 @@ public final class OrbitalSavedData extends SavedData {
             return ManeuverResult.INSUFFICIENT_FUEL;
         }
         try {
-            node.preview(SYSTEM, ship.orbit(), now);
+            node.preview(system, ship.orbit(), now);
         } catch (IllegalArgumentException exception) {
             return ManeuverResult.INVALID_NODE;
         }
@@ -134,10 +156,10 @@ public final class OrbitalSavedData extends SavedData {
             if (node != null && node.seconds() <= to) {
                 // Fit the impulse at its exact epoch, even when it falls between ticks.
                 start = Math.max(from, node.seconds());
-                Orbit before = SYSTEM.advance(ship.orbit(), from, start);
+                Orbit before = system.advance(ship.orbit(), from, start);
                 advanced = ignite(ship.withOrbit(before), node, start, registries);
             }
-            Orbit next = SYSTEM.advance(advanced.orbit(), start, to);
+            Orbit next = system.advance(advanced.orbit(), start, to);
             if (next != advanced.orbit()) {
                 advanced = advanced.withOrbit(next);
             }
@@ -152,15 +174,14 @@ public final class OrbitalSavedData extends SavedData {
         setDirty();
     }
 
-    private static OrbitingShip ignite(OrbitingShip ship, ManeuverNode node, double seconds,
-                                      HolderLookup.Provider registries) {
+    private OrbitingShip ignite(OrbitingShip ship, ManeuverNode node, double seconds, HolderLookup.Provider registries) {
         var snapshot = OrbitalShipPropulsion.read(registries, ship.shipData());
         double deltaV = node.deltaV().length();
         if (snapshot != null) {
             var burn = snapshot.propulsion().estimate(deltaV);
             if (burn.supplies(deltaV)) {
                 try {
-                    Orbit next = new ManeuverNode(seconds, node.deltaV()).apply(SYSTEM, ship.orbit());
+                    Orbit next = new ManeuverNode(seconds, node.deltaV()).apply(system, ship.orbit());
                     return new OrbitingShip(ship.id(), next, ship.orientation(), ship.angularVelocity(),
                             snapshot.afterBurn(burn.seconds()));
                 } catch (IllegalArgumentException exception) {
@@ -186,15 +207,21 @@ public final class OrbitalSavedData extends SavedData {
         }
     }
 
-    private static boolean needsAdvancing(OrbitingShip ship) {
-        return ship.maneuver().isPresent() || SYSTEM.mayCross(ship.orbit());
+    private boolean needsAdvancing(OrbitingShip ship) {
+        return ship.maneuver().isPresent() || system.mayCross(ship.orbit());
     }
 
     private static OrbitalSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
-        var data = new OrbitalSavedData();
+        var storedSystem = tag.get("star_system");
+        var starSystem = storedSystem == null ? StarSystem.LEGACY
+                : StarSystem.CODEC.parse(NbtOps.INSTANCE, storedSystem).getOrThrow();
+        var data = new OrbitalSavedData(starSystem);
         data.orbitTicks = tag.getLong("orbit_ticks");
         for (OrbitingShip ship : SHIPS_CODEC.parse(NbtOps.INSTANCE, tag.get("ships")).getOrThrow()) {
             data.index(ship);
+        }
+        if (storedSystem == null) {
+            data.setDirty();
         }
         return data;
     }
@@ -203,6 +230,7 @@ public final class OrbitalSavedData extends SavedData {
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putLong("orbit_ticks", orbitTicks);
         tag.put("ships", SHIPS_CODEC.encodeStart(NbtOps.INSTANCE, List.copyOf(ships.values())).getOrThrow());
+        tag.put("star_system", StarSystem.CODEC.encodeStart(NbtOps.INSTANCE, starSystem).getOrThrow());
         return tag;
     }
 
