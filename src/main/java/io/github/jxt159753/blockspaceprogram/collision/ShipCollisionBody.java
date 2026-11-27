@@ -10,6 +10,7 @@ import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,12 +19,19 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
 /** A generated Sable body. Its owner manages the lifetime and regenerates it from the part layout. */
 public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLevel subLevel, BlockPos plotOrigin) {
+    private static final int HULL_UPDATE_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
+
+    public record SolidBlock(BlockState state, double mass) {}
+
     /** Creates one body from the parts of a connected ship. Call on the server thread with Sable loaded. */
     public static ShipCollisionBody spawn(ServerLevel level, String name, List<PartBox> parts,
             Vector3dc worldOrigin, Quaterniondc orientation) {
@@ -32,12 +40,19 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
 
     public static ShipCollisionBody spawn(ServerLevel level, String name, Map<BlockPos, Cell> cells,
             Vector3dc worldOrigin, Quaterniondc orientation) {
-        double mass = cells.values().stream().mapToDouble(Cell::mass).sum();
+        return spawn(level, name, cells, Map.of(), worldOrigin, orientation);
+    }
+
+    public static ShipCollisionBody spawn(ServerLevel level, String name, Map<BlockPos, Cell> cells,
+            Map<BlockPos, SolidBlock> hull, Vector3dc worldOrigin, Quaterniondc orientation) {
+        double mass = cells.values().stream().mapToDouble(Cell::mass).sum()
+                + hull.values().stream().mapToDouble(SolidBlock::mass).sum();
         if (!Double.isFinite(mass) || mass <= 0) {
             throw new IllegalArgumentException("A ship needs positive, finite mass");
         }
-        int lowest = cells.keySet().stream().mapToInt(BlockPos::getY).min().orElseThrow();
-        int highest = cells.keySet().stream().mapToInt(BlockPos::getY).max().orElseThrow();
+        var positions = positions(cells, hull);
+        int lowest = positions.stream().mapToInt(BlockPos::getY).min().orElseThrow();
+        int highest = positions.stream().mapToInt(BlockPos::getY).max().orElseThrow();
         int minOriginY = level.getMinBuildHeight() - lowest;
         int maxOriginY = level.getMaxBuildHeight() - 1 - highest;
         if (minOriginY > maxOriginY) {
@@ -54,35 +69,10 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
         BlockPos origin = plotCenter.atY(Math.clamp(plotCenter.getY(), minOriginY, maxOriginY));
         ShipCollisionBody body = new ShipCollisionBody(container, subLevel, origin);
         try {
-            Set<ChunkPos> chunks = new HashSet<>();
-            for (BlockPos pos : cells.keySet()) {
-                BlockPos absolute = body.plotOrigin.offset(pos);
-                ChunkPos chunk = new ChunkPos(absolute);
-                if (!plot.contains(chunk)) {
-                    throw new IllegalArgumentException("Collision cells exceed the ship plot bounds");
-                }
-                chunks.add(chunk);
-            }
-
             subLevel.setName(name);
-            chunks.forEach(plot::newEmptyChunk);
-            var blocks = plot.getEmbeddedLevelAccessor();
-            var collisionBlock = BlockSpaceProgram.SHIP_COLLISION_CELL.get();
-            BlockPos plotOffset = origin.subtract(plotCenter);
-            cells.forEach((pos, cell) -> {
-                if (!blocks.setBlock(pos.offset(plotOffset), collisionBlock.state(cell), Block.UPDATE_CLIENTS)) {
-                    throw new IllegalStateException("Unable to place collision cell " + pos);
-                }
-            });
-
-            body.assignMass(cells);
-            // Sable positions the center of mass, while the layout is relative to the ship origin.
-            Vector3d center = new Vector3d(subLevel.getMassTracker().getCenterOfMass());
-            Vector3d position = orientation.transform(center.sub(origin.getX(), origin.getY(), origin.getZ()))
-                    .add(worldOrigin);
-            body.pipeline().teleport(subLevel, position, orientation);
-            subLevel.updateLastPose();
-            subLevel.updateBoundingBox();
+            body.placeBlocks(positions, cells, hull);
+            body.assignMass(cells, hull);
+            body.positionFromOrigin(worldOrigin, orientation);
             return body;
         } catch (RuntimeException error) {
             body.remove();
@@ -90,13 +80,103 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
         }
     }
 
+    private static Set<BlockPos> positions(Map<BlockPos, Cell> cells, Map<BlockPos, SolidBlock> hull) {
+        var positions = new HashSet<>(cells.keySet());
+        positions.addAll(hull.keySet());
+        if (positions.size() != cells.size() + hull.size()) {
+            throw new IllegalArgumentException("A collision cell overlaps a hull block");
+        }
+        return positions;
+    }
+
+    private void placeBlocks(Set<BlockPos> positions, Map<BlockPos, Cell> cells, Map<BlockPos, SolidBlock> hull) {
+        var plot = subLevel.getPlot();
+        Set<ChunkPos> missing = new HashSet<>();
+        for (BlockPos pos : positions) {
+            var absolute = plotOrigin.offset(pos);
+            var chunk = new ChunkPos(absolute);
+            if (!plot.contains(chunk) || subLevel.getLevel().isOutsideBuildHeight(absolute)) {
+                throw new IllegalArgumentException("Ship blocks exceed the ship plot bounds");
+            }
+            if (plot.getChunkHolder(plot.toLocal(chunk)) == null) {
+                missing.add(chunk);
+            }
+        }
+        missing.forEach(plot::newEmptyChunk);
+        var collisionBlock = BlockSpaceProgram.SHIP_COLLISION_CELL.get();
+        cells.forEach((pos, cell) -> setPlotBlock(pos, collisionBlock.state(cell), Block.UPDATE_CLIENTS));
+        hull.forEach((pos, block) -> setPlotBlock(pos, block.state(), HULL_UPDATE_FLAGS));
+    }
+
+    private void setPlotBlock(BlockPos pos, BlockState state, int flags) {
+        var plot = subLevel.getPlot();
+        var accessor = plot.getEmbeddedLevelAccessor();
+        BlockPos local = pos.offset(plotOrigin.subtract(plot.getCenterBlock()));
+        if (accessor.getBlockState(local) != state && !accessor.setBlock(local, state, flags)) {
+            throw new IllegalStateException("Unable to write ship block " + pos);
+        }
+    }
+
+    private void positionFromOrigin(Vector3dc worldOrigin, Quaterniondc orientation) {
+        // Sable positions the center of mass, while the layout is relative to the ship origin.
+        Vector3d center = new Vector3d(subLevel.getMassTracker().getCenterOfMass());
+        Vector3d position = orientation.transform(center.sub(plotOrigin.getX(), plotOrigin.getY(), plotOrigin.getZ()))
+                .add(worldOrigin);
+        pipeline().teleport(subLevel, position, orientation);
+        subLevel.updateLastPose();
+        subLevel.updateBoundingBox();
+    }
+
+    /** Restores the immutable design into the existing plot so saved player tracking keeps its body id. */
+    public void restoreBlocks(Map<BlockPos, Cell> cells, Map<BlockPos, SolidBlock> hull) {
+        var pose = subLevel.logicalPose();
+        var origin = pose.transformPosition(new Vector3d(plotOrigin.getX(), plotOrigin.getY(), plotOrigin.getZ()));
+        var orientation = new Quaterniond(pose.orientation());
+        var positions = positions(cells, hull);
+        var extras = new ArrayList<BlockPos>();
+        for (var holder : subLevel.getPlot().getLoadedChunks()) {
+            var bounds = holder.getBoundingBox();
+            if (bounds == null) {
+                continue;
+            }
+            int x = holder.getPos().getMinBlockX();
+            int z = holder.getPos().getMinBlockZ();
+            for (BlockPos absolute : BlockPos.betweenClosed(x + bounds.minX(), bounds.minY(), z + bounds.minZ(),
+                    x + bounds.maxX(), bounds.maxY(), z + bounds.maxZ())) {
+                if (!holder.getChunk().getBlockState(absolute).isAir()) {
+                    BlockPos local = absolute.subtract(plotOrigin);
+                    if (!positions.contains(local)) {
+                        extras.add(local);
+                    }
+                }
+            }
+        }
+        placeBlocks(positions, cells, hull);
+        extras.forEach(pos -> setPlotBlock(pos, Blocks.AIR.defaultBlockState(), HULL_UPDATE_FLAGS));
+        subLevel.buildMassTracker();
+        assignMass(cells, hull);
+        positionFromOrigin(origin, orientation);
+    }
+
     /** Restores the ship's mass after Sable builds its tracker from block defaults. */
     public void assignMass(Map<BlockPos, Cell> cells) {
+        assignMass(cells, Map.of());
+    }
+
+    private void assignMass(Map<BlockPos, Cell> cells, Map<BlockPos, SolidBlock> hull) {
         ServerLevel level = subLevel.getLevel();
         // Add the part mass before removing the defaults so the tracker keeps a positive total.
         cells.forEach((pos, cell) -> {
             if (cell.mass() > 0) {
                 changeCellMass(pos, cell, cell.mass());
+            }
+        });
+        hull.forEach((pos, block) -> {
+            BlockPos absolute = plotOrigin.offset(pos);
+            double difference = block.mass() - PhysicsBlockPropertyHelper.getMass(level, absolute, block.state());
+            if (difference != 0) {
+                subLevel.getSelfMassTracker().addBlockMass(level, block.state(), absolute, difference,
+                        PhysicsBlockPropertyHelper.getInertia(level, absolute, block.state()));
             }
         });
         cells.keySet().forEach(pos -> {

@@ -124,13 +124,17 @@ final class AssemblyViewport {
         var tree = design.tree(Set.of());
         for (ShipDesign.Branch branch : tree) {
             var node = design.nodes().get(branch.node());
-            renderPart(node, pose, buffers, LightTexture.FULL_BRIGHT);
+            if (node.part() != null) {
+                renderPart(node, pose, buffers, LightTexture.FULL_BRIGHT);
+            }
         }
         buffers.endBatch();
         var lines = buffers.getBuffer(RenderType.lines());
-        if (showPorts) {
-            for (ShipDesign.Branch branch : tree) {
-                ShipDesign.Node node = design.nodes().get(branch.node());
+        for (ShipDesign.Branch branch : tree) {
+            ShipDesign.Node node = design.nodes().get(branch.node());
+            if (node.hull() != null) {
+                LevelRenderer.renderLineBox(pose, lines, node.bounds(), 0.45F, 0.65F, 0.82F, 1);
+            } else if (showPorts) {
                 for (int marker = 0; marker < node.part().connectors().size(); marker++) {
                     PartConnector connector = node.part().connectors().get(marker);
                     if (connector.kind().isStack() && !design.isMarkerUsed(branch.node(), marker)) {

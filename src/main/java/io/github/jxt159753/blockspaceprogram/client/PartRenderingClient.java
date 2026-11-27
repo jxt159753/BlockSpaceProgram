@@ -148,7 +148,9 @@ public final class PartRenderingClient {
                     poses.mulPose(PartPose.orientation(entity.launchRotation()));
                 }
                 for (var node : design.nodes()) {
-                    AssemblyViewport.renderPart(node, poses, buffers, light);
+                    if (node.part() != null) {
+                        AssemblyViewport.renderPart(node, poses, buffers, light);
+                    }
                 }
                 if (entity.level().dimension().equals(BlockSpaceProgram.ORBITAL_SPACE)) {
                     OrbitalRegionClient.shipRendered(entity.getUUID());

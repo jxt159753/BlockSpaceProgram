@@ -375,7 +375,9 @@ public final class AssembledShipEntity extends Entity {
         if (design == null) {
             return super.makeBoundingBox();
         }
-        AABB bounds = design.bounds();
+        // Real hull blocks handle their own interactions. Keep the entity hit box at the command pod.
+        AABB bounds = design.hasHull() ? design.nodes().stream().filter(ShipDesign.Node::isCommandPod)
+                .findFirst().orElse(design.nodes().getFirst()).bounds() : design.bounds();
         return (isFlyingShip() ? bounds : PartPose.rotateBounds(launchRotation(), bounds)).move(position());
     }
 
@@ -415,11 +417,26 @@ public final class AssembledShipEntity extends Entity {
         }
         ShipDesign design = design();
         if (stack.is(BlockSpaceProgram.SHIP_BLUEPRINT.get()) && !stack.has(BlockSpaceProgram.SHIP_DESIGN)
-                && player.getAbilities().mayBuild && !player.isSpectator() && design != null && design.isValid()) {
-            if (!level().isClientSide) {
-                stack.set(BlockSpaceProgram.SHIP_DESIGN, design);
-                player.getInventory().setChanged();
-                player.displayClientMessage(Component.translatable("assembly.blockspaceprogram.saved"), true);
+                && player.getAbilities().mayBuild && !player.isSpectator() && design != null) {
+            if (design.hasHull()) {
+                if (!level().isClientSide) {
+                    player.displayClientMessage(Component.translatable("assembly.blockspaceprogram.hull_blueprint"), true);
+                }
+                return InteractionResult.sidedSuccess(level().isClientSide);
+            }
+            if (design.isValid()) {
+                if (!level().isClientSide) {
+                    stack.set(BlockSpaceProgram.SHIP_DESIGN, design);
+                    player.getInventory().setChanged();
+                    player.displayClientMessage(Component.translatable("assembly.blockspaceprogram.saved"), true);
+                }
+                return InteractionResult.sidedSuccess(level().isClientSide);
+            }
+        }
+        if (design != null && design.hasHull() && !isDebris() && stack.isEmpty()
+                && player.isSecondaryUseActive() && !player.isSpectator()) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                AssemblyMenu.openFlight(serverPlayer, this);
             }
             return InteractionResult.sidedSuccess(level().isClientSide);
         }

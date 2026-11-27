@@ -12,6 +12,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.FlightTerminalMenu;
 import io.github.jxt159753.blockspaceprogram.assembly.LaunchPadBlock;
 import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.SableCollisionCellBlock;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipAssemblerItem;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipBlueprintItem;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
@@ -98,7 +99,7 @@ public final class BlockSpaceProgram {
     public static final DeferredItem<ShipBlueprintItem> SHIP_BLUEPRINT = ITEMS.registerItem(
             "ship_blueprint", ShipBlueprintItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredItem<Item> SHIP_ASSEMBLER = ITEMS.registerItem(
-            "ship_assembler", Item::new, new Item.Properties().stacksTo(1));
+            "ship_assembler", ShipAssemblerItem::new, new Item.Properties().stacksTo(1));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<BakedPart>> PART_DATA =
             COMPONENTS.registerComponentType("part_data", builder -> builder.persistent(BakedPart.CODEC)
                     .networkSynchronized(BakedPart.STREAM_CODEC));
@@ -107,7 +108,7 @@ public final class BlockSpaceProgram {
                     .networkSynchronized(ShipDesign.STREAM_CODEC));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> FLIGHT_LAYOUT =
             COMPONENTS.registerComponentType("flight_layout", builder -> builder.persistent(ShipDesign.FLIGHT_CODEC)
-                    .networkSynchronized(ShipDesign.STREAM_CODEC));
+                    .networkSynchronized(ShipDesign.FLIGHT_STREAM_CODEC));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> BENCHMARK_LAYOUT =
             COMPONENTS.registerComponentType("benchmark_layout",
                     builder -> builder.networkSynchronized(ShipDesign.BENCHMARK_STREAM_CODEC));
