@@ -1,0 +1,11 @@
+{
+  "type": "blockspaceprogram:moon",
+  "generator": {
+    "type": "minecraft:noise",
+    "settings": "blockspaceprogram:moon",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "blockspaceprogram:moon"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # 天空渲染
 
-星球维度从 `ship_flight` 数据包读取零海拔和大气参数，服务器在玩家登录和 `/reload` 时同步参数。天体标识与维度标识一致，母星为 `minecraft:overworld`，卫星为 `blockspaceprogram:moon`。将该维度的 `sea_level_density` 或 `atmosphere_top` 设为零即可使用真空天空。液体和状态效果仍使用原版雾。 [卫星维度 #17](https://github.com/jxt159753/BlockSpaceProgram/issues/17)
+星球维度从 `ship_flight` 数据包读取零海拔和大气参数，服务器在玩家登录和 `/reload` 时同步参数。天体标识与维度标识一致，母星为 `minecraft:overworld`。本模组自带卫星维度 `blockspaceprogram:moon`，零海拔为 Y=63，表面重力为 1.6 m/s²。将维度的 `sea_level_density` 或 `atmosphere_top` 设为零即可使用真空天空。液体和状态效果仍使用原版雾。整合包可用同 ID 的数据包覆盖卫星地形。 [超平坦卫星示例](flight.md#覆盖卫星地形) · [卫星维度 #17](https://github.com/jxt159753/BlockSpaceProgram/issues/17)
 
 相机经纬度按母星默认周长 377,088 格换算。渲染器使用登录时同步的卫星轨道和共享轨道时钟，计算视方向、视半径和受光相位。新存档的轨道间距和历元平近点角会改变天空中的卫星大小和位置。旧存档沿用 M3 的 360 km 圆轨道和初始相位 0。 [天体与新存档](orbit.md#天体与新存档) · [地表映射 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 

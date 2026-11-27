@@ -72,9 +72,48 @@
 
 距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。飞船用零件的阻力系数、当前迎风投影面积和相对空气的速度计算阻力。没有专用天体参数的维度使用 Sable 的维度重力和气压，Sable 的求解器阻尼也适用于飞船。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 
+玩家、生物和掉落物的重力乘以当前维度的 `surface_gravity / 9.8`。母星默认沿用原版重力。没有 `ship_flight` 参数的维度保留原有重力。修改参数并执行 `/reload` 后，已加载的实体也会采用新重力。
+
+## 卫星维度
+
+本模组自带 `blockspaceprogram:moon`。零海拔为 Y 63，表面重力为 1.6 m/s²，约为母星的 16.3%。默认地表在 Y 63 附近，由原版石头和安山岩生成。卫星没有降水和天然液体，也没有自然生成的生物。建筑范围为 Y -64 至 Y 319，从建筑上限 Y 320 到下降交接高度 Y 1,063 留出 743 格净空。可执行 `/execute in blockspaceprogram:moon run tp @s 0 200 0` 进入卫星。 [卫星维度 #17](https://github.com/jxt159753/BlockSpaceProgram/issues/17)
+
+### 覆盖卫星地形
+
+创建下列数据包，在新建存档时启用。专用服首次启动前，将数据包目录放进 `world/datapacks/`。在数据包根目录写入 `pack.mcmeta`。
+
+```json
+{
+  "pack": {
+    "pack_format": 48,
+    "description": "Flat moon terrain"
+  }
+}
+```
+
+在同一数据包内创建 `data/blockspaceprogram/dimension/moon.json`。以下配置保留卫星维度类型和生物群系，在 Y 63 生成平坦的安山岩表面。重力和轨道交接仍由 `ship_flight/moon.json` 提供。
+
+```json
+{
+  "type": "blockspaceprogram:moon",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "blockspaceprogram:moon",
+      "layers": [
+        { "height": 1, "block": "minecraft:bedrock" },
+        { "height": 126, "block": "minecraft:stone" },
+        { "height": 1, "block": "minecraft:andesite" }
+      ],
+      "structure_overrides": []
+    }
+  }
+}
+```
+
 ## 无人飞船与轨道交接
 
-`orbit_handoff` 为可选配置，天体 ID 对应维度 ID。上升和下降阈值均为质心海拔。上升阈值须高于下降阈值，下降阈值须高于大气顶，并给整艘飞船留出高于建筑上限的净空。卫星 `blockspaceprogram:moon` 的默认上升和下降阈值分别为 1,500 m 和 1,000 m，待同名维度加载后生效。 [天体轨道参数](orbit.md#m3-天体) · [卫星维度 #17](https://github.com/jxt159753/BlockSpaceProgram/issues/17)
+`orbit_handoff` 为可选配置，天体 ID 对应维度 ID。上升和下降阈值均为质心海拔。上升阈值须高于下降阈值，下降阈值须高于大气顶，并给整艘飞船留出高于建筑上限的净空。卫星 `blockspaceprogram:moon` 的默认上升和下降阈值分别为 1,500 m 和 1,000 m。 [天体轨道参数](orbit.md#m3-天体)
 
 无人飞船从投影范围内上升越过阈值后进入轨道层。在下降阈值处重建 Sable 刚体，并恢复零件图、燃料、分级、损坏、非玩家座位乘客、姿态和角速度。轨道交接检查以天体为中心的比轨道能量。无法拟合成开普勒根数的精确径向轨迹会保留原实体。 [星球尺度 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 
