@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
 import com.mojang.logging.LogUtils;
+import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
@@ -12,10 +13,10 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Quaterniond;
 import org.slf4j.Logger;
 
 /** Moves ships between dimension-local Sable bodies and the shared orbit store on the server thread. */
@@ -26,7 +27,15 @@ final class ShipOrbitHandoff {
     private ShipOrbitHandoff() {}
 
     static void tick(MinecraftServer server, OrbitalSavedData data) {
+        var region = OrbitalRegion.get(server);
+        var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
+        if (space != null) {
+            region.tick(space, data);
+        }
         for (ServerLevel level : server.getAllLevels()) {
+            if (level == space) {
+                continue;
+            }
             var body = SYSTEM.findBody(level.dimension().location());
             var boundary = boundary(level, body);
             double ascentY = boundary == null ? Double.POSITIVE_INFINITY : boundary.seaLevel() + boundary.ascent();
@@ -36,13 +45,17 @@ final class ShipOrbitHandoff {
             }
             for (var ship : ascents) {
                 var flight = ship.activeFlight();
-                if (flight != null && !flight.carriesPlayer() && data.ship(ship.getUUID()) == null) {
+                if (flight != null && data.ship(ship.getUUID()) == null) {
                     try {
                         var motion = flight.motion();
                         if (PlanetFrame.isInProjection(body, motion.center())) {
                             var frame = PlanetFrame.atDimension(body, boundary.seaLevel(), motion.center(), data.orbitSeconds());
                             var orbit = fit(body, frame.toOrbit(motion.velocity()), data.orbitSeconds());
-                            depart(data, ship, flight, frame, motion, orbit);
+                            if (flight.carriesPlayer()) {
+                                region.enter(data, ship, orbit, motion, frame.dimensionToInertialRotation());
+                            } else {
+                                depart(data, ship, flight, frame, motion, orbit);
+                            }
                         }
                     } catch (RuntimeException error) {
                         LOGGER.warn("Could not put ship {} on orbit", ship.getUUID(), error);
@@ -153,18 +166,43 @@ final class ShipOrbitHandoff {
         var orientation = frame.dimensionToInertialRotation().mul(motion.orientation());
         var angular = frame.toInertialDirection(motion.angularVelocity());
         var snapshot = new OrbitingShip(ship.getUUID(), orbit, orientation, angular, ship.orbitSnapshot());
-        var members = ship.getSelfAndPassengers().toList();
         data.put(snapshot);
-        members.reversed().forEach(Entity::discard);
-        flight.removeBodyNow();
+        flight.removeForOrbit();
+    }
+
+    static boolean returnFromRegion(MinecraftServer server, AssembledShipEntity ship, OrbitalState absolute, double now) {
+        var body = SYSTEM.centerAt(absolute.position(), now);
+        var level = server.getLevel(ResourceKey.create(Registries.DIMENSION, body.id()));
+        var boundary = boundary(level, body);
+        if (boundary == null) {
+            return false;
+        }
+        var state = absolute.subtract(SYSTEM.bodyState(body.id(), now));
+        if (state.position().length() > body.radius() + boundary.descent() || state.position().dot(state.velocity()) >= 0) {
+            return false;
+        }
+        var flight = ship.activeFlight();
+        var before = flight.motion();
+        var frame = PlanetFrame.atOrbit(body, boundary.seaLevel(), state.position(), now);
+        var localToInertial = OrbitalRegion.toInertialRotation();
+        var motion = toDimension(frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()),
+                new Quaterniond(localToInertial).mul(before.orientation()), OrbitalRegion.toInertial(before.angularVelocity()));
+        checkEnergy(body, state, PlanetFrame.atDimension(body, boundary.seaLevel(), motion.center(), now)
+                .toOrbit(motion.velocity()));
+        return validPosition(level, motion.center()) && flight.transfer(level, motion,
+                frame.dimensionToInertialRotation().conjugate().mul(localToInertial), true) != null;
     }
 
     private static Motion toDimension(OrbitingShip ship, PlanetFrame frame, Vec3 position, Vec3 velocity) {
-        var orientation = frame.dimensionToInertialRotation().conjugate().mul(ship.orientation()).normalize();
-        return new Motion(position, velocity, orientation, frame.toDimensionDirection(ship.angularVelocity()));
+        return toDimension(frame, position, velocity, ship.orientation(), ship.angularVelocity());
     }
 
-    private static Orbit fit(CelestialBody body, OrbitalState state, double seconds) {
+    private static Motion toDimension(PlanetFrame frame, Vec3 position, Vec3 velocity, Quaterniond attitude, Vec3 angular) {
+        var orientation = frame.dimensionToInertialRotation().conjugate().mul(attitude).normalize();
+        return new Motion(position, velocity, orientation, frame.toDimensionDirection(angular));
+    }
+
+    static Orbit fit(CelestialBody body, OrbitalState state, double seconds) {
         double mu = body.gravitationalParameter();
         var elements = OrbitElements.fromState(mu, state, seconds);
         var fitted = elements.stateAt(mu, seconds);
@@ -200,7 +238,7 @@ final class ShipOrbitHandoff {
         return profile.flight().seaLevel();
     }
 
-    private static boolean validPosition(ServerLevel level, Vec3 position) {
+    static boolean validPosition(ServerLevel level, Vec3 position) {
         return Double.isFinite(position.lengthSqr()) && Level.isInSpawnableBounds(BlockPos.containing(position))
                 && level.getWorldBorder().isWithinBounds(position);
     }

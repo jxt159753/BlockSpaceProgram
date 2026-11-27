@@ -3,8 +3,10 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
+import io.github.jxt159753.blockspaceprogram.client.OrbitalRegionClient;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
 import io.netty.buffer.ByteBuf;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.UUIDUtil;
@@ -13,10 +15,12 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -30,6 +34,9 @@ public final class OrbitalNetworking {
         NeoForge.EVENT_BUS.addListener(OrbitalNetworking::afterServerTick);
         if (ModList.get().isLoaded("sable")) {
             NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
+            NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onLogout);
+            NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onDimensionChange);
+            NeoForge.EVENT_BUS.addListener(OrbitalNetworking::onStopping);
         }
     }
 
@@ -41,6 +48,8 @@ public final class OrbitalNetworking {
                 (payload, context) -> ClientOrbitalState.receiveShip(payload.id(), payload.ship()));
         registrar.playToClient(ManeuverFeedback.TYPE, ManeuverFeedback.CODEC,
                 (payload, context) -> OrbitalMapClient.receiveResult(payload.id(), payload.result()));
+        registrar.playToClient(RegionContacts.TYPE, RegionContacts.CODEC,
+                (payload, context) -> OrbitalRegionClient.receiveContacts(payload));
         registrar.playToServer(ManeuverCommand.TYPE, ManeuverCommand.CODEC, (payload, context) -> {
             if (context.player() instanceof ServerPlayer player) {
                 handleCommand(player, payload);
@@ -69,6 +78,30 @@ public final class OrbitalNetworking {
                 var view = OrbitalShipView.of(ship, player.registryAccess());
                 PacketDistributor.sendToPlayer(player, new ShipUpdate(ship.id(), Optional.of(view)));
             }
+            if (ModList.get().isLoaded("sable")) {
+                OrbitalRegion.get(player.serverLevel().getServer()).onLogin(player, data);
+            }
+        }
+    }
+
+    private static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player && OrbitalRegion.inSpace(player)) {
+            var server = player.serverLevel().getServer();
+            OrbitalRegion.get(server).onLogout(player, OrbitalSavedData.get(server));
+        }
+    }
+
+    private static void onDimensionChange(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            OrbitalRegion.configurePlayer(player, event.getTo().equals(BlockSpaceProgram.ORBITAL_SPACE));
+        }
+    }
+
+    private static void onStopping(ServerStoppingEvent event) {
+        var server = event.getServer();
+        var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
+        if (space != null) {
+            OrbitalRegion.get(server).onStopping(space, OrbitalSavedData.get(server));
         }
     }
 
@@ -89,6 +122,36 @@ public final class OrbitalNetworking {
         for (UUID id : changes) {
             var view = Optional.ofNullable(data.ship(id)).map(ship -> OrbitalShipView.of(ship, server.registryAccess()));
             PacketDistributor.sendToAllPlayers(new ShipUpdate(id, view));
+        }
+        var space = server.getLevel(BlockSpaceProgram.ORBITAL_SPACE);
+        if (space != null && !space.players().isEmpty() && ModList.get().isLoaded("sable")
+                && data.orbitTicks() % OrbitalRegion.CONTACT_INTERVAL == 0) {
+            var contacts = OrbitalRegion.get(server).contacts(data.orbitSeconds());
+            var payload = new RegionContacts(data.orbitTicks(), contacts);
+            space.players().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
+        }
+    }
+
+    public record Contact(UUID id, OrbitalState state) {
+        private static final StreamCodec<ByteBuf, Vec3> VECTOR_CODEC = StreamCodec.composite(
+                ByteBufCodecs.DOUBLE, Vec3::x,
+                ByteBufCodecs.DOUBLE, Vec3::y,
+                ByteBufCodecs.DOUBLE, Vec3::z, Vec3::new);
+        private static final StreamCodec<ByteBuf, OrbitalState> STATE_CODEC = StreamCodec.composite(
+                VECTOR_CODEC, OrbitalState::position, VECTOR_CODEC, OrbitalState::velocity, OrbitalState::new);
+        private static final StreamCodec<ByteBuf, Contact> CODEC = StreamCodec.composite(
+                UUIDUtil.STREAM_CODEC, Contact::id, STATE_CODEC, Contact::state, Contact::new);
+    }
+
+    public record RegionContacts(long orbitTicks, List<Contact> ships) implements CustomPacketPayload {
+        private static final Type<RegionContacts> TYPE = payloadType("orbital_region_contacts");
+        private static final StreamCodec<ByteBuf, RegionContacts> CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_LONG, RegionContacts::orbitTicks,
+                Contact.CODEC.apply(ByteBufCodecs.list()), RegionContacts::ships, RegionContacts::new);
+
+        @Override
+        public Type<RegionContacts> type() {
+            return TYPE;
         }
     }
 
