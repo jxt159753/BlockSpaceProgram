@@ -214,6 +214,7 @@ public final class ShipPlacement {
         PartConnector sourceConnector = marker(placed.part(), second.marker());
         return targetConnector != null && sourceConnector != null && targetConnector.matchesStackSize(sourceConnector)
                 && targetConnector.normal() == first.normal() && targetConnector.center().distanceToSqr(first.anchor()) == 0
+                && (!link.docking() || targetConnector.kind().dockable() && sourceConnector.kind().dockable())
                 && link.separable() == (targetConnector.kind().separable() || sourceConnector.kind().separable());
     }
 
@@ -235,7 +236,7 @@ public final class ShipPlacement {
         return new Face(connector.normal(), connector.center(), connector.modelFace());
     }
 
-    private static Direction turn(Direction tangent, Direction axis, int turns) {
+    static Direction turn(Direction tangent, Direction axis, int turns) {
         for (int i = 0; i < turns; i++) {
             tangent = axis.getAxisDirection() == Direction.AxisDirection.POSITIVE
                     ? tangent.getClockWise(axis.getAxis()) : tangent.getCounterClockWise(axis.getAxis());

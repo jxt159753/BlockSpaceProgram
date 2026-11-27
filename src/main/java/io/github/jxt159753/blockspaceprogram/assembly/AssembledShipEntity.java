@@ -4,9 +4,12 @@ import com.mojang.logging.LogUtils;
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -22,6 +25,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -35,6 +39,9 @@ import org.slf4j.Logger;
 public final class AssembledShipEntity extends Entity {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int NO_SAVED_STAGE = -2;
+    private static final String DOCKING = BlockSpaceProgram.MOD_ID + ":docking";
+    private static final String SEATS = BlockSpaceProgram.MOD_ID + ":seats";
+    private static final String LAST_SEAT = BlockSpaceProgram.MOD_ID + ":last_seat";
     private static final EntityDataAccessor<ItemStack> BLUEPRINT = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.ITEM_STACK);
     private static final EntityDataAccessor<Byte> LAUNCH_ROTATION = SynchedEntityData.defineId(
@@ -64,6 +71,8 @@ public final class AssembledShipEntity extends Entity {
     @Nullable
     private UUID bodyId;
     private ListTag savedFuel = new ListTag();
+    private ShipDockingState docking = ShipDockingState.EMPTY;
+    private CompoundTag seats = new CompoundTag();
     private long debrisSince = -1;
     private boolean triedFlight;
 
@@ -104,6 +113,9 @@ public final class AssembledShipEntity extends Entity {
     void setFlightDesign(ShipDesign layout) {
         var stack = new ItemStack(BlockSpaceProgram.SHIP_BLUEPRINT.get());
         stack.set(BlockSpaceProgram.FLIGHT_LAYOUT, layout);
+        if (!seats.isEmpty()) {
+            CustomData.update(DataComponents.CUSTOM_DATA, stack, data -> data.put(SEATS, seats.copy()));
+        }
         setBlueprint(stack);
     }
 
@@ -166,6 +178,30 @@ public final class AssembledShipEntity extends Entity {
 
     void inheritOwner(AssembledShipEntity primary) {
         owner = primary.owner;
+    }
+
+    ShipDockingState.Identity dockingIdentity() {
+        return new ShipDockingState.Identity(getUUID(), Optional.ofNullable(owner), Optional.ofNullable(getCustomName()));
+    }
+
+    void restoreDockingIdentity(ShipDockingState.Identity identity) {
+        setUUID(identity.id());
+        owner = identity.owner().orElse(null);
+        setCustomName(identity.name().orElse(null));
+    }
+
+    ShipDockingState dockingState() {
+        return docking;
+    }
+
+    void setDockingState(ShipDockingState docking) {
+        this.docking = docking;
+        if (docking.equals(ShipDockingState.EMPTY)) {
+            getPersistentData().remove(DOCKING);
+        } else {
+            var ops = registryAccess().createSerializationContext(NbtOps.INSTANCE);
+            getPersistentData().put(DOCKING, ShipDockingState.Serialization.CODEC.encodeStart(ops, docking).getOrThrow());
+        }
     }
 
     ShipFlightControls flightControls() {
@@ -242,9 +278,6 @@ public final class AssembledShipEntity extends Entity {
         setFlightDesign(design);
         setPos(flight.plotPosition());
         bindFlight(flight);
-        if (getFirstPassenger() instanceof Player pilot) {
-            positionRider(pilot);
-        }
     }
 
     private void bindFlight(SableShipFlight flight) {
@@ -333,7 +366,11 @@ public final class AssembledShipEntity extends Entity {
     @Override
     public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
         super.onSyncedDataUpdated(key);
-        if (BLUEPRINT.equals(key) || LAUNCH_ROTATION.equals(key)) {
+        if (BLUEPRINT.equals(key)) {
+            seats = entityData.get(BLUEPRINT).getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY)
+                    .copyTag().getCompound(SEATS);
+            reapplyPosition();
+        } else if (LAUNCH_ROTATION.equals(key)) {
             reapplyPosition();
         } else if (FLYING.equals(key)) {
             blocksBuilding = !isFlyingShip();
@@ -367,7 +404,7 @@ public final class AssembledShipEntity extends Entity {
             }
             return InteractionResult.sidedSuccess(level().isClientSide);
         }
-        if (!isFlyingShip() || isDebris() || player.isSpectator() || player.isSecondaryUseActive() || getFirstPassenger() != null) {
+        if (!isFlyingShip() || player.isSpectator() || player.isSecondaryUseActive() || availableSeat(player) < 0) {
             return InteractionResult.PASS;
         }
         if (level().isClientSide) {
@@ -384,12 +421,87 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     protected boolean canAddPassenger(Entity passenger) {
-        return isFlyingShip() && !isDebris() && passenger instanceof Player && getPassengers().isEmpty();
+        return isFlyingShip() && passenger instanceof Player player && availableSeat(player) >= 0;
     }
 
     @Override
     protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
+        int pod = assignedSeat(passenger);
+        if (pod > 0 && isPod(pod)) {
+            return ShipFlightState.seat(design(), pod);
+        }
         return new Vec3(entityData.get(SEAT));
+    }
+
+    int assignedSeat(Entity passenger) {
+        return seats.getInt(passenger.getStringUUID());
+    }
+
+    int availableSeat(Player player) {
+        ShipDesign design = design();
+        if (design == null) {
+            return -1;
+        }
+        var remembered = player.getPersistentData().getCompound(LAST_SEAT);
+        int preferred = remembered.getInt("pod");
+        if (remembered.hasUUID("ship") && remembered.getUUID("ship").equals(getUUID())
+                && isPod(preferred) && seatFree(preferred)) {
+            return preferred;
+        }
+        for (int i = 0; i < design.nodes().size(); i++) {
+            if (design.nodes().get(i).isCommandPod() && seatFree(i)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isPod(int part) {
+        ShipDesign design = design();
+        return design != null && part >= 0 && part < design.nodes().size() && design.nodes().get(part).isCommandPod();
+    }
+
+    private boolean seatFree(int part) {
+        return getPassengers().stream().noneMatch(passenger -> assignedSeat(passenger) == part);
+    }
+
+    private void syncSeats() {
+        var stack = entityData.get(BLUEPRINT).copy();
+        CustomData.update(DataComponents.CUSTOM_DATA, stack, data -> {
+            if (seats.isEmpty()) {
+                data.remove(SEATS);
+            } else {
+                data.put(SEATS, seats.copy());
+            }
+        });
+        setBlueprint(stack);
+    }
+
+    void assignSeat(Player player, int pod) {
+        seats.putInt(player.getStringUUID(), pod);
+        syncSeats();
+        var remembered = new CompoundTag();
+        remembered.putUUID("ship", getUUID());
+        remembered.putInt("pod", pod);
+        player.getPersistentData().put(LAST_SEAT, remembered);
+    }
+
+    void clearSeat(Entity passenger) {
+        if (seats.contains(passenger.getStringUUID())) {
+            seats.remove(passenger.getStringUUID());
+            syncSeats();
+        }
+    }
+
+    @Override
+    protected void addPassenger(Entity passenger) {
+        if (!level().isClientSide && passenger instanceof Player player && !seats.contains(player.getStringUUID())) {
+            int seat = availableSeat(player);
+            if (seat >= 0) {
+                assignSeat(player, seat);
+            }
+        }
+        super.addPassenger(passenger);
     }
 
     @Override
@@ -399,9 +511,15 @@ public final class AssembledShipEntity extends Entity {
 
     @Override
     protected void removePassenger(Entity passenger) {
+        boolean wasPilot = getFirstPassenger() == passenger;
         super.removePassenger(passenger);
+        if (!level().isClientSide) {
+            clearSeat(passenger);
+        }
         if (flight != null) {
-            flight.clearInput();
+            if (wasPilot) {
+                flight.clearInput();
+            }
             if (passenger instanceof ServerPlayer player && flight.isActive()) {
                 flight.inheritDismountVelocity(player);
             }
@@ -464,6 +582,11 @@ public final class AssembledShipEntity extends Entity {
         entityData.set(LAUNCH_ROTATION, tag.getByte("LaunchRotation"));
         setBlueprint(ItemStack.parseOptional(registryAccess(), tag.getCompound("Blueprint")));
         owner = tag.hasUUID("ShipOwner") ? tag.getUUID("ShipOwner") : null;
+        Tag savedDocking = getPersistentData().get(DOCKING);
+        if (savedDocking != null) {
+            var ops = registryAccess().createSerializationContext(NbtOps.INSTANCE);
+            docking = ShipDockingState.Serialization.CODEC.parse(ops, savedDocking).getOrThrow();
+        }
         if (tag.hasUUID("FlightBody")) {
             bodyId = tag.getUUID("FlightBody");
             savedFuel = tag.getList("Fuel", Tag.TAG_DOUBLE);

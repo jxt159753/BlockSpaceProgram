@@ -16,6 +16,7 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
         }
 
         Set<Integer> detached = new HashSet<>();
+        int[] group = tankGroups(design);
         List<StagePerformance> performance = new ArrayList<>(design.stageCount());
         for (int stage = 0; stage < design.stageCount(); stage++) {
             for (int i = 0; i < design.links().size(); i++) {
@@ -24,18 +25,17 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
                 }
             }
 
-            int[] group = new int[count];
-            Arrays.fill(group, -1);
             double[] capacity = new double[count];
             double[] thrust = new double[count];
             double[] flow = new double[count];
             double wetMass = 0;
+            boolean[] attached = new boolean[count];
             for (ShipDesign.Branch branch : design.tree(detached)) {
                 int index = branch.node();
                 var node = design.nodes().get(index);
                 var properties = node.part().properties();
-                int tankGroup = tankGroup(design, branch, group);
-                group[index] = tankGroup;
+                int tankGroup = group[index];
+                attached[index] = true;
                 capacity[tankGroup] += fuel[index];
                 wetMass += properties.mass() + fuel[index];
                 if (node.engineStage() == stage && properties.vacuumSpecificImpulse() > 0 && properties.thrust() > 0) {
@@ -49,7 +49,7 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             performance.add(new StagePerformance(burn.deltaV(), propulsion.thrustToWeight(), burn.seconds()));
             for (int i = 0; i < count; i++) {
                 int tankGroup = group[i];
-                if (tankGroup >= 0 && capacity[tankGroup] > 0) {
+                if (attached[i] && capacity[tankGroup] > 0) {
                     fuel[i] *= VacuumPropulsion.fractionRemaining(capacity[tankGroup], flow[tankGroup], burn.seconds());
                 }
             }
@@ -57,8 +57,20 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
         return List.copyOf(performance);
     }
 
-    static int tankGroup(ShipDesign design, ShipDesign.Branch branch, int[] groups) {
-        return branch.link() < 0 || design.links().get(branch.link()).separable() ? branch.node() : groups[branch.parent()];
+    static int[] tankGroups(ShipDesign design) {
+        var separators = new HashSet<Integer>();
+        for (int i = 0; i < design.links().size(); i++) {
+            if (design.links().get(i).separable()) {
+                separators.add(i);
+            }
+        }
+        int[] groups = new int[design.nodes().size()];
+        for (var group : design.components(separators)) {
+            for (int node : group) {
+                groups[node] = group.getFirst();
+            }
+        }
+        return groups;
     }
 
     static double fuelFlow(double thrust, double isp) {

@@ -71,6 +71,16 @@ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
         throw new IllegalArgumentException("Unknown direction " + direction);
     }
 
+    PartPose relativeTo(PartPose frame) {
+        return new PartPose(snap(frame.localPoint(position())), align(Direction.UP, Direction.EAST,
+                frame.localDirection(rotation.rotate(Direction.UP)), frame.localDirection(rotation.rotate(Direction.EAST))));
+    }
+
+    PartPose in(PartPose frame) {
+        return new PartPose(snap(frame.point(position())), align(Direction.UP, Direction.EAST,
+                frame.rotation.rotate(rotation.rotate(Direction.UP)), frame.rotation.rotate(rotation.rotate(Direction.EAST))));
+    }
+
     public AABB bounds(BakedPart part) {
         var box = ShipCollisionLayout.PartBox.fromPart(part, origin, rotation);
         return new AABB(fromQuarters(box.min()), fromQuarters(box.max()));

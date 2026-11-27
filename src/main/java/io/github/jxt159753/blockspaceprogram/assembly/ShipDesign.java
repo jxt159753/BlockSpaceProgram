@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.IntUnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
@@ -123,8 +124,16 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
             return first.node() == node && first.marker() == marker || second.node() == node && second.marker() == marker;
         }
 
+        boolean docking() {
+            return separable && separationStage == -1;
+        }
+
         Link withNodes(int firstIndex, int secondIndex) {
             return new Link(first.withNode(firstIndex), second.withNode(secondIndex), surface, separable, separationStage);
+        }
+
+        Link withStage(int stage) {
+            return new Link(first, second, surface, separable, stage);
         }
     }
 
@@ -182,10 +191,11 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     private boolean hasBlueprintRoot() {
-        return !nodes.isEmpty() && nodes.getFirst().pose().equals(PartPose.ROOT) && nodes.getFirst().isCommandPod();
+        return !nodes.isEmpty() && nodes.getFirst().pose().equals(PartPose.ROOT) && nodes.getFirst().isCommandPod()
+                && links.stream().noneMatch(Link::docking);
     }
 
-    private boolean isValidLayout() {
+    boolean isValidLayout() {
         if (nodes.isEmpty() || nodes.size() > MAX_PARTS || links.size() > MAX_LINKS || stageCount < 1
                 || stageCount > MAX_STAGES) {
             return false;
@@ -205,7 +215,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         for (Link link : links) {
             if (link.first().node() < 0 || link.first().node() >= nodes.size() || link.second().node() < 0
                     || link.second().node() >= nodes.size() || link.first().node() == link.second().node()
-                    || !validStage(link.separationStage(), link.separable()) || !ShipPlacement.validLink(nodes, link)
+                    || (!link.docking() && !validStage(link.separationStage(), link.separable()))
+                    || !ShipPlacement.validLink(nodes, link)
                     || (link.first().marker() >= 0 && !usedMarkers.add(link.first()))
                     || (link.second().marker() >= 0 && !usedMarkers.add(link.second()))) {
                 return false;
@@ -242,17 +253,30 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     ShipDesign subset(List<Integer> members, Set<Integer> detachedLinks, BlockPos offset) {
-        int[] indices = new int[nodes.size()];
-        Arrays.fill(indices, -1);
+        return subset(members, detachedLinks, new PartPose(offset.multiply(4), PartPose.ROOT.rotation()), stageCount,
+                IntUnaryOperator.identity());
+    }
+
+    ShipDesign subset(List<Integer> members, Set<Integer> cuts, PartPose frame, int count, IntUnaryOperator stageMap) {
         var keptNodes = new ArrayList<Node>(members.size());
-        BlockPos quarters = offset.multiply(4);
         for (int member : members) {
-            indices[member] = keptNodes.size();
             Node node = nodes.get(member);
-            keptNodes.add(new Node(node.part(),
-                    new PartPose(node.pose().origin().subtract(quarters), node.pose().rotation()), node.engineStage()));
+            keptNodes.add(new Node(node.part(), node.pose().relativeTo(frame),
+                    node.engineStage() < 0 ? -1 : stageMap.applyAsInt(node.engineStage())));
         }
-        return new ShipDesign(keptNodes, remapLinks(links, indices, detachedLinks), stageCount);
+        var keptLinks = remapLinks(links, indices(nodes.size(), members), cuts).stream()
+                .map(link -> link.separationStage() < 0 ? link
+                        : link.withStage(stageMap.applyAsInt(link.separationStage()))).toList();
+        return new ShipDesign(keptNodes, keptLinks, count);
+    }
+
+    static int[] indices(int count, List<Integer> members) {
+        int[] indices = new int[count];
+        Arrays.fill(indices, -1);
+        for (int i = 0; i < members.size(); i++) {
+            indices[members.get(i)] = i;
+        }
+        return indices;
     }
 
     static List<Link> remapLinks(List<Link> links, int[] indices, Set<Integer> detachedLinks) {
