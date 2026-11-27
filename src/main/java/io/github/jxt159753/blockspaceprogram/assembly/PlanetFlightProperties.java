@@ -4,10 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
@@ -25,7 +28,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Codec<Double> NONNEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
     private static final Codec<Double> POSITIVE = Codec.doubleRange(1, Double.MAX_VALUE);
-    private static final Codec<PlanetFlightProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+    private static final MapCodec<PlanetFlightProperties> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.doubleRange(-Double.MAX_VALUE, Double.MAX_VALUE).fieldOf("sea_level").forGetter(PlanetFlightProperties::seaLevel),
             POSITIVE.fieldOf("radius").forGetter(PlanetFlightProperties::radius),
             NONNEGATIVE.fieldOf("surface_gravity").forGetter(PlanetFlightProperties::surfaceGravity),
@@ -42,14 +45,14 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
         buf.writeDouble(planet.scaleHeight());
     }, buf -> new PlanetFlightProperties(buf.readDouble(), buf.readDouble(), buf.readDouble(),
             buf.readDouble(), buf.readDouble(), buf.readDouble()));
-    private static volatile Map<ResourceLocation, PlanetFlightProperties> planets = Map.of();
+    private static volatile Map<ResourceLocation, Profile> planets = Map.of();
 
     static void register(AddReloadListenerEvent event) {
         event.addListener(new SimpleJsonResourceReloadListener(new Gson(), "ship_flight") {
             @Override
             protected void apply(Map<ResourceLocation, JsonElement> json, ResourceManager resources, ProfilerFiller profiler) {
-                var loaded = new HashMap<ResourceLocation, PlanetFlightProperties>();
-                json.forEach((dimension, entry) -> CODEC.parse(JsonOps.INSTANCE, entry)
+                var loaded = new HashMap<ResourceLocation, Profile>();
+                json.forEach((dimension, entry) -> Profile.CODEC.parse(JsonOps.INSTANCE, entry)
                         .resultOrPartial(error -> LOGGER.error("Invalid ship flight parameters for {}: {}", dimension, error))
                         .ifPresent(properties -> loaded.put(dimension, properties)));
                 planets = Map.copyOf(loaded);
@@ -59,11 +62,19 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
 
     @Nullable
     static PlanetFlightProperties in(Level level) {
-        return planets.get(level.dimension().location());
+        var profile = profile(level.dimension().location());
+        return profile == null ? null : profile.flight();
+    }
+
+    @Nullable
+    static Profile profile(ResourceLocation dimension) {
+        return planets.get(dimension);
     }
 
     public static Map<ResourceLocation, PlanetFlightProperties> all() {
-        return planets;
+        var flightProperties = new HashMap<ResourceLocation, PlanetFlightProperties>();
+        planets.forEach((id, profile) -> flightProperties.put(id, profile.flight()));
+        return Map.copyOf(flightProperties);
     }
 
     public boolean hasAtmosphere() {
@@ -82,5 +93,27 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
         }
         return Math.exp(-altitude / scaleHeight) * Math.expm1((altitude - atmosphereTop) / scaleHeight)
                 / Math.expm1(-atmosphereTop / scaleHeight);
+    }
+
+    record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff) {
+        static final Codec<Profile> CODEC = RecordCodecBuilder.<Profile>create(instance -> instance.group(
+                PlanetFlightProperties.CODEC.forGetter(Profile::flight),
+                HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff)
+        ).apply(instance, Profile::new)).validate(profile -> {
+            var heights = profile.handoff().orElse(null);
+            if (heights != null && (heights.ascent() <= heights.descent()
+                    || (profile.flight().hasAtmosphere() && heights.descent() <= profile.flight().atmosphereTop()))) {
+                return DataResult.error(() -> "Expected ascent_altitude > descent_altitude above any atmosphere",
+                        new Profile(profile.flight(), Optional.empty()));
+            }
+            return DataResult.success(profile);
+        });
+    }
+
+    record HandoffHeights(double ascent, double descent) {
+        static final Codec<HandoffHeights> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                NONNEGATIVE.fieldOf("ascent_altitude").forGetter(HandoffHeights::ascent),
+                NONNEGATIVE.fieldOf("descent_altitude").forGetter(HandoffHeights::descent)
+        ).apply(instance, HandoffHeights::new));
     }
 }

@@ -61,11 +61,16 @@ public final class OrbitalSystem {
     }
 
     public CelestialBody body(ResourceLocation id) {
-        CelestialBody body = bodies.get(id);
+        CelestialBody body = findBody(id);
         if (body == null) {
             throw new IllegalArgumentException("Unknown celestial body: " + id);
         }
         return body;
+    }
+
+    @Nullable
+    public CelestialBody findBody(ResourceLocation id) {
+        return bodies.get(id);
     }
 
     public double sphereOfInfluence(ResourceLocation id) {

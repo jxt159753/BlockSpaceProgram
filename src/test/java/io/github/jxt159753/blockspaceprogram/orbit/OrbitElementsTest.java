@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 import net.minecraft.world.phys.Vec3;
@@ -62,6 +63,31 @@ public class OrbitElementsTest {
                 assertState(orbit.stateAt(MU, epoch + 30), fitted.stateAt(MU, epoch + 30));
             }
         }
+    }
+
+    @Test
+    public void inboundCrossingFindsTheDescendingBranchOfEachConic() {
+        for (double e : new double[] {0.08, 0.999999, 1, 1.000001, 1.6}) {
+            var orbit = new OrbitElements(64_000 * (1 + e), e, 0.7, -0.7, 1.2, 0, 80);
+            double crossing = orbit.inwardCrossing(MU, 65_000, 0);
+            var state = orbit.stateAt(MU, crossing);
+            assertEquals(65_000, state.position().length(), 1e-5);
+            assertTrue(state.position().dot(state.velocity()) < 0);
+            double next = orbit.inwardCrossing(MU, 65_000, crossing + 0.001);
+            assertEquals(crossing + orbit.period(MU), next, 1e-5);
+            assertEquals(Double.POSITIVE_INFINITY, orbit.inwardCrossing(MU, orbit.periapsis(), 0), 0);
+        }
+    }
+
+    @Test
+    public void inboundCrossingDetectsAnExcursionShorterThanOneTick() {
+        double radius = 65_000;
+        var orbit = OrbitElements.fromSemiMajorAxis(66_000, 1 - (radius - 0.00001) / 66_000, 0, 0, 0, 0, 4.025);
+        assertTrue(orbit.stateAt(MU, 4.0).position().length() > radius);
+        assertTrue(orbit.stateAt(MU, 4.05).position().length() > radius);
+        double crossing = orbit.inwardCrossing(MU, radius, 4);
+        assertTrue(crossing > 4 && crossing < 4.025);
+        assertEquals(Double.POSITIVE_INFINITY, orbit.inwardCrossing(MU, orbit.apoapsis(), 4), 0);
     }
 
     static void assertState(OrbitalState expected, OrbitalState actual) {

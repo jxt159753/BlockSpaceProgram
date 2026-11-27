@@ -40,8 +40,29 @@
   "surface_gravity": 9.8,
   "sea_level_density": 1.225,
   "atmosphere_top": 4000,
-  "scale_height": 1000
+  "scale_height": 1000,
+  "orbit_handoff": {
+    "ascent_altitude": 6000,
+    "descent_altitude": 5000
+  }
 }
 ```
 
 距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。飞船用零件的阻力系数、当前迎风投影面积和相对空气的速度计算阻力。没有专用天体参数的维度使用 Sable 的维度重力和气压，Sable 的求解器阻尼也适用于飞船。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
+
+## 无人飞船与轨道交接
+
+`orbit_handoff` 为可选配置，天体 ID 对应维度 ID。上升和下降阈值均为质心海拔。上升阈值须高于下降阈值，下降阈值须高于大气顶，并给整艘飞船留出高于建筑上限的净空。卫星 `blockspaceprogram:moon` 的默认上升和下降阈值分别为 1,500 m 和 1,000 m，待同名维度加载后生效。 [天体轨道参数](orbit.md#m3-天体) · [卫星维度 #17](https://github.com/jxt159753/BlockSpaceProgram/issues/17)
+
+无人飞船从投影范围内上升越过阈值后进入轨道层。在下降阈值处重建 Sable 刚体，并恢复零件图、燃料、分级、损坏、非玩家座位乘客、姿态和角速度。轨道交接检查以天体为中心的比轨道能量。无法拟合成开普勒根数的精确径向轨迹会保留原实体。载有玩家的飞船继续维度内飞行，局部物理区交接见 #34。 [星球尺度 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4) · [局部物理区 #34](https://github.com/jxt159753/BlockSpaceProgram/issues/34)
+
+### 调试命令
+
+Sable 服务端的管理员可执行以下命令。输入飞船参数时，Tab 补全会列出当前维度已加载的飞船和在轨飞船的 UUID。位置是质心的维度坐标，速度单位为 m/s。可用 `/execute in <维度> run ...` 指定维度。
+
+```text
+/bsp_ship position <飞船UUID> <x> <y> <z> <vx> <vy> <vz>
+/bsp_ship orbit <飞船UUID> <天体ID> <半通径m> <偏心率> <倾角> <升交点经度> <近地点幅角> <平近点角>
+```
+
+轨道根数的角度用度，历元取当前轨道时刻。母星 10 km 圆轨道可用 `minecraft:overworld 70000 0 0 0 0 0`。测试亚轨道往返时，把母星上的无人飞船放到阈值下方，例如 `0 6060 0 0 30 0`。飞船将先越过 Y 6063，再沿弹道回落，在 Y 5063 附近恢复为实体。

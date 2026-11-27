@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipOrbitHandoff;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
@@ -14,6 +15,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -72,6 +74,9 @@ public final class OrbitalNetworking {
         var server = event.getServer();
         OrbitalSavedData data = OrbitalSavedData.get(server);
         data.advanceTick(server.registryAccess());
+        if (ModList.get().isLoaded("sable")) {
+            ShipOrbitHandoff.tick(server, data);
+        }
         var changes = data.takeChanges();
         if (server.getPlayerList().getPlayers().isEmpty()) {
             return;
