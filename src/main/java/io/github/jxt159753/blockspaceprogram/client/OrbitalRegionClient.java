@@ -114,7 +114,7 @@ public final class OrbitalRegionClient {
     private static void drawModel(RenderLevelStageEvent event, Minecraft game, Vec3 delta, double distance) {
         // Keep the outline inside the far plane while preserving its direction and apparent size.
         double scale = Math.min(1, game.options.getEffectiveRenderDistance() * 12.0 / distance);
-        float size = (float) (Math.max(2, distance * 0.022) * scale);
+        float size = (float) (distance * 0.022 * scale);
         var poses = event.getPoseStack();
         var lines = game.renderBuffers().bufferSource().getBuffer(RenderType.lines());
         poses.pushPose();
