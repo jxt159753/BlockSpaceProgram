@@ -60,6 +60,15 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 零件属性用数据映射 `data_maps/block/part_properties.json`，天体参数放在 `data/<命名空间>/ship_flight/<维度路径>.json`，修改后可用 `/reload` 生效。
 - 服务器管理员调整的参数放在 `blockspaceprogram-server.toml`（`ModConfigSpec`）。
 
+### 多语言
+
+- 玩家可见的文字使用语言键，同时写入 `lang/en_us.json` 和 `lang/zh_cn.json`。`en_us` 是缺键时的回退语言，必须完整。
+- 语言键沿用现有格式 `<功能>.blockspaceprogram.<名称>`，例如 `assembly.blockspaceprogram.save`、`flight.blockspaceprogram.status`。注册对象的键由注册 ID 决定，例如 `block.blockspaceprogram.launch_pad`。
+- 服务端发给玩家的文字用 `Component.translatable` 构造，原样发给客户端，由每个客户端按自己的语言显示。包括聊天消息、动作栏、命令反馈，以及物品和实体的自定义名称。
+- 不在服务端用 `getString()` 或 `Language.getInstance()` 把要给玩家看的文字解析成字符串。专用服只加载 `en_us`，其他玩家会看到英文。单人游戏里解析出的是房主的语言，所以这类错误在单人游戏里看不出来。
+- 数据包中玩家可见的字段用文本组件（`ComponentSerialization.CODEC`），不用纯字符串。本模组自带的数据写成 `{"translate": "<键>", "fallback": "<英文>"}`，键写进语言文件。整合包作者也可以直接写字符串。
+- 将来可能拆成附属的功能（目前是 #43），注册对象以外的语言键使用独立的功能前缀，不与本体共用，例如 `web_preview.blockspaceprogram.*`。拆分时把这些键整段移到附属的语言文件，键名不变。
+
 ## 开发规范
 
 ### 分支与提交
@@ -77,7 +86,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 ### 代码
 
 - 代码、注释和配置项说明用英文。
-- 玩家可见的文字使用语言键，同时写入 `lang/en_us.json` 和 `lang/zh_cn.json`。
+- 玩家可见的文字按上文「多语言」一节处理。
 
 ### 验证
 
