@@ -45,7 +45,7 @@ import org.slf4j.Logger;
 import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
 
 /** Binds a ship and its saved flight state to a single Sable plot. Loaded only with Sable present. */
-final class SableShipFlight {
+public final class SableShipFlight {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String OWNER = "BlockSpaceProgramShip";
     private static final int INPUT_TIMEOUT = 10;
@@ -206,7 +206,7 @@ final class SableShipFlight {
         detach();
     }
 
-    void removeBodyNow() {
+    public void removeBodyNow() {
         // Handoffs can be followed by a save before Sable processes its removal queue.
         body.remove();
     }
@@ -219,7 +219,7 @@ final class SableShipFlight {
         return Vec3.atLowerCornerOf(body.plotOrigin());
     }
 
-    static List<AssembledShipEntity> takeAscents(ServerLevel level, double ascentY) {
+    public static List<AssembledShipEntity> takeAscents(ServerLevel level, double ascentY) {
         var flights = LEVELS.get(level);
         if (flights == null) {
             return List.of();
@@ -242,7 +242,7 @@ final class SableShipFlight {
         return ascending;
     }
 
-    boolean carriesPlayer() {
+    public boolean carriesPlayer() {
         var subLevel = body.subLevel();
         return ship.getSelfAndPassengers().anyMatch(Player.class::isInstance)
                 || subLevel.getLevel().players().stream().anyMatch(player ->
@@ -258,7 +258,7 @@ final class SableShipFlight {
         return body.subLevel().boundingBox().toMojang();
     }
 
-    Motion motion() {
+    public Motion motion() {
         var subLevel = body.subLevel();
         var pose = subLevel.logicalPose();
         var pipeline = body.pipeline();
@@ -266,7 +266,7 @@ final class SableShipFlight {
                 new Quaterniond(pose.orientation()), vec(pipeline.getAngularVelocity(subLevel, new Vector3d())));
     }
 
-    void setMotion(Motion motion) {
+    public void setMotion(Motion motion) {
         var subLevel = body.subLevel();
         var pipeline = body.pipeline();
         pipeline.teleport(subLevel, vector(motion.center()), motion.orientation());
@@ -558,7 +558,7 @@ final class SableShipFlight {
         return new Vector3d(value.x, value.y, value.z);
     }
 
-    record Motion(Vec3 center, Vec3 velocity, Quaterniond orientation, Vec3 angularVelocity) {}
+    public record Motion(Vec3 center, Vec3 velocity, Quaterniond orientation, Vec3 angularVelocity) {}
 
     private record Flights(Vector3dc baseGravity, Map<ServerSubLevel, SableShipFlight> active) {}
 }

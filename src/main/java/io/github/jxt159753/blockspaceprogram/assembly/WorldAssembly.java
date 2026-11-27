@@ -6,7 +6,6 @@ import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
-import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;

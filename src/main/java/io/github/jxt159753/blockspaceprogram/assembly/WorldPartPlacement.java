@@ -4,7 +4,6 @@ import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
-import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -54,7 +53,7 @@ public final class WorldPartPlacement {
         return new Preview(placement, obstruction(player.level(), bounds, Set.of()));
     }
 
-    public static InteractionResult placeOnBlock(UseOnContext context, Player player, BakedPart part) {
+    static InteractionResult placeOnBlock(UseOnContext context, Player player, BakedPart part) {
         Preview preview = onBlock(player, context.getItemInHand(), part, context.getClickedPos(), context.getClickedFace());
         if (preview.error() != null) {
             if (!context.getLevel().isClientSide) {

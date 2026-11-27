@@ -69,8 +69,11 @@ neoForge {
 
 neoForge.addModdingDependenciesTo(sourceSets.test)
 tasks.named('test', Test) {
+    def mainJavaSources = layout.projectDirectory.dir('src/main/java')
     useJUnit()
     workingDir layout.buildDirectory
+    systemProperty 'blockspaceprogram.mainJavaSources', mainJavaSources.asFile.absolutePath
+    inputs.dir(mainJavaSources).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {

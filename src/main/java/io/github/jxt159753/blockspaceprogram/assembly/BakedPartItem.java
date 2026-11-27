@@ -1,7 +1,8 @@
-package io.github.jxt159753.blockspaceprogram.part;
+package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.assembly.WorldPartPlacement;
+import io.github.jxt159753.blockspaceprogram.part.BakedPart;
+import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.network.chat.Component;

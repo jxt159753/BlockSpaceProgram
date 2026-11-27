@@ -25,19 +25,19 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ### 包结构与依赖方向
 
-| 包 | 内容 | 可依赖 |
-| --- | --- | --- |
-| `part` | 零件数据、烘焙台、连接接口 | 无 |
-| `orbit` | 天体、轨道根数、开普勒传播、轨道存档 | 无 |
-| `collision` | 零件碰撞体与碰撞格 | `part` |
-| `assembly` | 装配台、蓝图、飞船实体、飞行、着陆、分级、轨道交接 | `part`、`collision`、`orbit` |
-| `sky` | 天空数据同步 | `orbit`、`assembly` |
-| `client` | 界面、渲染、按键、客户端状态 | 以上全部 |
+| 包 | 内容 |
+| --- | --- |
+| `part` | 零件数据、烘焙台、连接接口 |
+| `collision` | 零件碰撞体与碰撞格 |
+| `assembly` | 装配台、世界内组装、蓝图、飞船实体、飞行、着陆、分级、推进计算 |
+| `orbit` | 天体、开普勒传播、轨道存档、机动节点、飞船与轨道层的交接 |
+| `sky` | 天空数据同步 |
+| `client` | 界面、渲染、按键、客户端状态 |
 
-所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
+包之间只允许依赖表中位置更靠前的包。所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
 
-- 新代码不得增加表中没有的依赖。现有的例外待清理：`part` 中的 `BakedPartItem` 和 `PlacedPartEntity` 引用了 `assembly`，`orbit.OrbitalNetworking` 引用了 `assembly.ShipOrbitHandoff`。
-- 客户端代码只放在 `client` 包。其他包只在注册网络包时引用 `client` 中的客户端处理入口。
+- 轨道层执行机动时需要读取飞船的推进数据，因此 `orbit` 位于 `assembly` 之后。
+- 客户端代码只放在 `client` 包。其他包中只有注册网络包的 `*Networking` 类可以引用 `client`，引用限于客户端处理入口。
 - 轨道力学、Δv 和投影这类纯计算不引用 Minecraft 类型，以便在 `src/test` 中直接写单元测试。
 
 ### 可选依赖
@@ -60,6 +60,15 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 零件属性用数据映射 `data_maps/block/part_properties.json`，天体参数放在 `data/<命名空间>/ship_flight/<维度路径>.json`，修改后可用 `/reload` 生效。
 - 服务器管理员调整的参数放在 `blockspaceprogram-server.toml`（`ModConfigSpec`）。
 
+### 多语言
+
+- 玩家可见的文字使用语言键，同时写入 `lang/en_us.json` 和 `lang/zh_cn.json`。`en_us` 是缺键时的回退语言，必须完整。
+- 语言键沿用现有格式 `<功能>.blockspaceprogram.<名称>`，例如 `assembly.blockspaceprogram.save`、`flight.blockspaceprogram.status`。注册对象的键由注册 ID 决定，例如 `block.blockspaceprogram.launch_pad`。
+- 服务端发给玩家的文字用 `Component.translatable` 构造，原样发给客户端，由每个客户端按自己的语言显示。包括聊天消息、动作栏、命令反馈，以及物品和实体的自定义名称。
+- 不在服务端用 `getString()` 或 `Language.getInstance()` 把要给玩家看的文字解析成字符串。专用服只加载 `en_us`，其他玩家会看到英文。单人游戏里解析出的是房主的语言，所以这类错误在单人游戏里看不出来。
+- 数据包中玩家可见的字段用文本组件（`ComponentSerialization.CODEC`），不用纯字符串。本模组自带的数据写成 `{"translate": "<键>", "fallback": "<英文>"}`，键写进语言文件。整合包作者也可以直接写字符串。
+- 将来可能拆成附属的功能（目前是 #43），注册对象以外的语言键使用独立的功能前缀，不与本体共用，例如 `web_preview.blockspaceprogram.*`。拆分时把这些键整段移到附属的语言文件，键名不变。
+
 ## 开发规范
 
 ### 分支与提交
@@ -77,7 +86,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 ### 代码
 
 - 代码、注释和配置项说明用英文。
-- 玩家可见的文字使用语言键，同时写入 `lang/en_us.json` 和 `lang/zh_cn.json`。
+- 玩家可见的文字按上文「多语言」一节处理。
 
 ### 验证
 

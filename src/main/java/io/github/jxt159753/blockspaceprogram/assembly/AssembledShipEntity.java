@@ -118,7 +118,6 @@ public final class AssembledShipEntity extends Entity {
     public static void registerFlight() {
         if (ModList.get().isLoaded("sable")) {
             SableShipFlight.register();
-            NeoForge.EVENT_BUS.addListener(ShipOrbitCommands::register);
         }
         NeoForge.EVENT_BUS.addListener(PlanetFlightProperties::register);
     }
@@ -139,11 +138,11 @@ public final class AssembledShipEntity extends Entity {
     }
 
     @Nullable
-    SableShipFlight activeFlight() {
+    public SableShipFlight activeFlight() {
         return flight != null && flight.isActive() ? flight : null;
     }
 
-    CompoundTag orbitSnapshot() {
+    public CompoundTag orbitSnapshot() {
         var tag = new CompoundTag();
         if (!saveAsPassenger(tag) || snapshotSize(tag) != getSelfAndPassengers().count()) {
             throw new IllegalArgumentException("The ship and all of its passengers must be serializable");
@@ -152,7 +151,7 @@ public final class AssembledShipEntity extends Entity {
     }
 
     @Nullable
-    static AssembledShipEntity restoreFromOrbit(ServerLevel level, UUID id, CompoundTag tag,
+    public static AssembledShipEntity restoreFromOrbit(ServerLevel level, UUID id, CompoundTag tag,
             SableShipFlight.Motion motion, boolean reentry) {
         var entity = EntityType.loadEntityRecursive(tag, level, loaded -> loaded);
         if (!(entity instanceof AssembledShipEntity ship) || !id.equals(ship.getUUID()) || ship.bodyId == null) {

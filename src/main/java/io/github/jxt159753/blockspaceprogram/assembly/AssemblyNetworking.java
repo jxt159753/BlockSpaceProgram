@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
-import io.github.jxt159753.blockspaceprogram.part.PlacedPartEntity;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
