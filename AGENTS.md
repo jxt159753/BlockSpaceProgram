@@ -27,6 +27,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 | 包 | 内容 |
 | --- | --- |
+| `facility` | 设施等级的存储、等级归属的解析、上限配置 |
 | `part` | 零件数据、烘焙台、连接接口 |
 | `collision` | 零件碰撞体与碰撞格 |
 | `assembly` | 装配台、世界内组装、蓝图、飞船实体、飞行、着陆、分级、推进计算 |
@@ -36,6 +37,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 包之间只允许依赖表中位置更靠前的包。所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
 
+- 烘焙台、装配台、发射台和世界内组装都要查设施等级，因此 `facility` 排在最前。`facility` 只提供等级和上限的查询，各处的上限检查写在 `part` 和 `assembly` 中。
 - 轨道层执行机动时需要读取飞船的推进数据，因此 `orbit` 位于 `assembly` 之后。
 - 客户端代码只放在 `client` 包。其他包中只有注册网络包的 `*Networking` 类可以引用 `client`，引用限于客户端处理入口。
 - 轨道力学、Δv 和投影这类纯计算不引用 Minecraft 类型，以便在 `src/test` 中直接写单元测试。
@@ -50,14 +52,15 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 ### 可选依赖
 
 - Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody` 和 `SableCollisionDebugRenderer`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
-- 其他模组的联动放在 `compat/<模组 ID>` 包中，入口同样用 `isLoaded` 守住，不拆成单独的 JAR。已规划的有 CC:Tweaked（#42、#44）和 Iris（#51、#52）。
-- 新增依赖（包括 `compileOnly`）属于架构决策，须先在 issue 中定下。引入其他模组的代码前须确认其许可证与 MIT 兼容。
+- 其他模组的联动放在 `compat/<模组 ID>` 包中，入口同样用 `isLoaded` 守住，不拆成单独的 JAR。已规划的有 CC:Tweaked（#42、#44）、Iris（#51、#52）和 FTB Teams（#21、#69）。
+- 上表中的包不能引用 `compat`。联动的实现由主类在 `isLoaded` 判断后接入。例如 `facility` 定义解析等级归属的接口，装了 FTB Teams 时，主类把它换成 `compat/ftbteams` 中的实现。
+- 新增依赖（包括 `compileOnly`）属于架构决策，须先在 issue 中定下。复制其他模组的源码，或把它打包进本模组的 JAR 之前，须确认其许可证与 MIT 兼容。只在编译期引用公开 API 的不受此限，例如 FTB Teams（All Rights Reserved）。
 
 ### 注册、附属与存档兼容
 
 - 本体内容在 `BlockSpaceProgram.java` 中集中注册。
 - 将来可能拆成附属的功能从一开始就使用独立的包和自己的注册类，本体代码不引用它们。目前只有服务器网页轨道预览（#43）。
-- 生涯模式的内容写在整合包仓库。本模组只在烘焙台、装配台和发射台中提供可配置的上限检查（#21）。
+- 生涯模式的内容写在整合包仓库。本模组只提供设施等级和可配置的上限检查（#21）。等级按 FTB Teams 的队伍记录，没装 FTB Teams 时按玩家记录，由命令设置（#69）。
 - 本体通过自定义 NeoForge 事件对外提供接口，例如入轨、着陆、分级分离和 SOI 变更（#20）。KubeJS 联动和附属都基于这一套事件。
 - 注册 ID 和存档字段确定后不改名。数据组件、`SavedData` 和网络包的格式变化须能读取旧数据，新字段要有默认值。
 
