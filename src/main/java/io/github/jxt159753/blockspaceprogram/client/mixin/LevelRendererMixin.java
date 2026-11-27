@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.client.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexBuffer;
 import io.github.jxt159753.blockspaceprogram.client.PlanetSkyClient;
 import net.minecraft.client.Camera;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -16,13 +15,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(LevelRenderer.class)
 abstract class LevelRendererMixin {
     @Shadow private ClientLevel level;
-    @Shadow private VertexBuffer starBuffer;
 
     @Inject(method = "renderSky", at = @At(value = "INVOKE", target = "Ljava/lang/Runnable;run()V", ordinal = 0),
             cancellable = true)
     private void bsp$renderPlanetSky(Matrix4f view, Matrix4f projection, float partialTick, Camera camera,
                                      boolean isFoggy, Runnable setupFog, CallbackInfo callback) {
-        if (PlanetSkyClient.render(level, camera, partialTick, view, projection, starBuffer, isFoggy)) {
+        if (PlanetSkyClient.render(level, camera, partialTick, view, projection, isFoggy)) {
             callback.cancel();
         }
     }

@@ -7,6 +7,8 @@ uniform float Radius;
 uniform float Density;
 uniform float StarBrightness;
 uniform float HaloRadius;
+uniform float SolarHaloRadius;
+uniform vec3 BodyAtmosphere;
 uniform vec2 PixelPadding;
 
 in vec3 Position;
@@ -16,6 +18,10 @@ vec2 discPosition(vec2 corner) {
     float radius = Radius;
     if (Mode == 1 && Density > 0.0 && StarBrightness > 0.0) {
         radius *= HaloRadius;
+    } else if (Mode == 3 && Density < 1.0) {
+        radius *= SolarHaloRadius;
+    } else if (Mode == 2 || Mode == 4) {
+        radius = BodyAtmosphere.x;
     }
     // Invert the fragment shader's mapping from (screen x, screen y, 1) to a view ray.
     mat3 screenToRay = mat3(ClipToWorld[0].xyz, ClipToWorld[1].xyz, (ClipToWorld[2] + ClipToWorld[3]).xyz);
