@@ -5,8 +5,8 @@ abstract class PrepareAeroOcclusionSources extends DefaultTask {
     @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
     abstract DirectoryProperty getBaseSources()
 
-    @InputFile @PathSensitive(PathSensitivity.NONE)
-    abstract RegularFileProperty getIntegrationPatch()
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getIntegrationPatches()
 
     @OutputDirectory
     abstract DirectoryProperty getPatchedSources()
@@ -24,12 +24,14 @@ abstract class PrepareAeroOcclusionSources extends DefaultTask {
             into patchedSources
         }
         File output = patchedSources.get().asFile
-        String patch = integrationPatch.get().asFile.getText('UTF-8').replace('\r\n', '\n')
-        processes.exec {
-            workingDir output
-            environment 'GIT_CEILING_DIRECTORIES', output.parent
-            standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
-            commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+        integrationPatches.each { file ->
+            String patch = file.getText('UTF-8').replace('\r\n', '\n')
+            processes.exec {
+                workingDir output
+                environment 'GIT_CEILING_DIRECTORIES', output.parent
+                standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
+                commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+            }
         }
     }
 }
@@ -43,7 +45,7 @@ def serverDir = file("runs/aeroOcclusion/${run}/server")
 
 def prepare = tasks.register('prepareAeroOcclusionSources', PrepareAeroOcclusionSources) {
     baseSources = layout.projectDirectory.dir('src/main/java')
-    integrationPatch = layout.projectDirectory.file("${experiment}/integration.patch")
+    integrationPatches.from(layout.projectDirectory.file("${experiment}/integration.patch"))
     patchedSources = layout.buildDirectory.dir('generated/aeroOcclusionSources')
 }
 sourceSets.main.java.setSrcDirs(["${experiment}/java"])

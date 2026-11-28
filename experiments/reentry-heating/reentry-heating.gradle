@@ -1,0 +1,51 @@
+def experiment = 'experiments/reentry-heating'
+def run = providers.gradleProperty('reentryHeatingRun').getOrElse('candidate')
+def trial = providers.gradleProperty('reentryHeatingTrial').getOrElse('')
+def serverDir = file("runs/reentryHeating/${run}/server")
+def capture = providers.gradleProperty('reentryHeatingCapture')
+def joinAddress = providers.gradleProperty('reentryHeatingJoin')
+
+tasks.named('prepareAeroOcclusionSources') {
+    integrationPatches.from(layout.projectDirectory.file("${experiment}/integration.patch"))
+}
+sourceSets.main.java.srcDir "${experiment}/java"
+sourceSets.main.resources.srcDir "${experiment}/resources"
+sourceSets.test.java.srcDir "${experiment}/test"
+
+neoForge.runs.register('reentryHeatingServer') {
+    server()
+    gameDirectory = serverDir
+    programArgument '--nogui'
+    systemProperty 'bsp.reentryHeating.trial', trial
+    systemProperty 'bsp.reentryHeating.baseline', providers.gradleProperty('reentryHeatingBaseline').isPresent().toString()
+}
+
+neoForge.runs.register('reentryHeatingClient') {
+    client()
+    gameDirectory = file("runs/reentryHeating/${run}/client")
+    programArguments.addAll('--username', 'HeatProbe')
+    if (joinAddress.isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', joinAddress.get())
+    }
+    if (capture.isPresent()) {
+        systemProperty 'bsp.reentryHeating.capture', capture.get()
+    }
+}
+
+def copyTrialData = tasks.register('copyReentryHeatingTrialData', Copy) {
+    from "${experiment}/datapack"
+    into new File(serverDir, 'world/datapacks/reentry-heating')
+}
+def copyCalibration = tasks.register('copyReentryHeatingCalibration', Copy) {
+    from "${experiment}/calibration/datapack"
+    into new File(serverDir, 'world/datapacks/reentry-heating-calibration')
+}
+tasks.named('runReentryHeatingServer', JavaExec) {
+    standardInput = System.in
+    if (trial) {
+        dependsOn copyTrialData
+    }
+    if (providers.gradleProperty('reentryHeatingWithoutSableDrag').isPresent()) {
+        dependsOn copyCalibration
+    }
+}

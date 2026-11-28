@@ -134,8 +134,12 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
     apply from: 'experiments/ship-rigidbody/ship-rigidbody.gradle'
 }
 
-if (providers.gradleProperty('aeroOcclusion').isPresent()) {
+if (providers.gradleProperty('aeroOcclusion').isPresent() || providers.gradleProperty('reentryHeating').isPresent()) {
     apply from: 'experiments/aero-occlusion/aero-occlusion.gradle'
+}
+
+if (providers.gradleProperty('reentryHeating').isPresent()) {
+    apply from: 'experiments/reentry-heating/reentry-heating.gradle'
 }
 
 if (providers.gradleProperty('rcsAllocation').isPresent()) {
