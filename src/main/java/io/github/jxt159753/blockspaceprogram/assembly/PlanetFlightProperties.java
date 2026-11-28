@@ -124,18 +124,22 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
                 / Math.expm1(-atmosphereTop / scaleHeight);
     }
 
-    public record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff, Appearance appearance) {
+    public record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff, Appearance appearance,
+                          double reentryHeatMultiplier) {
         private static final Codec<Appearance> APPEARANCE_CODEC =
                 Appearance.CODEC.optionalFieldOf("appearance", Appearance.DEFAULT).codec();
         private static final Codec<Profile> FLIGHT_CODEC = RecordCodecBuilder.<Profile>create(instance -> instance.group(
                 PlanetFlightProperties.CODEC.forGetter(Profile::flight),
-                HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff)
-        ).apply(instance, (flight, handoff) -> new Profile(flight, handoff, Appearance.DEFAULT))).validate(profile -> {
+                HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff),
+                NONNEGATIVE.optionalFieldOf("reentry_heat_multiplier", ReentryTemperature.DEFAULT_MULTIPLIER)
+                        .forGetter(Profile::reentryHeatMultiplier)
+        ).apply(instance, (flight, handoff, multiplier) ->
+                new Profile(flight, handoff, Appearance.DEFAULT, multiplier))).validate(profile -> {
             var heights = profile.handoff().orElse(null);
             if (heights != null && (heights.ascent() <= heights.descent()
                     || (profile.flight().hasAtmosphere() && heights.descent() <= profile.flight().atmosphereTop()))) {
                 return DataResult.error(() -> "Expected ascent_altitude > descent_altitude above any atmosphere",
-                        new Profile(profile.flight(), Optional.empty(), profile.appearance()));
+                        new Profile(profile.flight(), Optional.empty(), profile.appearance(), profile.reentryHeatMultiplier()));
             }
             return DataResult.success(profile);
         });
@@ -145,7 +149,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
             result.error().ifPresent(error -> LOGGER.error("Invalid appearance for {}: {}", dimension, error.message()));
             Appearance appearance = result.result().orElse(Appearance.DEFAULT);
             return FLIGHT_CODEC.parse(JsonOps.INSTANCE, json)
-                    .map(profile -> new Profile(profile.flight(), profile.handoff(), appearance));
+                    .map(profile -> new Profile(profile.flight(), profile.handoff(), appearance, profile.reentryHeatMultiplier()));
         }
     }
 
