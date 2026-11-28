@@ -96,11 +96,15 @@
 }
 ```
 
-距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。没有专用天体参数的维度使用 Sable 的维度重力和气压。Sable 的求解器阻尼也适用于飞船。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
+距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。没有专用天体参数的维度使用 Sable 的维度重力和气压。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 
 玩家、生物和掉落物的重力乘以当前维度的 `surface_gravity / 9.8`。母星默认沿用原版重力。没有 `ship_flight` 参数的维度保留原有重力。修改参数并执行 `/reload` 后，已加载的实体也会采用新重力。
 
 ## 气动阻力
+
+主世界的 Sable 通用阻尼 `universal_drag` 默认为 0。这项设置适用于主世界的全部 Sable 刚体。飞船在大气内由六向阻力和展开的降落伞减速。默认大气顶在海拔 4,000 m，此处及更高处的大气密度为零。
+
+要调整通用阻尼，在优先级高于本模组的数据包中提供 `data/minecraft/dimension_physics/overworld.json`，保留 `"dimension": "minecraft:overworld"` 并设置 `universal_drag`。省略 Sable 的重力和气压字段时沿用其默认值。修改后执行 `/reload`。
 
 飞船沿自身的 ±X、±Y、±Z 六个方向投影。烘焙零件按放置时的比例、旋转和偏移计算，船体方块也参与遮挡。每个 1/4 格投影单元只有最迎风的方块贡献 0.0625 m² 的面积，阻力面积再乘该方块的 `drag_coefficient`。默认系数为 1.0。系数为 0 的方块仍可挡住后方。 [方块阻力系数](part-properties.md)
 
