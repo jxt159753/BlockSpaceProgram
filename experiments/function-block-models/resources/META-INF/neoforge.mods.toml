@@ -1,0 +1,15 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "bsp_function_block_models"
+version = "1"
+displayName = "BlockSpaceProgram Function Block Models Experiment"
+
+[[dependencies.bsp_function_block_models]]
+modId = "blockspaceprogram"
+type = "required"
+versionRange = "[0.1,)"
+ordering = "AFTER"
+side = "BOTH"

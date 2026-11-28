@@ -34,13 +34,15 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 | `./gradlew runServer` | 在 `runs/server/` 启动无 GUI 的开发服务器，本机可用 `localhost:25565` 连接 |
 | `./gradlew runData` | 运行数据生成器，生成的资源写入 `src/generated/resources/` |
 
+并联点火、侧挂分离和推力矢量的专用服实测见原型记录。 [并联分级原型](experiments/parallel-staging/README.md)
+
 候选维度池的专用服实测和复测步骤见原型记录。 [候选维度池原型](experiments/candidate-dimensions/README.md)
 
 天体地表颜色图的采样、传输和画面对照见原型记录。 [天体地表颜色图原型](experiments/surface-color-map/README.md)
 
 化学推进与电推进的 Δv 算例、Sable 推力和长时间点火实测见原型记录。 [推进剂原型](experiments/propellant-electric/README.md)
 
-并联点火、侧挂分离和推力矢量的专用服实测见原型记录。 [并联分级原型](experiments/parallel-staging/README.md)
+喷管的 JSON 与 OBJ 模型对照、截图和顶点计数见原型记录。 [功能方块模型原型](experiments/function-block-models/README.md)
 
 用 `/bsp_bench` 复测零件渲染和飞船压力场景。 [性能基准命令](docs/benchmark.md)
 
