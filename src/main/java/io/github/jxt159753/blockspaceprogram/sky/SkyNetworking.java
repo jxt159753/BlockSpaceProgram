@@ -25,7 +25,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 public final class SkyNetworking {
-    private static final Map<ServerPlayer, Orbit> VIEWS = new WeakHashMap<>();
+    private static final Map<ServerPlayer, OrbitalRegion.View> VIEWS = new WeakHashMap<>();
 
     private SkyNetworking() {}
 
@@ -50,13 +50,13 @@ public final class SkyNetworking {
 
     private static void syncOrbitalViews(ServerTickEvent.Post event) {
         for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
-            Orbit reference = OrbitalRegion.referenceFor(player);
-            if (reference == null) {
+            var view = OrbitalRegion.viewFor(player);
+            if (view == null) {
                 if (VIEWS.remove(player) != null) {
                     clearOrbitalView(player);
                 }
-            } else if (VIEWS.put(player, reference) != reference) {
-                sendOrbitalView(player, OrbitalRegion.ORIGIN, reference);
+            } else if (!view.equals(VIEWS.put(player, view))) {
+                sendOrbitalView(player, view.origin(), view.reference());
             }
         }
     }

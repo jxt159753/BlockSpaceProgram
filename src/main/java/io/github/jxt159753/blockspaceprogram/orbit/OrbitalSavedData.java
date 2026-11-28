@@ -20,6 +20,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.DimensionDataStorage;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -41,6 +42,7 @@ public final class OrbitalSavedData extends SavedData {
     private final Set<UUID> activeShips = new HashSet<>();
     private final Set<UUID> changes = new HashSet<>();
     private long orbitTicks;
+    @Nullable private OrbitalRegion orbitalRegions;
 
     OrbitalSavedData(StarSystem starSystem) {
         this.starSystem = starSystem;
@@ -62,6 +64,13 @@ public final class OrbitalSavedData extends SavedData {
 
     public OrbitalSystem system() {
         return system;
+    }
+
+    OrbitalRegion orbitalRegions(DimensionDataStorage storage) {
+        if (orbitalRegions == null) {
+            orbitalRegions = new OrbitalRegion(storage);
+        }
+        return orbitalRegions;
     }
 
     StarSystem starSystem() {
