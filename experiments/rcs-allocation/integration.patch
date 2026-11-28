@@ -1,0 +1,281 @@
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightControl.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightControl.java
+@@ -12,6 +12,11 @@
+ /** Near-surface flight telemetry and setpoints. Use on the server thread while the ship is loaded. */
+ public interface ShipFlightControl {
+     Telemetry telemetry();
++
++    @Nullable
++    default RcsFlightTrial rcsTrial() {
++        return null;
++    }
+ 
+     void setThrottle(ThrottleMode mode, double target);
+ 
+--- a/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
+@@ -88,6 +88,7 @@
+     private long inputExpiresAt = Long.MIN_VALUE;
+     private boolean remoteTicket;
+     private double thrust;
++    @Nullable private RcsFlightTrial rcsTrial;
+     private boolean fuelDepleted;
+     private boolean electricDepleted;
+     private long supportAt = Long.MIN_VALUE;
+@@ -576,7 +577,7 @@
+                 new Quaterniond(pose.orientation()), vec(pipeline.getAngularVelocity(subLevel, new Vector3d())));
+     }
+ 
+-    private Vec3 worldPoint(Vec3 local) {
++    Vec3 worldPoint(Vec3 local) {
+         return vec(body.subLevel().logicalPose().transformPosition(vector(local.add(plotPosition()))));
+     }
+ 
+@@ -696,6 +697,24 @@
+         return state.damagedParts();
+     }
+ 
++    @Override
++    @Nullable
++    public RcsFlightTrial rcsTrial() {
++        return rcsTrial;
++    }
++
++    void installRcsTrial(RcsFlightTrial trial, double fuelFraction) {
++        rcsTrial = trial;
++        if (fuelFraction != 1) {
++            state.setTrialFuel(fuelFraction, body);
++        }
++    }
++
++    Vector3d trialCenterOfMass() {
++        var origin = body.plotOrigin();
++        return new Vector3d(body.subLevel().getMassTracker().getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
++    }
++
+     void updateInput(int keys, long gameTime) {
+         pressedKeys |= keys & ~this.keys;
+         this.keys = keys;
+@@ -829,6 +848,7 @@
+         if (!controls.releaseRemote(connection, controlOrientation())) {
+             return false;
+         }
++        clearRcsTranslation();
+         setRemoteTicket(false);
+         return true;
+     }
+@@ -840,7 +860,14 @@
+ 
+     private void checkRemoteControl() {
+         if (controls.checkConnection(controlOrientation())) {
++            clearRcsTranslation();
+             setRemoteTicket(false);
++        }
++    }
++
++    private void clearRcsTranslation() {
++        if (rcsTrial != null) {
++            rcsTrial.setTranslation(0, 0, 0);
+         }
+     }
+ 
+@@ -1071,6 +1098,7 @@
+     }
+ 
+     private void updateGraph(ShipDesign updated, int stage, ShipDockingState docking) {
++        rcsTrial = null;
+         state = new ShipFlightState(updated, state.savePropellant(), state.damagedParts(), stage);
+         ship.setFlightDesign(updated);
+         ship.setDockingState(docking);
+@@ -1297,24 +1325,33 @@
+         var impulse = new Vector3d();
+         var moment = new Vector3d();
+         double throttle = controls.resolveThrottle(keys, linearVelocity.y, hoverAcceleration, maxUpAcceleration, maxThrustToWeight);
+-        var depletion = state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment);
+-        fuelDepleted |= depletion.fuel();
+-        electricDepleted |= depletion.electric();
+-        thrust = impulse.length() / seconds;
+-
+-        var massData = subLevel.getMassTracker();
+-        var origin = body.plotOrigin();
+-        var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
+-        moment.sub(center.cross(impulse, new Vector3d()));
+         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
+         var podRotation = pilotRotation();
+         // The local physics velocity omits the orbital frame's translation around the planet.
+         var attitudeVelocity = orbitalGravity == null ? linearVelocity : vector(orbitalVelocity).add(linearVelocity);
+         var axes = controls.resolveAxes(keys, new Quaterniond(orientation).mul(podRotation), attitudeVelocity, angularVelocity);
+         double wheelTorque = state.wheelTorque();
+-        if (wheelTorque > 0 && axes.lengthSquared() > 0) {
+-            var wheel = podRotation.transform(new Vector3d(axes))
+-                    .mul(ShipFlightControls.WHEEL_ACCELERATION / Math.max(1, axes.length()));
++        var wheel = podRotation.transform(new Vector3d(axes))
++                .mul(ShipFlightControls.WHEEL_ACCELERATION / Math.max(1, axes.length()));
++        var massData = subLevel.getMassTracker();
++        var rcsImpulse = new Vector3d();
++        RcsFlightTrial.Command rcs = null;
++        if (rcsTrial != null && rcsTrial.enabled()) {
++            var desiredTorque = massData.getInertiaTensor().transform(wheel, new Vector3d());
++            rcs = rcsTrial.allocate(subLevel.getLevel().getServer().getTickCount(), trialCenterOfMass(), podRotation, desiredTorque,
++                    wheelTorque, state);
++        }
++        var depletion = state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment, rcs, rcsImpulse);
++        fuelDepleted |= depletion.fuel();
++        electricDepleted |= depletion.electric();
++        thrust = impulse.length() / seconds;
++        impulse.add(rcsImpulse);
++
++        var center = trialCenterOfMass();
++        moment.sub(center.cross(impulse, new Vector3d()));
++        if (rcs != null) {
++            moment.fma(seconds, rcs.wheel());
++        } else if (wheelTorque > 0 && axes.lengthSquared() > 0) {
+             massData.getInertiaTensor().transform(wheel);
+             double magnitude = wheel.length();
+             if (magnitude > wheelTorque) {
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+@@ -306,11 +306,23 @@
+         return new ShipPropellantData(ShipPropellantData.encode(fuel), ShipPropellantData.encode(electric));
+     }
+ 
+-    private void collectGroupFuel() {
++    void collectGroupFuel() {
+         Arrays.fill(groupFuel, 0);
+         for (Tank tank : tanks) {
+             groupFuel[tank.group] += fuel[tank.part];
+         }
++    }
++
++    boolean canFireRcs(RcsFlightTrial.Thruster thruster, double charge) {
++        return !isDamaged(thruster.part()) && groupFuel[thruster.group()] > 0
++                && (thruster.electricPower() == 0 || charge > 0);
++    }
++
++    void setTrialFuel(double fraction, ShipCollisionBody body) {
++        for (Tank tank : tanks) {
++            setFuel(tank, fuel[tank.part] * fraction, body);
++        }
++        body.subLevel().updateMergedMassData(0);
+     }
+ 
+     Vector3d availableThrust() {
+@@ -330,8 +342,9 @@
+     }
+ 
+     Depletion burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
+-            Vector3d impulse, Vector3d momentAboutOrigin) {
+-        if (throttle == 0 || engines.isEmpty()) {
++            Vector3d impulse, Vector3d momentAboutOrigin, RcsFlightTrial.Command rcs, Vector3d rcsImpulse) {
++        var firings = rcs == null ? List.<RcsFlightTrial.Firing>of() : rcs.firings();
++        if ((throttle == 0 || engines.isEmpty()) && firings.isEmpty()) {
+             return Depletion.NONE;
+         }
+         collectGroupFuel();
+@@ -350,6 +363,10 @@
+             double isp = Mth.lerp(pressure, vacuum, seaLevel);
+             supply.addEngine(engine.group, StagePerformance.fuelFlow(rating.thrust(), isp) * throttle,
+                     engine.spec.electricPower() * throttle);
++        }
++        for (var firing : firings) {
++            var jet = firing.thruster();
++            supply.addEngine(jet.group(), jet.fuelFlow() * firing.opening(), jet.electricPower() * firing.opening());
+         }
+         boolean fuelDepleted = false;
+         while (seconds > 0) {
+@@ -365,6 +382,14 @@
+                     momentAboutOrigin.fma(magnitude, engine.moment);
+                 }
+             }
++            for (var firing : firings) {
++                var jet = firing.thruster();
++                if (supply.feeding(jet.group()) && (powered || jet.electricPower() == 0)) {
++                    double openingSeconds = firing.opening() * duration;
++                    rcsImpulse.fma(openingSeconds, jet.force());
++                    momentAboutOrigin.fma(openingSeconds, jet.originMoment());
++                }
++            }
+             fuelDepleted |= supply.consume(duration);
+             seconds -= duration;
+         }
+--- a/io/github/jxt159753/blockspaceprogram/compat/computercraft/FlightPeripheral.java
++++ b/io/github/jxt159753/blockspaceprogram/compat/computercraft/FlightPeripheral.java
+@@ -9,6 +9,7 @@
+ import dan200.computercraft.api.peripheral.PeripheralCapability;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import io.github.jxt159753.blockspaceprogram.assembly.FlightTerminalBlockEntity;
++import io.github.jxt159753.blockspaceprogram.assembly.RcsFlightTrial;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.AttitudeMode;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.ThrottleMode;
+@@ -108,6 +109,10 @@
+         result.put("throttleMode", data.throttleMode().id());
+         result.put("axes", Map.of("pitch", data.axes().x, "yaw", data.axes().y, "roll", data.axes().z));
+         result.put("landed", data.landed());
++        var active = terminal.flightControl();
++        var rcs = active == null ? null : active.rcsTrial();
++        result.put("rcs", rcs != null && rcs.enabled());
++        result.put("translation", vector(rcs == null ? Vec3.ZERO : rcs.translation()));
+         var planet = data.planet();
+         if (planet != null) {
+             result.put("planet", Map.of("seaLevel", planet.seaLevel(), "radius", planet.radius(),
+@@ -150,6 +155,28 @@
+         double yaw = axis(args, 1);
+         double roll = axis(args, 2);
+         commandFlight(computer).setAxes(pitch, yaw, roll);
++    }
++
++    @LuaFunction(mainThread = true)
++    public final void setRcs(IComputerAccess computer, boolean enabled) throws LuaException {
++        commandRcs(computer).setEnabled(enabled);
++    }
++
++    @LuaFunction(mainThread = true)
++    public final void setTranslation(IComputerAccess computer, IArguments args) throws LuaException {
++        double x = axis(args, 0);
++        double y = axis(args, 1);
++        double z = axis(args, 2);
++        commandRcs(computer).setTranslation(x, y, z);
++    }
++
++    private RcsFlightTrial commandRcs(IComputerAccess computer) throws LuaException {
++        var rcs = boundFlight().rcsTrial();
++        if (rcs == null) {
++            throw new LuaException("No experimental RCS is installed on this ship");
++        }
++        commandFlight(computer);
++        return rcs;
+     }
+ 
+     @LuaFunction(mainThread = true)
+@@ -273,7 +300,7 @@
+     private static double axis(IArguments args, int index) throws LuaException {
+         double value = args.getFiniteDouble(index);
+         if (value < -1 || value > 1) {
+-            throw new LuaException("Attitude axes must be between -1 and 1");
++            throw new LuaException("Control axes must be between -1 and 1");
+         }
+         return value;
+     }
+--- a/io/github/jxt159753/blockspaceprogram/orbit/OrbitalRegion.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/OrbitalRegion.java
+@@ -199,6 +199,19 @@
+         return region;
+     }
+ 
++    Vec3 openRcsTrial(ServerPlayer observer, ServerLevel space) {
++        var data = OrbitalSavedData.get(space.getServer());
++        var body = data.system().body(Level.OVERWORLD.location());
++        var orbit = new Orbit(body.id(), new OrbitElements(body.radius() + 200_000, 0, 0, 0, 0, 0, data.orbitSeconds()));
++        var region = allocate(space);
++        if (region == null || !SableShipFlight.movePlayer(observer, space, region.origin.add(0, 4, -9), Vec3.ZERO, 0, 10)) {
++            throw new IllegalStateException("Cannot open the RCS orbital fixture");
++        }
++        var frame = region.entryFrame(data, orbit);
++        registerEntry(region, observer, orbit, frame);
++        return region.origin;
++    }
++
+     boolean availableForBenchmark(ServerLevel space) {
+         return benchmark == null && regions.values().stream().noneMatch(region -> region.reference != null)
+                 && space.players().isEmpty() && SableShipFlight.activeShips(space).isEmpty();

@@ -138,6 +138,10 @@ if (providers.gradleProperty('aeroOcclusion').isPresent()) {
     apply from: 'experiments/aero-occlusion/aero-occlusion.gradle'
 }
 
+if (providers.gradleProperty('rcsAllocation').isPresent()) {
+    apply from: 'experiments/rcs-allocation/rcs-allocation.gradle'
+}
+
 if (providers.gradleProperty('propellantElectric').isPresent()) {
     apply from: 'experiments/propellant-electric/propellant-electric.gradle'
 } else {

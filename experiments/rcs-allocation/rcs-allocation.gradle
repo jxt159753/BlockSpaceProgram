@@ -1,0 +1,69 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class PrepareRcsTrialSources extends DefaultTask {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getBaseSources()
+
+    @InputFile @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getIntegrationPatch()
+
+    @OutputDirectory
+    abstract DirectoryProperty getPatchedSources()
+
+    @Inject
+    abstract FileSystemOperations getFiles()
+
+    @Inject
+    abstract ExecOperations getProcesses()
+
+    @TaskAction
+    void prepare() {
+        files.sync {
+            from baseSources
+            into patchedSources
+        }
+        File output = patchedSources.get().asFile
+        String patch = integrationPatch.get().asFile.getText('UTF-8').replace('\r\n', '\n')
+        processes.exec {
+            workingDir output
+            environment 'GIT_CEILING_DIRECTORIES', output.parent
+            standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
+            commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+        }
+    }
+}
+
+def experiment = 'experiments/rcs-allocation'
+def run = providers.gradleProperty('rcsAllocationRun').getOrElse('trial')
+def joinAddress = providers.gradleProperty('rcsAllocationJoin')
+
+def prepare = tasks.register('prepareRcsTrialSources', PrepareRcsTrialSources) {
+    baseSources = layout.projectDirectory.dir('src/main/java')
+    integrationPatch = layout.projectDirectory.file("${experiment}/integration.patch")
+    patchedSources = layout.buildDirectory.dir('generated/rcsTrialSources')
+}
+sourceSets.main.java.setSrcDirs(["${experiment}/java"])
+sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources })
+sourceSets.main.resources.srcDir "${experiment}/resources"
+sourceSets.test.java.srcDir "${experiment}/test"
+
+neoForge.runs.register('rcsAllocationServer') {
+    server()
+    gameDirectory = file("runs/rcsAllocation/${run}/server")
+    programArgument '--nogui'
+    systemProperty 'bsp.rcsAllocation.verify', providers.gradleProperty('rcsAllocationVerify').isPresent().toString()
+}
+
+neoForge.runs.register('rcsAllocationClient') {
+    client()
+    gameDirectory = file("runs/rcsAllocation/${run}/client")
+    programArguments.addAll('--username', 'RcsProbe')
+    if (joinAddress.isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', joinAddress.get())
+    }
+}
+
+tasks.named('runRcsAllocationServer', JavaExec) {
+    standardInput = System.in
+}
