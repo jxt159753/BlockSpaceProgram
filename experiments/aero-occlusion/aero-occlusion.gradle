@@ -1,0 +1,81 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class PrepareAeroOcclusionSources extends DefaultTask {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getBaseSources()
+
+    @InputFile @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getIntegrationPatch()
+
+    @OutputDirectory
+    abstract DirectoryProperty getPatchedSources()
+
+    @Inject
+    abstract FileSystemOperations getFiles()
+
+    @Inject
+    abstract ExecOperations getProcesses()
+
+    @TaskAction
+    void prepare() {
+        files.sync {
+            from baseSources
+            into patchedSources
+        }
+        File output = patchedSources.get().asFile
+        String patch = integrationPatch.get().asFile.getText('UTF-8').replace('\r\n', '\n')
+        processes.exec {
+            workingDir output
+            environment 'GIT_CEILING_DIRECTORIES', output.parent
+            standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
+            commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+        }
+    }
+}
+
+def experiment = 'experiments/aero-occlusion'
+def run = providers.gradleProperty('aeroOcclusionRun').getOrElse('candidate')
+def baseline = providers.gradleProperty('aeroOcclusionBaseline').isPresent()
+def verify = providers.gradleProperty('aeroOcclusionVerify').isPresent()
+def joinAddress = providers.gradleProperty('aeroOcclusionJoin')
+def serverDir = file("runs/aeroOcclusion/${run}/server")
+
+def prepare = tasks.register('prepareAeroOcclusionSources', PrepareAeroOcclusionSources) {
+    baseSources = layout.projectDirectory.dir('src/main/java')
+    integrationPatch = layout.projectDirectory.file("${experiment}/integration.patch")
+    patchedSources = layout.buildDirectory.dir('generated/aeroOcclusionSources')
+}
+sourceSets.main.java.setSrcDirs(["${experiment}/java"])
+sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources })
+sourceSets.test.java.srcDir "${experiment}/test"
+
+neoForge.runs.register('aeroOcclusionServer') {
+    server()
+    gameDirectory = serverDir
+    programArgument '--nogui'
+    systemProperty 'bsp.aeroOcclusion.baseline', baseline.toString()
+    systemProperty 'bsp.aeroOcclusion.verify', verify.toString()
+    systemProperty 'bsp.aeroOcclusion.expectSable', (!providers.gradleProperty('aeroOcclusionNoSable').isPresent()).toString()
+}
+
+neoForge.runs.register('aeroOcclusionClient') {
+    client()
+    gameDirectory = file("runs/aeroOcclusion/${run}/client")
+    programArguments.addAll('--username', 'AeroProbe')
+    systemProperty 'bsp.aeroOcclusion.baseline', baseline.toString()
+    if (joinAddress.isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', joinAddress.get())
+    }
+}
+
+def copyTrialData = tasks.register('copyAeroOcclusionTrialData', Copy) {
+    from "${experiment}/datapack"
+    into new File(serverDir, 'world/datapacks/aero-occlusion')
+}
+tasks.named('runAeroOcclusionServer', JavaExec) {
+    standardInput = System.in
+    if (verify) {
+        dependsOn copyTrialData
+    }
+}

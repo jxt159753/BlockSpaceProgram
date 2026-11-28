@@ -1,0 +1,182 @@
+--- a/io/github/jxt159753/blockspaceprogram/part/BlockPartProperties.java
++++ b/io/github/jxt159753/blockspaceprogram/part/BlockPartProperties.java
+@@ -24,10 +24,12 @@
+         double electricPower,
+         double impactResistance) {
+
++    static final boolean AERO_BASELINE = Boolean.getBoolean("bsp.aeroOcclusion.baseline");
++    private static final double DEFAULT_DRAG = AERO_BASELINE ? 0.0 : 1.0;
+     private static final double DEFAULT_MASS = 1.0;
+     private static final double DEFAULT_IMPACT_RESISTANCE = 8.0;
+     private static final BlockPartProperties DEFAULT = new BlockPartProperties(
+-            DEFAULT_MASS, Map.of(), 0, 0, 0, 0, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
++            DEFAULT_MASS, Map.of(), 0, 0, 0, DEFAULT_DRAG, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
+     private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0, 0);
+     private static final Codec<Double> NON_NEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
+     static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+@@ -37,7 +39,7 @@
+             NON_NEGATIVE.optionalFieldOf("thrust", 0.0).forGetter(BlockPartProperties::thrust),
+             NON_NEGATIVE.optionalFieldOf("vacuum_specific_impulse", 0.0).forGetter(BlockPartProperties::vacuumSpecificImpulse),
+             NON_NEGATIVE.optionalFieldOf("sea_level_specific_impulse", 0.0).forGetter(BlockPartProperties::seaLevelSpecificImpulse),
+-            NON_NEGATIVE.optionalFieldOf("drag_coefficient", 0.0).forGetter(BlockPartProperties::dragCoefficient),
++            NON_NEGATIVE.optionalFieldOf("drag_coefficient", DEFAULT_DRAG).forGetter(BlockPartProperties::dragCoefficient),
+             NON_NEGATIVE.optionalFieldOf("heat_resistance", 0.0).forGetter(BlockPartProperties::heatResistance),
+             NON_NEGATIVE.optionalFieldOf("electric_capacity", 0.0).forGetter(BlockPartProperties::electricCapacity),
+             NON_NEGATIVE.optionalFieldOf("electric_power", 0.0).forGetter(BlockPartProperties::electricPower),
+--- a/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
++++ b/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
+@@ -175,7 +175,9 @@
+                 vacuumFlow += contribution.thrust() / contribution.vacuumSpecificImpulse();
+                 seaLevelFlow += contribution.thrust() / contribution.seaLevelSpecificImpulse();
+             }
+-            drag += contribution.dragCoefficient();
++            if (BlockPartProperties.AERO_BASELINE) {
++                drag += contribution.dragCoefficient();
++            }
+             if (contribution.heatResistance() > 0) {
+                 heat = Math.min(heat, contribution.heatResistance());
+             }
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipServerConfig.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipServerConfig.java
+@@ -17,6 +17,7 @@
+     static final ModConfigSpec.IntValue LIFETIME;
+     static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
+     static final ModConfigSpec.IntValue MAX_HULL_BLOCKS;
++    static final ModConfigSpec.DoubleValue AERO_TORQUE_MULTIPLIER;
+     static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
+     static final ModConfigSpec.DoubleValue DOCK_ANGLE;
+     static final ModConfigSpec.DoubleValue DOCK_SPEED;
+@@ -46,6 +47,10 @@
+         builder.push("hull");
+         MAX_HULL_BLOCKS = builder.comment("Maximum blocks in the connected hull collected by a ship assembler.")
+                 .defineInRange("maxBlocks", 8192, 1, Integer.MAX_VALUE);
++        builder.pop();
++        builder.push("aerodynamics");
++        AERO_TORQUE_MULTIPLIER = builder.comment("Scale drag torque from the center of pressure.")
++                .defineInRange("torque_multiplier", 1.0, 0.0, 1.0);
+         builder.pop();
+         builder.push("docking");
+         DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+@@ -39,6 +39,7 @@
+     private final Map<BlockPos, SolidBlock> hull;
+     private final Vec3 seat;
+     private final Vector3d projectedDragArea = new Vector3d();
++    private final ShipAerodynamics aerodynamics;
+     private final double weakestPart;
+     private final long commandPods;
+     private int stage;
+@@ -46,6 +47,7 @@
+     private long pendingDamage;
+
+     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
++        aerodynamics = Boolean.getBoolean("bsp.aeroOcclusion.baseline") ? null : ShipAerodynamics.compute(design);
+         int count = design.nodes().size();
+         fuel = new double[count];
+         electric = new double[count];
+@@ -97,10 +99,12 @@
+             var bounds = node.bounds();
+             impactParts[index] = new ImpactPart(bounds, properties.impactResistance());
+             weakest = Math.min(weakest, properties.impactResistance());
+-            double x = bounds.getXsize();
+-            double y = bounds.getYsize();
+-            double z = bounds.getZsize();
+-            projectedDragArea.fma(properties.dragCoefficient(), new Vector3d(y * z, x * z, x * y));
++            if (aerodynamics == null) {
++                double x = bounds.getXsize();
++                double y = bounds.getYsize();
++                double z = bounds.getZsize();
++                projectedDragArea.fma(properties.dragCoefficient(), new Vector3d(y * z, x * z, x * y));
++            }
+         }
+         if (extraMass > 0) {
+             var first = hullBlocks.firstEntry();
+@@ -311,7 +315,14 @@
+         return true;
+     }
+
++    ShipAerodynamics aerodynamics() {
++        return aerodynamics;
++    }
++
+     double dragArea(Vector3dc unitDirection) {
++        if (aerodynamics != null) {
++            return aerodynamics.projection().dragArea(unitDirection);
++        }
+         return Math.abs(unitDirection.x()) * projectedDragArea.x + Math.abs(unitDirection.y()) * projectedDragArea.y
+                 + Math.abs(unitDirection.z()) * projectedDragArea.z;
+     }
+--- a/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
+@@ -93,6 +93,7 @@
+     private long supportAt = Long.MIN_VALUE;
+     private boolean airborne;
+     private boolean landed;
++    private int wheelSaturationSteps;
+
+     private SableShipFlight(AssembledShipEntity ship, ShipCollisionBody body, ShipFlightState state, ShipDesign design) {
+         this.ship = ship;
+@@ -565,6 +566,14 @@
+
+     AABB worldBounds() {
+         return body.subLevel().boundingBox().toMojang();
++    }
++
++    ShipAerodynamics aerodynamics() {
++        return state.aerodynamics();
++    }
++
++    int wheelSaturationSteps() {
++        return wheelSaturationSteps;
+     }
+
+     public Motion motion() {
+@@ -1183,6 +1192,7 @@
+         primary.flight.inputExpiresAt = inputExpiresAt;
+         primary.flight.airborne = airborne;
+         primary.flight.landed = landed;
++        primary.flight.wheelSaturationSteps = wheelSaturationSteps;
+         ship.useFlightFragment(primary.layout, primary.flight);
+         ship.setDockingState(primary.docking);
+         detach();
+@@ -1269,12 +1279,13 @@
+         double mass = subLevel.getMassTracker().getMass();
+         var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
+         var drag = new Vector3d();
++        Vector3d windward = null;
+         if (density > 0 && linearVelocity.lengthSquared() > 0) {
+-            var velocity = orientation.transformInverse(linearVelocity, new Vector3d());
+-            double speed = velocity.length();
+-            velocity.div(speed);
+-            double force = 0.5 * density * state.dragArea(velocity) * speed * speed;
+-            drag.set(velocity).mul(-Math.min(force, mass * speed / seconds));
++            windward = orientation.transformInverse(linearVelocity, new Vector3d());
++            double speed = windward.length();
++            windward.div(speed);
++            double force = 0.5 * density * state.dragArea(windward) * speed * speed;
++            drag.set(windward).mul(-Math.min(force, mass * speed / seconds));
+         }
+         double hoverAcceleration = 0;
+         double maxUpAcceleration = 0;
+@@ -1307,6 +1318,7 @@
+             massData.getInertiaTensor().transform(wheel);
+             double magnitude = wheel.length();
+             if (magnitude > wheelTorque) {
++                wheelSaturationSteps++;
+                 wheel.mul(wheelTorque / magnitude);
+             }
+             moment.fma(seconds, wheel);
+@@ -1319,6 +1331,12 @@
+             impulse.fma(massData.getMass() * seconds, orientation.transformInverse(correction));
+         }
+         landingGear.addImpulse(body, state.damagedParts(), center, linearVelocity, gravity, seconds, impulse, moment);
++        if (windward != null && state.aerodynamics() != null && drag.lengthSquared() > 0) {
++            double torqueTime = seconds * ShipServerConfig.AERO_TORQUE_MULTIPLIER.get();
++            if (torqueTime > 0) {
++                state.aerodynamics().projection().addMoment(windward, drag, center, torqueTime, moment);
++            }
++        }
+         impulse.fma(seconds, drag);
+         if (impulse.lengthSquared() > 0 || moment.lengthSquared() > 0) {
+             pipeline.applyLinearAndAngularImpulse(subLevel, impulse, moment, powered);

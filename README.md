@@ -36,6 +36,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 
 并联点火、侧挂分离和推力矢量的专用服实测见原型记录。 [并联分级原型](experiments/parallel-staging/README.md)
 
+六向气动遮挡、压心和返回舱减速的对照实测见原型记录。 [气动阻力原型](experiments/aero-occlusion/README.md)
+
 候选维度池的专用服实测和复测步骤见原型记录。 [候选维度池原型](experiments/candidate-dimensions/README.md)
 
 天体地表颜色图的采样、传输和画面对照见原型记录。 [天体地表颜色图原型](experiments/surface-color-map/README.md)

@@ -134,6 +134,10 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
     apply from: 'experiments/ship-rigidbody/ship-rigidbody.gradle'
 }
 
+if (providers.gradleProperty('aeroOcclusion').isPresent()) {
+    apply from: 'experiments/aero-occlusion/aero-occlusion.gradle'
+}
+
 if (providers.gradleProperty('propellantElectric').isPresent()) {
     apply from: 'experiments/propellant-electric/propellant-electric.gradle'
 } else {
