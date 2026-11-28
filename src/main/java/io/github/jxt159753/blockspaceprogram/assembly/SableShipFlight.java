@@ -1296,12 +1296,13 @@ public final class SableShipFlight implements ShipFlightControl {
         var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var drag = new Vector3d();
+        Vector3d windward = null;
         if (density > 0 && linearVelocity.lengthSquared() > 0) {
-            var velocity = orientation.transformInverse(linearVelocity, new Vector3d());
-            double speed = velocity.length();
-            velocity.div(speed);
-            double force = 0.5 * density * state.dragArea(velocity) * speed * speed;
-            drag.set(velocity).mul(-Math.min(force, mass * speed / seconds));
+            windward = orientation.transformInverse(linearVelocity, new Vector3d());
+            double speed = windward.length();
+            windward.div(speed);
+            double force = state.aerodynamics().dragForce(windward, density, speed, mass * speed / seconds);
+            drag.set(windward).mul(-force);
         }
         var parachuteForce = new Vector3d();
         var parachuteMoment = new Vector3d();
@@ -1354,6 +1355,10 @@ public final class SableShipFlight implements ShipFlightControl {
             impulse.fma(massData.getMass() * seconds, orientation.transformInverse(correction));
         }
         landingGear.addImpulse(body, state.damagedParts(), center, linearVelocity, gravity, seconds, impulse, moment);
+        if (windward != null) {
+            double torqueTime = seconds * ShipServerConfig.AERO_TORQUE_MULTIPLIER.get();
+            state.aerodynamics().addDragMoment(windward, drag, center, torqueTime, moment);
+        }
         impulse.fma(seconds, drag);
         if (impulse.lengthSquared() > 0 || moment.lengthSquared() > 0) {
             pipeline.applyLinearAndAngularImpulse(subLevel, impulse, moment, powered);

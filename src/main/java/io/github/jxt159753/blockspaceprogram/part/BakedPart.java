@@ -240,7 +240,6 @@ public record BakedPart(
         double mass = 0;
         double legacyThrust = 0;
         var blockRatings = new ArrayList<EnginePerformance>();
-        double drag = 0;
         double heat = Double.POSITIVE_INFINITY;
         double electricCapacity = 0;
         double electricPower = 0;
@@ -257,7 +256,6 @@ public record BakedPart(
                 blockRatings.add(new EnginePerformance(contribution.thrust(), contribution.vacuumSpecificImpulse(),
                         contribution.seaLevelSpecificImpulse()));
             }
-            drag += contribution.dragCoefficient();
             if (contribution.heatResistance() > 0) {
                 heat = Math.min(heat, contribution.heatResistance());
             }
@@ -276,7 +274,7 @@ public record BakedPart(
             engines = PartEngine.legacy(geometry, rating, electricPower, false);
         }
         if (!finite(mass, rating.thrust(), rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(),
-                drag, electricCapacity, electricPower)
+                electricCapacity, electricPower)
                 || fuelCapacity.values().stream().anyMatch(value -> !Double.isFinite(value))) {
             return Optional.empty();
         }
@@ -312,8 +310,8 @@ public record BakedPart(
         }
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, rating.thrust(), rating.vacuumSpecificImpulse(),
-                rating.seaLevelSpecificImpulse(), drag, Double.isFinite(heat) ? heat : 0, electricCapacity, electricPower,
-                impactResistance);
+                rating.seaLevelSpecificImpulse(), BlockPartProperties.DEFAULT_DRAG_COEFFICIENT, Double.isFinite(heat) ? heat : 0,
+                electricCapacity, electricPower, impactResistance);
         var parachutes = PartParachute.bake(blocks);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
                 PartType.classify(structure.values(), !engines.isEmpty(), !parachutes.isEmpty()), scales.getFirst(), connectors,

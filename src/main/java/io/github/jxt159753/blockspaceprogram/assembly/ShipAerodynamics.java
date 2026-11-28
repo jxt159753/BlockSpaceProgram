@@ -6,12 +6,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
 /** Builds a flight-local snapshot from the currently loaded block data. */
-record ShipAerodynamics(AeroProjection projection, long buildNanos) {
-    static ShipAerodynamics compute(ShipDesign design) {
-        long start = System.nanoTime();
-        var projection = project(design, 0);
-        return new ShipAerodynamics(projection, System.nanoTime() - start);
-    }
+final class ShipAerodynamics {
+    private ShipAerodynamics() {}
 
     static AeroProjection project(ShipDesign design, long ignoredNodes) {
         var grid = new Grid();
@@ -44,8 +40,10 @@ record ShipAerodynamics(AeroProjection projection, long buildNanos) {
 
     static void addHull(Grid grid, ShipDesign.Node node, int index) {
         var origin = node.pose().origin();
-        node.hull().forEach((pos, material) -> grid.addBlock(origin.getX() + 4 * pos.getX(),
-                origin.getY() + 4 * pos.getY(), origin.getZ() + 4 * pos.getZ(), 4, index,
-                BlockPartProperties.get(material.state()).dragCoefficient()));
+        node.hull().forEach((pos, material) -> {
+            BlockPos corner = origin.offset(pos.multiply(4));
+            grid.addBlock(corner.getX(), corner.getY(), corner.getZ(), 4, index,
+                    BlockPartProperties.get(material.state()).dragCoefficient());
+        });
     }
 }

@@ -27,20 +27,44 @@ final class AeroProjection {
         return surfaces[side.ordinal()].nodeAreas[node];
     }
 
-    double dragArea(Vector3dc airDirection) {
+    double area(Vector3dc windward) {
         double area = 0;
         for (int axis = 0; axis < 3; axis++) {
-            double component = airDirection.get(axis);
-            area += Math.abs(component) * surface(axis, component).dragArea;
+            double component = windward.get(axis);
+            area += Math.abs(component) * surface(axis, component).area;
         }
         return area;
     }
 
-    Vector3d centerOfPressure(Vector3dc airDirection, Vector3d result) {
+    double exposedArea(Vector3dc windward, int node) {
+        double area = 0;
+        for (int axis = 0; axis < 3; axis++) {
+            double component = windward.get(axis);
+            area += Math.abs(component) * surface(axis, component).nodeAreas[node];
+        }
+        return area;
+    }
+
+    double dragArea(Vector3dc windward) {
+        double area = 0;
+        for (int axis = 0; axis < 3; axis++) {
+            double component = windward.get(axis);
+            if (component != 0) {
+                area += Math.abs(component) * surface(axis, component).dragArea;
+            }
+        }
+        return area;
+    }
+
+    double dragForce(Vector3dc windward, double density, double speed, double forceLimit) {
+        return Math.min(0.5 * density * dragArea(windward) * speed * speed, forceLimit);
+    }
+
+    Vector3d centerOfPressure(Vector3dc windward, Vector3d result) {
         result.zero();
         double area = 0;
         for (int axis = 0; axis < 3; axis++) {
-            double component = airDirection.get(axis);
+            double component = windward.get(axis);
             double weight = Math.abs(component);
             Surface surface = surface(axis, component);
             result.fma(weight, surface.firstMoment);
@@ -49,9 +73,11 @@ final class AeroProjection {
         return area > 0 ? result.div(area) : result;
     }
 
-    void addMoment(Vector3dc airDirection, Vector3dc force, Vector3dc massCenter, double seconds, Vector3d moment) {
-        Vector3d arm = centerOfPressure(airDirection, new Vector3d()).sub(massCenter);
-        moment.fma(seconds, arm.cross(force));
+    void addDragMoment(Vector3dc windward, Vector3dc force, Vector3dc massCenter, double torqueTime, Vector3d moment) {
+        if (torqueTime > 0 && force.lengthSquared() > 0) {
+            Vector3d arm = centerOfPressure(windward, new Vector3d()).sub(massCenter);
+            moment.fma(torqueTime, arm.cross(force));
+        }
     }
 
     private Surface surface(int axis, double component) {

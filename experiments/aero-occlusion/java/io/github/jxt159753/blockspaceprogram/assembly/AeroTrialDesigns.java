@@ -40,6 +40,12 @@ final class AeroTrialDesigns {
         return checked(new ShipDesign(nodes, links, 1));
     }
 
+    static ShipDesign dockingPod(Direction normal) {
+        var port = BlockSpaceProgram.DOCKING_INTERFACE.get().defaultBlockState()
+                .setValue(BlockStateProperties.FACING, normal);
+        return checked(root(normal == Direction.UP ? column(SEAT, port) : column(port, SEAT), 1));
+    }
+
     static ShipDesign rocket() {
         var engine = Blocks.CUT_COPPER.defaultBlockState();
         var tank = Blocks.CAULDRON.defaultBlockState();

@@ -2,7 +2,7 @@
 
 在存档的 `datapacks/` 下创建数据包。Minecraft 1.21.1 的 `pack.mcmeta` 可以写成 `{"pack":{"pack_format":48,"description":"零件属性"}}`。
 
-在数据包内创建 `data/blockspaceprogram/data_maps/block/part_properties.json`，用方块 ID 或带 `#` 的方块标签指定一块方块在烘焙时提供的数值。以下示例给全部木板配置质量，并给切制铜块配置功能属性。
+在数据包内创建 `data/blockspaceprogram/data_maps/block/part_properties.json`，用方块 ID 或带 `#` 的方块标签指定方块属性。以下示例给全部木板配置质量，并给切制铜块配置功能属性。
 
 ```json
 {
@@ -35,13 +35,15 @@
 | `thrust` | 推力，N | `0.0` |
 | `vacuum_specific_impulse` | 真空比冲，s | `0.0` |
 | `sea_level_specific_impulse` | 海平面比冲，s | `0.0` |
-| `drag_coefficient` | 阻力系数，无量纲 | `0.0` |
+| `drag_coefficient` | 方块迎风面的阻力系数，无量纲 | `1.0` |
 | `heat_resistance` | 耐热温度，K | `0.0` |
 | `electric_capacity` | 电量容量，J | `0.0` |
 | `electric_power` | 满推力时的耗电功率，W | `0.0` |
 | `impact_resistance` | 耐冲击速度，m/s | `8.0` |
 
 所有数值须为有限非负数。内置燃料 ID 为 `blockspaceprogram:fuel`。当前飞行计算将容量表中的各项合计为可用燃料。未配置的非空气方块使用表中的默认值，空气的属性为零。模组内置木板、铁块、空炼药锅、燃烧室和喷管段的属性，可用优先级更高的数据包覆盖。同一方块匹配多条条目时，后加载的记录整体覆盖先加载的记录，省略的字段取默认值。 [NeoForge Data Maps](https://docs.neoforged.net/docs/1.21.1/resources/server/datamaps/)
+
+建立飞行状态时，系统按当前数据映射读取烘焙零件与船体方块的阻力系数。生成、读档、分离和对接都会触发投影计算。修改数据包并执行 `/reload` 后，下次重建飞行状态时会应用新值。设为 0 的方块仍有迎风面积并遮挡后方。 [遮挡与压心](flight.md#气动阻力)
 
 烘焙时将各方块的电量容量相加。没有燃烧室时，零件的 `electric_power` 取有推力方块的功率加权平均值，权重为各方块的推力。汇总功率与汇总推力一起平分给各个带标签的喷口。有燃烧室时，推力、比冲和耗电由 `engine_performance` 提供。拼装发动机的功率按台记录，功率大于零的发动机同时消耗燃料和电力。 [拼装发动机](engines.md)
 

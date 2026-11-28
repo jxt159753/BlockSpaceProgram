@@ -29,7 +29,11 @@ public class AeroProjectionTest {
         assertEquals(2.7, smoothTop.dragArea(up), EPS);
         assertEquals(9, smoothTop.dragArea(down), EPS);
         assertEquals(new Vector3d(1.5, 9, 1.5), smoothTop.centerOfPressure(up, new Vector3d()));
-        assertEquals(24.9 * 0.6 + 2.7 * 0.8, smoothTop.dragArea(new Vector3d(0.6, 0.8, 0)), EPS);
+        var diagonal = new Vector3d(0.6, 0.8, 0);
+        assertEquals(27 * 0.6 + 9 * 0.8, smoothTop.area(diagonal), EPS);
+        assertEquals(9 * 0.6, smoothTop.exposedArea(diagonal, 0), EPS);
+        assertEquals(9 * (0.6 + 0.8), smoothTop.exposedArea(diagonal, 2), EPS);
+        assertEquals(24.9 * 0.6 + 2.7 * 0.8, smoothTop.dragArea(diagonal), EPS);
     }
 
     @Test
@@ -44,10 +48,18 @@ public class AeroProjectionTest {
         }
         var projection = grid.summarize(1);
         var windward = new Vector3d(1, 0, 0);
+        var force = new Vector3d(windward).mul(-projection.dragForce(windward, 1, 10, 100));
+        var center = new Vector3d(1.5, 0.5, 1.5);
         var moment = new Vector3d();
-        projection.addMoment(windward, new Vector3d(-100, 0, 0), new Vector3d(1.5, 0.5, 1.5), 0.25, moment);
+        projection.addDragMoment(windward, force, center, 0.25, moment);
         assertEquals(new Vector3d(0, 0, 25), moment);
         assertTrue(moment.cross(new Vector3d(0, -1, 0), new Vector3d()).dot(windward) > 0);
+
+        var disabled = new Vector3d();
+        projection.addDragMoment(windward, force, center, 0, disabled);
+        assertEquals(0, disabled.length(), EPS);
+        assertEquals(-100, force.x, EPS);
+        assertEquals(100, force.length(), EPS);
     }
 
     @Test

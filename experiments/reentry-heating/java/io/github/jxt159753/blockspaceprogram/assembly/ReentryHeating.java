@@ -76,21 +76,11 @@ final class ReentryHeating {
             double[] fuel, long alreadyDamaged) {
         double equilibrium = ReentryTemperature.equilibrium(speed, multiplier);
         double flow = density * speed;
-        double x = windward == null ? 0 : windward.x();
-        double y = windward == null ? 0 : windward.y();
-        double z = windward == null ? 0 : windward.z();
-        Side xFace = Side.of(0, x);
-        Side yFace = Side.of(1, y);
-        Side zFace = Side.of(2, z);
-        double xFlow = flow * Math.abs(x);
-        double yFlow = flow * Math.abs(y);
-        double zFlow = flow * Math.abs(z);
         long damage = 0;
         double ratio = 0;
         for (int node = 0; node < temperature.length; node++) {
-            double nodeFlow = xFlow * heatProjection.exposedArea(xFace, node)
-                    + yFlow * heatProjection.exposedArea(yFace, node)
-                    + zFlow * heatProjection.exposedArea(zFace, node);
+            double area = windward == null ? 0 : heatProjection.exposedArea(windward, node);
+            double nodeFlow = flow * area;
             double next = ReentryTemperature.step(temperature[node], equilibrium, nodeFlow, dryMass[node] + fuel[node], seconds);
             temperature[node] = next;
             ratio = Math.max(ratio, next / resistance[node]);
@@ -98,7 +88,7 @@ final class ReentryHeating {
                 damage |= 1L << node;
             }
             if (samples != null) {
-                samples[node].observe(next, resistance[node], flow > 0 ? nodeFlow / flow : 0, elapsed, seconds);
+                samples[node].observe(next, resistance[node], flow > 0 ? area : 0, elapsed, seconds);
             }
         }
         maximumRatio = ratio;

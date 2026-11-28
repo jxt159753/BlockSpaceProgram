@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -57,7 +58,7 @@ public final class AeroTrials {
         }
         try {
             if (run == null) {
-                if ((EXPECT_SABLE && server.getPlayerCount() == 0) || ++readyTicks < 80) {
+                if (++readyTicks < 80) {
                     return;
                 }
                 boolean sable = ModList.get().isLoaded("sable");
@@ -137,6 +138,8 @@ public final class AeroTrials {
         final Descending shallow;
         final Descending sideways;
         final AssembledShipEntity rocket;
+        final AssembledShipEntity lowerDock;
+        final AssembledShipEntity upperDock;
         final ShipDesign benchmark;
         final List<AssembledShipEntity> fairingFragments = new ArrayList<>();
         final List<AssembledShipEntity> benchmarkShips = new ArrayList<>();
@@ -174,12 +177,16 @@ public final class AeroTrials {
             launch.setThrottle(ThrottleMode.DIRECT, 1);
 
             benchmark = AeroTrialDesigns.benchmark();
+            lowerDock = BASELINE ? null : spawn(level, AeroTrialDesigns.dockingPod(Direction.UP), new Vec3(32, 110, -16));
+            upperDock = BASELINE ? null : spawn(level, AeroTrialDesigns.dockingPod(Direction.DOWN), new Vec3(32, 112.125, -16));
             if (!BASELINE) {
+                require(flight(lowerDock).aerodynamics().exposedArea(Side.POS_Y, 0) == 1
+                        && flight(upperDock).aerodynamics().exposedArea(Side.POS_Y, 0) == 1, "Expected two exposed docking pods");
                 AeroCacheTrial.run(LOGGER, benchmark);
                 var payload = AeroTrialDesigns.payload();
-                var uncovered = ShipAerodynamics.compute(payload).projection();
+                var uncovered = ShipAerodynamics.project(payload, 0);
                 fairing = spawn(level, AeroTrialDesigns.fairings(payload), new Vec3(8, 115, -8));
-                var covered = flight(fairing).aerodynamics().projection();
+                var covered = flight(fairing).aerodynamics();
                 recordFairing("bare", uncovered);
                 recordFairing("covered", covered);
                 require(covered.exposedArea(Side.POS_Y, 1) == 0 && uncovered.exposedArea(Side.POS_Y, 1) == 2,
@@ -191,6 +198,7 @@ public final class AeroTrials {
         boolean tick(long elapsed) {
             ticks++;
             if (fairing != null && ticks == 24) {
+                checkDockedProjection();
                 require(fairingFragments.size() == 2, "Expected two detached fairing halves");
                 var left = flight(fairingFragments.get(0)).motion();
                 var right = flight(fairingFragments.get(1)).motion();
@@ -208,6 +216,22 @@ public final class AeroTrials {
                 return false;
             }
             return sampleBenchmark(elapsed);
+        }
+
+        private void checkDockedProjection() {
+            require(lowerDock.isRemoved() != upperDock.isRemoved(), "Expected the pods to dock");
+            var merged = lowerDock.isRemoved() ? upperDock : lowerDock;
+            var nodes = merged.design().nodes();
+            require(nodes.size() == 2, "Expected two nodes after docking");
+            int lower = nodes.get(0).pose().position().y < nodes.get(1).pose().position().y ? 0 : 1;
+            var projection = flight(merged).aerodynamics();
+            double lowerArea = projection.exposedArea(Side.POS_Y, lower);
+            double upperArea = projection.exposedArea(Side.POS_Y, 1 - lower);
+            require(projection.area(Side.POS_Y) == 1 && lowerArea == 0 && upperArea == 1,
+                    "Docked upper pod should shield the lower pod");
+            LOGGER.info("AERO DOCK direction=+Y individualArea=1.0 lowerArea={} upperArea={} totalArea={}",
+                    lowerArea, upperArea, projection.area(Side.POS_Y));
+            discardFixture(merged);
         }
 
         private void sampleRocket() {
@@ -301,17 +325,25 @@ public final class AeroTrials {
             FIXTURE_SHIPS.addAll(fragments);
             if (event.ship() == fairing) {
                 fairingFragments.addAll(fragments);
-                recordFairing("jettisoned", flight(fairing).aerodynamics().projection());
+                var projection = flight(fairing).aerodynamics();
+                require(projection.exposedArea(Side.POS_Y, 1) == 2, "Payload must be exposed after staging");
+                recordFairing("jettisoned", projection);
             } else {
                 require(fragments.size() == 1, "Expected exactly one 63-node fixture fragment");
                 var detached = fragments.getFirst();
                 int remaining = splitBenchmark.design().nodes().size();
                 int removed = detached.design().nodes().size();
                 require(remaining + removed == 63, "Expected 63 nodes across both fragments");
-                double mainMs = flight(splitBenchmark).aerodynamics().buildNanos() / 1e6;
-                double detachedMs = flight(detached).aerodynamics().buildNanos() / 1e6;
-                LOGGER.info("AERO SPLIT remainingNodes={} detachedNodes={} remainingMs={} detachedMs={} totalMs={}",
-                        remaining, removed, mainMs, detachedMs, mainMs + detachedMs);
+                var main = flight(splitBenchmark);
+                var fragment = flight(detached);
+                double mainArea = main.aerodynamics().area(Side.POS_Y);
+                double detachedArea = fragment.aerodynamics().area(Side.POS_Y);
+                require(mainArea == 10 && detachedArea == 10, "Expected independent silhouettes after staging");
+                double mainMs = main.projectionBuildNanos() / 1e6;
+                double detachedMs = fragment.projectionBuildNanos() / 1e6;
+                LOGGER.info("AERO SPLIT remainingNodes={} detachedNodes={} remainingArea={} detachedArea={}"
+                                + " remainingMs={} detachedMs={} totalMs={}",
+                        remaining, removed, mainArea, detachedArea, mainMs, detachedMs, mainMs + detachedMs);
                 level.getServer().execute(() -> {
                     discardFixture(detached);
                     discardFixture(splitBenchmark);
@@ -332,6 +364,8 @@ public final class AeroTrials {
             Motion previous;
             double previousBottom;
             double firstAlignment = Double.NaN;
+            boolean landingChunksLoaded;
+            boolean impactMeasured;
             boolean done;
             boolean touched;
 
@@ -356,6 +390,18 @@ public final class AeroTrials {
                 var current = flight(ship);
                 Motion motion = current.motion();
                 double altitude = motion.center().y - SEA_LEVEL;
+                if (!landingChunksLoaded && altitude < 150) {
+                    // Keep the touchdown area active independently of players' view distance.
+                    var position = BlockPos.containing(motion.center());
+                    int chunkX = position.getX() >> 4;
+                    int chunkZ = position.getZ() >> 4;
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            level.setChunkForced(chunkX + dx, chunkZ + dz, true);
+                        }
+                    }
+                    landingChunksLoaded = true;
+                }
                 double bottomAngle = bottomAngle(motion);
                 if (Double.isNaN(firstAlignment) && bottomAngle <= 15) {
                     firstAlignment = ticks / 20.0;
@@ -369,16 +415,22 @@ public final class AeroTrials {
                     }
                 }
                 double bottom = current.worldBounds().minY;
-                if ((bottom <= SEA_LEVEL + 0.3 || altitude < 4)
-                        && previous.velocity().y < 0 && motion.velocity().y - previous.velocity().y > 2) {
-                    LOGGER.info("AERO TOUCH fixture={} t={} speedBeforeTick={} speedAfterTick={} bottomAngleBeforeTick={}"
+                long contact = current.lastContactTick();
+                // The first impact changes the velocity before Sable may report a block contact callback.
+                if (!impactMeasured && altitude < 4 && previous.velocity().y < 0
+                        && motion.velocity().y - previous.velocity().y > 2) {
+                    LOGGER.info("AERO IMPACT fixture={} t={} speedBeforeTick={} speedAfterTick={} bottomAngleBeforeTick={}"
                                     + " firstBelow15s={} centerHeight={} bottomY={}",
                             name, ticks / 20.0, previous.velocity().length(), motion.velocity().length(), bottomAngle(previous),
                             firstAlignment, altitude, bottom);
+                    impactMeasured = true;
+                }
+                if (impactMeasured && contact != Long.MIN_VALUE) {
+                    LOGGER.info("AERO TOUCH fixture={} t={} contactGameTick={}", name, ticks / 20.0, contact);
                     discardFixture(ship);
                     done = true;
                     touched = true;
-                } else if (previousBottom > SEA_LEVEL && bottom <= SEA_LEVEL) {
+                } else if (!impactMeasured && previousBottom > SEA_LEVEL && bottom <= SEA_LEVEL) {
                     double fraction = (previousBottom - SEA_LEVEL) / (previousBottom - bottom);
                     LOGGER.info("AERO SURFACE fixture={} t={} interpolatedSpeed={}", name,
                             (ticks - 1 + fraction) / 20.0, previous.velocity().lerp(motion.velocity(), fraction).length());

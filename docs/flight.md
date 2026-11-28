@@ -96,9 +96,17 @@
 }
 ```
 
-距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。飞船用零件的阻力系数、当前迎风投影面积和相对空气的速度计算阻力。没有专用天体参数的维度使用 Sable 的维度重力和气压，Sable 的求解器阻尼也适用于飞船。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
+距离单位为 m，`surface_gravity` 的单位为 m/s²，`sea_level_density` 的单位为 kg/m³。没有专用天体参数的维度使用 Sable 的维度重力和气压。Sable 的求解器阻尼也适用于飞船。修改数据包后执行 `/reload`。 [母星参数设计 #4](https://github.com/jxt159753/BlockSpaceProgram/issues/4)
 
 玩家、生物和掉落物的重力乘以当前维度的 `surface_gravity / 9.8`。母星默认沿用原版重力。没有 `ship_flight` 参数的维度保留原有重力。修改参数并执行 `/reload` 后，已加载的实体也会采用新重力。
+
+## 气动阻力
+
+飞船沿自身的 ±X、±Y、±Z 六个方向投影。烘焙零件按放置时的比例、旋转和偏移计算，船体方块也参与遮挡。每个 1/4 格投影单元只有最迎风的方块贡献 0.0625 m² 的面积，阻力面积再乘该方块的 `drag_coefficient`。默认系数为 1.0。系数为 0 的方块仍可挡住后方。 [方块阻力系数](part-properties.md)
+
+斜向飞行时，用空速方向在船体三轴上的分量绝对值混合投影。这是对斜向遮挡的近似。阻力沿空速的反方向，大小取决于大气密度、空速的平方和合成阻力面积。每个物理子步的阻力冲量以把飞船减速至零为上限，悬停估算也使用该阻力。
+
+压心是迎风面积的加权中心。压心偏离质心时，阻力会转动飞船。服务器可在 `blockspaceprogram-server.toml` 的 `[aerodynamics]` 中设置 `torque_multiplier`，范围为 0–1，默认 1。设为 0 时，阻力大小保持相同并等效作用于质心。
 
 ## 卫星维度
 

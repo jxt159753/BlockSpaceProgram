@@ -62,7 +62,7 @@
 @@ -40,6 +40,7 @@
      private final Vec3 seat;
      private final Vector3d projectedDragArea = new Vector3d();
-     private final ShipAerodynamics aerodynamics;
+     private final AeroProjection aerodynamics;
 +    private final ReentryHeating reentryHeating;
      private final double weakestPart;
      private final long commandPods;
@@ -83,7 +83,7 @@
          weakestPart = weakest;
          commandPods = pods;
 +        reentryHeating = ReentryHeating.ENABLED && aerodynamics != null
-+                ? new ReentryHeating(design, aerodynamics.projection(), damagedParts) : null;
++                ? new ReentryHeating(design, aerodynamics, damagedParts) : null;
      }
 
      static int initialStage(ShipDesign design) {
@@ -214,8 +214,8 @@
 -            double speed = windward.length();
 +            speed = windward.length();
              windward.div(speed);
-             double force = 0.5 * density * state.dragArea(windward) * speed * speed;
-             drag.set(windward).mul(-Math.min(force, mass * speed / seconds));
+             double force = state.dragForce(windward, density, speed, mass * speed / seconds);
+             drag.set(windward).mul(-force);
 @@ -1318,6 +1329,22 @@
          var parachuteMoment = new Vector3d();
          stepParachutes(planet, pressure, density, seconds, linearVelocity, angularVelocity, drag.length(),

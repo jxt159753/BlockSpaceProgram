@@ -38,7 +38,7 @@ final class ShipFlightState {
     private final Map<BlockPos, Cell> cells;
     private final Map<BlockPos, SolidBlock> hull;
     private final Vec3 seat;
-    private final Vector3d projectedDragArea = new Vector3d();
+    private final AeroProjection aerodynamics;
     private final double weakestPart;
     private final long commandPods;
     private int stage;
@@ -46,6 +46,7 @@ final class ShipFlightState {
     private long pendingDamage;
 
     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
+        aerodynamics = ShipAerodynamics.project(design, 0);
         int count = design.nodes().size();
         parachutes = new ShipParachutes(design);
         fuel = new double[count];
@@ -104,10 +105,6 @@ final class ShipFlightState {
             var bounds = node.bounds();
             impactParts[index] = new ImpactPart(bounds, properties.impactResistance());
             weakest = Math.min(weakest, properties.impactResistance());
-            double x = bounds.getXsize();
-            double y = bounds.getYsize();
-            double z = bounds.getZsize();
-            projectedDragArea.fma(properties.dragCoefficient(), new Vector3d(y * z, x * z, x * y));
         }
         if (extraMass > 0) {
             var first = hullBlocks.firstEntry();
@@ -316,9 +313,8 @@ final class ShipFlightState {
         return true;
     }
 
-    double dragArea(Vector3dc unitDirection) {
-        return Math.abs(unitDirection.x()) * projectedDragArea.x + Math.abs(unitDirection.y()) * projectedDragArea.y
-                + Math.abs(unitDirection.z()) * projectedDragArea.z;
+    AeroProjection aerodynamics() {
+        return aerodynamics;
     }
 
     double remainingFuel() {
