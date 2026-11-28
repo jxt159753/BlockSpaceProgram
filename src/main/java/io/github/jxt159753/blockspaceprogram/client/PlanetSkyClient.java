@@ -344,7 +344,13 @@ public final class PlanetSkyClient {
         float weight = texture == null ? 0 : 1 - SurfaceMapBlend.proceduralWeight(
                 disc.altitude(), map.blendStart(), map.blendEnd());
         shader.safeGetUniform("SurfaceMapWeight").set(weight);
-        shader.setSampler("SurfaceMap", weight > 0 ? texture : null);
+        if (weight > 0) {
+            float width = texture.width();
+            shader.safeGetUniform("SurfaceMapSampling").set((float) (width / (2 * Math.PI)), 4 / (width * width));
+            shader.setSampler("SurfaceMap", texture.id());
+        } else {
+            shader.setSampler("SurfaceMap", null);
+        }
         draw(disc.mode(), disc.direction(), relativeRadius, disc.primeMeridian(),
                 PlanetSkyProjection.surfaceSeed(disc.dimension().toString()));
     }
