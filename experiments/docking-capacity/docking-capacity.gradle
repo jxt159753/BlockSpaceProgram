@@ -1,0 +1,68 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class PrepareDockingCapacitySources extends DefaultTask {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getBaseSources()
+
+    @InputFile @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getIntegrationPatch()
+
+    @OutputDirectory
+    abstract DirectoryProperty getPatchedSources()
+
+    @Inject
+    abstract FileSystemOperations getFiles()
+
+    @Inject
+    abstract ExecOperations getProcesses()
+
+    @TaskAction
+    void prepare() {
+        files.sync {
+            from baseSources
+            into patchedSources
+        }
+        File output = patchedSources.get().asFile
+        String patch = integrationPatch.get().asFile.getText('UTF-8').replace('\r\n', '\n')
+        processes.exec {
+            workingDir output
+            environment 'GIT_CEILING_DIRECTORIES', output.parent
+            standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
+            commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+        }
+    }
+}
+
+def experiment = 'experiments/docking-capacity'
+def prepare = tasks.register('prepareDockingCapacitySources', PrepareDockingCapacitySources) {
+    baseSources = layout.projectDirectory.dir('src/main/java')
+    integrationPatch = layout.projectDirectory.file("${experiment}/integration.patch")
+    patchedSources = layout.buildDirectory.dir('generated/dockingCapacitySources')
+}
+sourceSets.main.java.setSrcDirs(["${experiment}/java"])
+sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources })
+
+def run = providers.gradleProperty('dockingCapacityRun').getOrElse('trial')
+def joinAddress = providers.gradleProperty('dockingCapacityJoin')
+def wideNbt = providers.gradleProperty('dockingCapacityWideNbt').isPresent().toString()
+neoForge.runs.register('dockingCapacityServer') {
+    server()
+    gameDirectory = file("runs/dockingCapacity/${run}/server")
+    programArgument '--nogui'
+    jvmArgument '-Xmx3G'
+    systemProperty 'bsp.dockingCapacity.wideNbt', wideNbt
+}
+neoForge.runs.register('dockingCapacityClient') {
+    client()
+    gameDirectory = file("runs/dockingCapacity/${run}/client")
+    jvmArgument '-Xmx3G'
+    systemProperty 'bsp.dockingCapacity.wideNbt', wideNbt
+    programArguments.addAll '--username', 'DockingProbe', '--width', '1280', '--height', '720'
+    if (joinAddress.isPresent()) {
+        programArguments.addAll '--quickPlayMultiplayer', joinAddress.get()
+    }
+}
+tasks.named('runDockingCapacityServer', JavaExec) {
+    standardInput = System.in
+}
