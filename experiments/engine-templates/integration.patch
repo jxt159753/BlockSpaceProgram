@@ -1,0 +1,592 @@
+diff --git a/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java b/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
+index 51b7def..5243676 100644
+--- a/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
++++ b/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
+@@ -29,6 +29,7 @@ import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
+ import io.github.jxt159753.blockspaceprogram.part.BakedPart;
+ import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
+ import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
++import io.github.jxt159753.blockspaceprogram.part.EngineTemplates;
+ import io.github.jxt159753.blockspaceprogram.part.PartConnector;
+ import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
+ import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
+@@ -148,6 +149,7 @@ public final class BlockSpaceProgram {
+         facilities = new FacilityLevels(ShipServerConfig.FACILITY, ModList.get().isLoaded("ftbteams")
+                 ? new FtbTeamsFacilityOwnerResolver() : FacilityOwnerResolver::personal);
+         NeoForge.EVENT_BUS.addListener(FacilityCommands::register);
++        EngineTemplates.register(modBus, BLOCKS, ITEMS);
+         BLOCKS.register(modBus);
+         ITEMS.register(modBus);
+         ENTITIES.register(modBus);
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+index 9daa9bb..7a4dda0 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+@@ -4,7 +4,8 @@ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody.SolidBlock;
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
+-import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
++import io.github.jxt159753.blockspaceprogram.part.EnginePerformance;
++import io.github.jxt159753.blockspaceprogram.part.PartEngine;
+ import io.github.jxt159753.blockspaceprogram.part.PartType;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+@@ -17,7 +18,6 @@ import net.minecraft.core.Direction;
+ import net.minecraft.nbt.DoubleTag;
+ import net.minecraft.nbt.ListTag;
+ import net.minecraft.util.Mth;
+-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+ import net.minecraft.world.phys.AABB;
+ import net.minecraft.world.phys.Vec3;
+ import org.joml.Vector3d;
+@@ -88,7 +88,13 @@ final class ShipFlightState {
+                 tanks.add(new Tank(index, group, partCells));
+             }
+             if (hasEngine(node)) {
+-                engines.add(engine(node, index, group));
++                for (var engine : PartEngine.forPart(part)) {
++                    var outlet = engine.outlet();
++                    var thrust = Vec3.atLowerCornerOf(node.pose().rotation().rotate(outlet.exhaust().getOpposite()).getNormal());
++                    var moment = node.point(outlet.point()).cross(thrust);
++                    engines.add(new Engine(index, group, node.engineStage(), engine.performance(),
++                            thrust.toVector3f(), moment.toVector3f()));
++                }
+             }
+             if (node.isCommandPod()) {
+                 pods |= 1L << index;
+@@ -136,34 +142,6 @@ final class ShipFlightState {
+         return props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
+     }
+
+-    private static Engine engine(ShipDesign.Node node, int part, int group) {
+-        Vec3 direction = Vec3.ZERO;
+-        Vec3 moment = Vec3.ZERO;
+-        int nozzleCount = 0;
+-        for (var block : node.part().blocks()) {
+-            var state = block.state();
+-            if (state.is(PartType.ENGINE_NOZZLES)) {
+-                Direction exhaust = state.getOptionalValue(BlockStateProperties.FACING)
+-                        .or(() -> state.getOptionalValue(BlockStateProperties.HORIZONTAL_FACING)).orElse(Direction.DOWN);
+-                Direction thrustSide = node.pose().rotation().rotate(exhaust.getOpposite());
+-                Vec3 thrust = Vec3.atLowerCornerOf(thrustSide.getNormal());
+-                Vec3 point = node.point(Vec3.atCenterOf(block.pos()).relative(exhaust, 0.5));
+-                direction = direction.add(thrust);
+-                moment = moment.add(point.cross(thrust));
+-                nozzleCount++;
+-            }
+-        }
+-        if (nozzleCount == 0) {
+-            // Old parts keep their engine role if the original tags are unavailable.
+-            var bounds = node.part().geometry().size();
+-            direction = Vec3.atLowerCornerOf(node.pose().rotation().rotate(Direction.UP).getNormal());
+-            moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
+-            nozzleCount = 1;
+-        }
+-        return new Engine(part, group, node.engineStage(), node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
+-                moment.scale(1.0 / nozzleCount).toVector3f());
+-    }
+-
+     static Vec3 seat(ShipDesign design, int pod) {
+         var root = design.nodes().get(pod);
+         var cabin = root.bounds();
+@@ -394,5 +372,5 @@ final class ShipFlightState {
+
+     private record Tank(int part, int group, Map<BlockPos, Cell> cells) {}
+
+-    private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
++    private record Engine(int part, int group, int stage, EnginePerformance properties, Vector3fc direction, Vector3fc moment) {}
+ }
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/WorldPartPlacement.java b/io/github/jxt159753/blockspaceprogram/assembly/WorldPartPlacement.java
+index 75d2491..ec270d6 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/WorldPartPlacement.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/WorldPartPlacement.java
+@@ -35,7 +35,11 @@ public final class WorldPartPlacement {
+
+     public record Placement(Vec3 origin, OctahedralGroup rotation, AABB bounds, @Nullable ShipDesign.Link link) {}
+
+-    public record Preview(@Nullable Placement placement, @Nullable String error) {}
++    public record Preview(@Nullable Placement placement, @Nullable String error, boolean exhaustBlocked) {
++        private Preview(@Nullable Placement placement, @Nullable String error) {
++            this(placement, error, false);
++        }
++    }
+
+     public static Preview onBlock(Player player, ItemStack stack, BakedPart part, BlockPos clicked, Direction face) {
+         AABB local = part.localBounds();
+@@ -50,7 +54,7 @@ public final class WorldPartPlacement {
+         if (!player.mayUseItemAt(adjacent, face, stack) || !mayBuildIn(player, bounds)) {
+             return new Preview(placement, "world_permission");
+         }
+-        return new Preview(placement, obstruction(player.level(), bounds, Set.of()));
++        return checkPlacement(player.level(), part, placement);
+     }
+
+     static InteractionResult placeOnBlock(UseOnContext context, Player player, BakedPart part) {
+@@ -66,6 +70,7 @@ public final class WorldPartPlacement {
+                 return InteractionResult.FAIL;
+             }
+             takePart(player, context.getHand());
++            reportWarning(player, preview);
+         }
+         return InteractionResult.sidedSuccess(context.getLevel().isClientSide);
+     }
+@@ -130,7 +135,12 @@ public final class WorldPartPlacement {
+         if (!WorldAssembly.canUse(player, target) || !mayBuildIn(player, bounds)) {
+             return new Preview(placement, "world_permission");
+         }
+-        return new Preview(placement, obstruction(player.level(), bounds, Set.of()));
++        return checkPlacement(player.level(), part, placement);
++    }
++
++    private static Preview checkPlacement(Level level, BakedPart part, Placement placement) {
++        String error = obstruction(level, placement.bounds(), Set.of());
++        return new Preview(placement, error, error == null && ExhaustWarning.blocked(level, part, placement));
+     }
+
+     @Nullable
+@@ -186,6 +196,7 @@ public final class WorldPartPlacement {
+         }
+         data.connect(level, group, target, child, placement.link());
+         takePart(player, hand);
++        reportWarning(player, preview);
+     }
+
+     @Nullable
+@@ -256,5 +267,11 @@ public final class WorldPartPlacement {
+         player.displayClientMessage(Component.translatable("assembly.blockspaceprogram." + error), true);
+     }
+
++    private static void reportWarning(Player player, Preview preview) {
++        if (preview.exhaustBlocked()) {
++            report(player, ExhaustWarning.MESSAGE);
++        }
++    }
++
+     private record MarkerHit(int index, Vec3 position) {}
+ }
+diff --git a/io/github/jxt159753/blockspaceprogram/client/AssemblyScreen.java b/io/github/jxt159753/blockspaceprogram/client/AssemblyScreen.java
+index 223cc8f..4772044 100644
+--- a/io/github/jxt159753/blockspaceprogram/client/AssemblyScreen.java
++++ b/io/github/jxt159753/blockspaceprogram/client/AssemblyScreen.java
+@@ -4,6 +4,7 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyMenu;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking.Action;
++import io.github.jxt159753.blockspaceprogram.assembly.ExhaustWarning;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipPlacement;
+ import io.github.jxt159753.blockspaceprogram.assembly.StagePerformance;
+@@ -207,6 +208,9 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
+         if (preview != null && preview.error() != null && !menu.design().nodes().isEmpty()) {
+             status = text(preview.error());
+             color = 0xFFFFC28A;
++        } else if (ExhaustWarning.blocked(preview == null ? menu.design() : preview.design())) {
++            status = text(ExhaustWarning.MESSAGE);
++            color = 0xFFFFC28A;
+         } else if (status == null) {
+             status = text(menu.isWorldAssembly() ? "world_camera_tip" : "camera_tip");
+         }
+diff --git a/io/github/jxt159753/blockspaceprogram/client/PartMeshRenderer.java b/io/github/jxt159753/blockspaceprogram/client/PartMeshRenderer.java
+index f500b8d..a4cb356 100644
+--- a/io/github/jxt159753/blockspaceprogram/client/PartMeshRenderer.java
++++ b/io/github/jxt159753/blockspaceprogram/client/PartMeshRenderer.java
+@@ -16,12 +16,14 @@ import java.nio.ByteBuffer;
+ import java.nio.ByteOrder;
+ import java.util.LinkedHashMap;
+ import java.util.Map;
++import java.util.Optional;
+ import net.minecraft.client.Minecraft;
+ import net.minecraft.client.renderer.MultiBufferSource;
+ import net.minecraft.client.renderer.RenderType;
+ import net.minecraft.client.renderer.ShaderInstance;
+ import net.minecraft.client.renderer.Sheets;
+ import net.minecraft.client.renderer.texture.OverlayTexture;
++import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.util.FastColor;
+ import net.minecraft.util.RandomSource;
+ import net.minecraft.world.level.block.RenderShape;
+@@ -39,7 +41,7 @@ public final class PartMeshRenderer {
+     private static final int LIGHT_OFFSET = FORMAT.getOffset(VertexFormatElement.UV2);
+     private static final int NORMAL_OFFSET = FORMAT.getOffset(VertexFormatElement.NORMAL);
+
+-    private static final Map<BakedPart.Geometry, Mesh> MESHES = new LinkedHashMap<>(16, 0.75F, true);
++    private static final Map<MeshKey, Mesh> MESHES = new LinkedHashMap<>(16, 0.75F, true);
+     private static long cachedBytes;
+     private static ShaderInstance cutoutShader;
+
+@@ -48,7 +50,7 @@ public final class PartMeshRenderer {
+
+     /** Draws an installed part. The caller positions and orients the pose at the part's minimum corner. */
+     public static void render(BakedPart part, PoseStack poses, MultiBufferSource buffers, int light) {
+-        Mesh mesh = getMesh(part.geometry());
++        Mesh mesh = getMesh(part);
+         poses.pushPose();
+         poses.scale(part.scale(), part.scale(), part.scale());
+         if (mesh.cutoutBuffer() != null && !BlockSpaceProgram.isIrisShaderPackInUse()) {
+@@ -61,7 +63,7 @@ public final class PartMeshRenderer {
+     }
+
+     static void renderItem(BakedPart part, PoseStack poses, MultiBufferSource buffers, int light, int overlay) {
+-        Mesh mesh = getMesh(part.geometry());
++        Mesh mesh = getMesh(part);
+         var size = part.modelToLocal(part.geometry().size());
+         float fit = (float) (1.0 / Math.max(1.0, Math.max(size.x, Math.max(size.y, size.z))));
+         poses.pushPose();
+@@ -83,13 +85,14 @@ public final class PartMeshRenderer {
+         cachedBytes = 0;
+     }
+
+-    private static Mesh getMesh(BakedPart.Geometry geometry) {
+-        Mesh mesh = MESHES.get(geometry);
++    private static Mesh getMesh(BakedPart part) {
++        var key = new MeshKey(part.geometry(), part.displayModel());
++        Mesh mesh = MESHES.get(key);
+         if (mesh != null) {
+             return mesh;
+         }
+
+-        mesh = bake(geometry);
++        mesh = bake(key);
+         if (mesh.bytes() <= CACHE_BUDGET) {
+             var oldest = MESHES.values().iterator();
+             while (cachedBytes + mesh.bytes() > CACHE_BUDGET) {
+@@ -98,38 +101,24 @@ public final class PartMeshRenderer {
+                 cachedBytes -= evicted.bytes();
+                 evicted.close();
+             }
+-            MESHES.put(geometry, mesh);
++            MESHES.put(key, mesh);
+             cachedBytes += mesh.bytes();
+         }
+         return mesh;
+     }
+
+-    private static Mesh bake(BakedPart.Geometry geometry) {
+-        var dispatcher = Minecraft.getInstance().getBlockRenderer();
+-        var view = new PartBlockView(geometry);
++    private static Mesh bake(MeshKey key) {
++        var geometry = key.geometry();
+         PoseStack poses = new PoseStack();
+-        RandomSource random = RandomSource.create();
+         VertexFormat bakeFormat = BlockSpaceProgram.isIrisShaderPackInUse() ? IRIS_BAKE_FORMAT : FORMAT;
+         try (ByteBufferBuilder cutoutStorage = new ByteBufferBuilder(4096);
+                 ByteBufferBuilder translucentStorage = new ByteBufferBuilder(4096)) {
+             var cutout = new BufferBuilder(cutoutStorage, VertexFormat.Mode.QUADS, bakeFormat);
+             var translucent = new BufferBuilder(translucentStorage, VertexFormat.Mode.QUADS, bakeFormat);
+-            for (BakedPart.StructureBlock block : geometry.blocks()) {
+-                var state = block.state();
+-                if (state.getRenderShape() != RenderShape.MODEL) {
+-                    continue;
+-                }
+-                var pos = block.pos();
+-                var model = dispatcher.getBlockModel(state);
+-                var data = model.getModelData(view, pos, state, ModelData.EMPTY);
+-                random.setSeed(state.getSeed(pos));
+-                poses.pushPose();
+-                poses.translate(pos.getX(), pos.getY(), pos.getZ());
+-                for (RenderType layer : model.getRenderTypes(state, random, data)) {
+-                    var target = layer == RenderType.translucent() ? translucent : cutout;
+-                    dispatcher.renderBatched(state, pos, view, poses, target, true, random, data, layer);
+-                }
+-                poses.popPose();
++            if (key.displayModel().isPresent()) {
++                EngineTemplateModels.bake(key.displayModel().get(), geometry.size(), poses, cutout, translucent);
++            } else {
++                bakeBlocks(geometry, poses, cutout, translucent);
+             }
+
+             try (MeshData cutoutData = cutout.build(); MeshData translucentData = translucent.build()) {
+@@ -156,6 +145,30 @@ public final class PartMeshRenderer {
+         }
+     }
+
++    private static void bakeBlocks(BakedPart.Geometry geometry, PoseStack poses,
++            VertexConsumer cutout, VertexConsumer translucent) {
++        var dispatcher = Minecraft.getInstance().getBlockRenderer();
++        var view = new PartBlockView(geometry);
++        RandomSource random = RandomSource.create();
++        for (BakedPart.StructureBlock block : geometry.blocks()) {
++            var state = block.state();
++            if (state.getRenderShape() != RenderShape.MODEL) {
++                continue;
++            }
++            var pos = block.pos();
++            var model = dispatcher.getBlockModel(state);
++            var data = model.getModelData(view, pos, state, ModelData.EMPTY);
++            random.setSeed(state.getSeed(pos));
++            poses.pushPose();
++            poses.translate(pos.getX(), pos.getY(), pos.getZ());
++            for (RenderType layer : model.getRenderTypes(state, random, data)) {
++                var target = layer == RenderType.translucent() ? translucent : cutout;
++                dispatcher.renderBatched(state, pos, view, poses, target, true, random, data, layer);
++            }
++            poses.popPose();
++        }
++    }
++
+     private static VertexFormat copyEntityFormat() {
+         // Iris extends NEW_ENTITY buffers while shaders are active. Keep the vanilla layout in the mesh cache.
+         var builder = VertexFormat.builder();
+@@ -213,6 +226,8 @@ public final class PartMeshRenderer {
+         }
+     }
+
++    private record MeshKey(BakedPart.Geometry geometry, Optional<ResourceLocation> displayModel) {}
++
+     private record Mesh(byte[] cutout, byte[] translucent, @Nullable VertexBuffer cutoutBuffer, long bytes) {
+         private void close() {
+             if (cutoutBuffer != null) {
+diff --git a/io/github/jxt159753/blockspaceprogram/client/WorldPartPlacementClient.java b/io/github/jxt159753/blockspaceprogram/client/WorldPartPlacementClient.java
+index 068f87a..4918099 100644
+--- a/io/github/jxt159753/blockspaceprogram/client/WorldPartPlacementClient.java
++++ b/io/github/jxt159753/blockspaceprogram/client/WorldPartPlacementClient.java
+@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.client;
+ import com.mojang.blaze3d.platform.InputConstants;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking;
++import io.github.jxt159753.blockspaceprogram.assembly.ExhaustWarning;
+ import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
+ import io.github.jxt159753.blockspaceprogram.assembly.WorldPartPlacement;
+ import io.github.jxt159753.blockspaceprogram.part.BakedPart;
+@@ -41,7 +42,8 @@ public final class WorldPartPlacementClient {
+     @Nullable
+     private static BakedPart lastPart;
+     @Nullable
+-    private static String previewError;
++    private static String previewMessage;
++    private static boolean previewExhaustBlocked;
+     private static boolean surface;
+     private static int source;
+     private static int turns;
+@@ -118,7 +120,8 @@ public final class WorldPartPlacementClient {
+         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES) {
+             return;
+         }
+-        previewError = null;
++        previewMessage = null;
++        previewExhaustBlocked = false;
+         Minecraft game = Minecraft.getInstance();
+         if (game.player == null || game.screen != null || game.options.hideGui || game.player.isSecondaryUseActive()) {
+             return;
+@@ -138,13 +141,15 @@ public final class WorldPartPlacementClient {
+         if (preview == null) {
+             return;
+         }
+-        previewError = preview.error();
++        previewExhaustBlocked = preview.exhaustBlocked();
++        previewMessage = previewExhaustBlocked ? ExhaustWarning.MESSAGE : preview.error();
+         if (preview.placement() != null) {
+             var buffers = game.renderBuffers().bufferSource();
+             var box = preview.placement().bounds().move(event.getCamera().getPosition().reverse()).inflate(0.004);
+-            boolean valid = previewError == null;
++            boolean valid = preview.error() == null;
+             LevelRenderer.renderLineBox(event.getPoseStack(), buffers.getBuffer(RenderType.lines()), box,
+-                    valid ? 0.3F : 1.0F, valid ? 1.0F : 0.25F, 0.3F, 1.0F);
++                    valid && !previewExhaustBlocked ? 0.3F : 1.0F,
++                    previewExhaustBlocked ? 0.7F : valid ? 1.0F : 0.25F, 0.3F, 1.0F);
+             buffers.endBatch(RenderType.lines());
+         }
+     }
+@@ -154,9 +159,10 @@ public final class WorldPartPlacementClient {
+         event.registerAbove(VanillaGuiLayers.HOTBAR, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "placement_error"),
+                 (graphics, tick) -> {
+                     var game = Minecraft.getInstance();
+-                    if (previewError != null && game.screen == null && !game.options.hideGui) {
+-                        graphics.drawCenteredString(game.font, Component.translatable("assembly.blockspaceprogram." + previewError),
+-                                graphics.guiWidth() / 2, graphics.guiHeight() - 75, 0xFF7777);
++                    if (previewMessage != null && game.screen == null && !game.options.hideGui) {
++                        graphics.drawCenteredString(game.font, Component.translatable("assembly.blockspaceprogram." + previewMessage),
++                                graphics.guiWidth() / 2, graphics.guiHeight() - 75,
++                                previewExhaustBlocked ? 0xFFFFC28A : 0xFFFF7777);
+                     }
+                 });
+     }
+diff --git a/io/github/jxt159753/blockspaceprogram/part/BakedPart.java b/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
+index 9b6e04a..38da2af 100644
+--- a/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
++++ b/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
+@@ -19,6 +19,7 @@ import net.minecraft.network.codec.ByteBufCodecs;
+ import net.minecraft.network.codec.StreamCodec;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.world.level.block.Block;
++import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.phys.AABB;
+ import net.minecraft.world.phys.Vec3;
+@@ -31,13 +32,16 @@ public record BakedPart(
+         InertiaTensor inertia,
+         Set<PartType> types,
+         float scale,
+-        List<PartConnector> connectors) {
++        List<PartConnector> connectors,
++        Optional<ResourceLocation> displayModel,
++        List<PartEngine> engines) {
+
+     public static final int MAX_SIDE = 9;
+     public static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
+-    private static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
++    static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
+     private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F)
+             .xmap(BakedPart::migrateScale, scale -> scale);
++    private static final Codec<List<PartEngine>> ENGINES_CODEC = PartEngine.CODEC.listOf(0, MAX_BLOCKS);
+
+     public static final Codec<BakedPart> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+             Geometry.CODEC.fieldOf("blocks").forGetter(BakedPart::geometry),
+@@ -47,13 +51,16 @@ public record BakedPart(
+             PartType.CODEC.listOf().xmap(Set::copyOf, types -> types.stream().sorted().toList())
+                     .fieldOf("types").forGetter(BakedPart::types),
+             SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale),
+-            PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors)
++            PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors),
++            ResourceLocation.CODEC.optionalFieldOf("display_model").forGetter(BakedPart::displayModel),
++            ENGINES_CODEC.optionalFieldOf("engines", List.of()).forGetter(BakedPart::engines)
+     ).apply(instance, BakedPart::new));
+
+     private static final StreamCodec<ByteBuf, BlockPartProperties> PROPERTIES_STREAM =
+             ByteBufCodecs.fromCodec(BlockPartProperties.CODEC);
+     private static final StreamCodec<FriendlyByteBuf, List<PartConnector>> CONNECTOR_STREAM =
+             PartConnector.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
++    private static final StreamCodec<ByteBuf, List<PartEngine>> ENGINES_STREAM = ByteBufCodecs.fromCodec(ENGINES_CODEC);
+     public static final StreamCodec<FriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
+         buffer.writeVarInt(part.blocks().size());
+         for (StructureBlock block : part.blocks()) {
+@@ -71,6 +78,8 @@ public record BakedPart(
+         buffer.writeEnumSet(types, PartType.class);
+         buffer.writeFloat(part.scale());
+         CONNECTOR_STREAM.encode(buffer, part.connectors());
++        buffer.writeOptional(part.displayModel(), FriendlyByteBuf::writeResourceLocation);
++        ENGINES_STREAM.encode(buffer, part.engines());
+     }, buffer -> {
+         int size = buffer.readVarInt();
+         if (size < 1 || size > MAX_BLOCKS) {
+@@ -85,7 +94,8 @@ public record BakedPart(
+         return new BakedPart(new Geometry(blocks), PROPERTIES_STREAM.decode(buffer), buffer.readVec3(),
+                 new InertiaTensor(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
+                         buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
+-                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer));
++                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer),
++                buffer.readOptional(FriendlyByteBuf::readResourceLocation), ENGINES_STREAM.decode(buffer));
+     });
+
+     public BakedPart {
+@@ -95,6 +105,12 @@ public record BakedPart(
+         types = Set.copyOf(types);
+         // Derive the stored size for older items and whenever an item changes scale.
+         connectors = connectors.stream().map(connector -> connector.atScale(scale)).toList();
++        engines = List.copyOf(engines);
++    }
++
++    public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
++            Set<PartType> types, float scale, List<PartConnector> connectors) {
++        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, Optional.empty(), List.of());
+     }
+
+     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
+@@ -107,7 +123,7 @@ public record BakedPart(
+     }
+
+     public BakedPart withScale(float newScale) {
+-        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors);
++        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors, displayModel, engines);
+     }
+
+     private static float migrateScale(float scale) {
+@@ -160,20 +176,17 @@ public record BakedPart(
+                 .map(block -> BlockPartProperties.get(block.state())).toList();
+
+         double mass = 0;
+-        double thrust = 0;
+-        double vacuumFlow = 0;
+-        double seaLevelFlow = 0;
++        var blockRatings = new ArrayList<EnginePerformance>();
+         double drag = 0;
+         double heat = Double.POSITIVE_INFINITY;
+         double electricCapacity = 0;
+         double impactResistance = Double.POSITIVE_INFINITY;
+         Map<ResourceLocation, Double> fuelCapacity = new HashMap<>();
+-        for (BlockPartProperties contribution : contributions) {
++        for (int i = 0; i < contributions.size(); i++) {
++            BlockPartProperties contribution = contributions.get(i);
+             mass += contribution.mass();
+-            thrust += contribution.thrust();
+-            if (contribution.thrust() > 0) {
+-                vacuumFlow += contribution.thrust() / contribution.vacuumSpecificImpulse();
+-                seaLevelFlow += contribution.thrust() / contribution.seaLevelSpecificImpulse();
++            if (contribution.thrust() > 0 && !ModularEngines.isComponent(blocks.get(i).state())) {
++                blockRatings.add(PartEngine.performance(contribution));
+             }
+             drag += contribution.dragCoefficient();
+             if (contribution.heatResistance() > 0) {
+@@ -183,8 +196,15 @@ public record BakedPart(
+             impactResistance = Math.min(impactResistance, contribution.impactResistance());
+             contribution.fuelCapacity().forEach((fuel, amount) -> fuelCapacity.merge(fuel, amount, Double::sum));
+         }
+-        double vacuumIsp = vacuumFlow == 0 ? 0 : thrust / vacuumFlow;
+-        double seaLevelIsp = seaLevelFlow == 0 ? 0 : thrust / seaLevelFlow;
++        List<PartEngine> engines = ModularEngines.bake(blocks);
++        EnginePerformance rating = EnginePerformance.combine(blockRatings);
++        if (!engines.isEmpty()) {
++            engines.addAll(PartEngine.legacy(geometry, rating));
++            rating = EnginePerformance.combine(engines.stream().map(PartEngine::performance).toList());
++        }
++        double thrust = rating.thrust();
++        double vacuumIsp = rating.vacuumSpecificImpulse();
++        double seaLevelIsp = rating.seaLevelSpecificImpulse();
+         if (!finite(mass, thrust, vacuumIsp, seaLevelIsp, drag, electricCapacity)
+                 || fuelCapacity.values().stream().anyMatch(value -> !Double.isFinite(value))) {
+             return Optional.empty();
+@@ -222,8 +242,13 @@ public record BakedPart(
+
+         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
+                 drag, Double.isFinite(heat) ? heat : 0, electricCapacity, impactResistance);
++        var types = EnumSet.copyOf(PartType.classify(structure.values()));
++        if (!engines.isEmpty()) {
++            types.remove(PartType.STRUCTURAL);
++            types.add(PartType.ENGINE);
++        }
+         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
+-                PartType.classify(structure.values()), scales.getFirst(), connectors));
++                types, scales.getFirst(), connectors, Optional.empty(), engines));
+     }
+
+     private static boolean finite(double... values) {
+@@ -261,6 +286,14 @@ public record BakedPart(
+         private final Vec3 size;
+         private final int hash;
+
++        static Geometry box(BlockPos size) {
++            var blocks = new ArrayList<StructureBlock>();
++            for (BlockPos pos : BlockPos.betweenClosed(BlockPos.ZERO, size.offset(-1, -1, -1))) {
++                blocks.add(new StructureBlock(pos, Blocks.BARRIER.defaultBlockState()));
++            }
++            return new Geometry(blocks);
++        }
++
+         private Geometry(List<StructureBlock> blocks) {
+             this.blocks = blocks.stream().sorted(Comparator.comparing(StructureBlock::pos)).toList();
+             int width = 0;
+diff --git a/io/github/jxt159753/blockspaceprogram/part/BakingTableBlock.java b/io/github/jxt159753/blockspaceprogram/part/BakingTableBlock.java
+index b318252..bfaf6ea 100644
+--- a/io/github/jxt159753/blockspaceprogram/part/BakingTableBlock.java
++++ b/io/github/jxt159753/blockspaceprogram/part/BakingTableBlock.java
+@@ -56,6 +56,10 @@ public final class BakingTableBlock extends Block {
+                 return ItemInteractionResult.FAIL;
+             }
+             if (part != null) {
++                if (part.displayModel().isPresent()) {
++                    reject(serverPlayer, "template_disassembly");
++                    return ItemInteractionResult.FAIL;
++                }
+                 dismantle(serverPlayer, stack, part);
+             }
+         }
+@@ -78,6 +82,8 @@ public final class BakingTableBlock extends Block {
+             part = BakedPart.bake(structure).orElse(null);
+         } catch (PartConnector.InvalidConnector error) {
+             return reject(player, "connector_" + error.reason, error.pos.toShortString());
++        } catch (ModularEngines.SharedNozzle error) {
++            return reject(player, "shared_nozzle");
+         }
+         if (part == null) {
+             return reject(player, "invalid_properties");

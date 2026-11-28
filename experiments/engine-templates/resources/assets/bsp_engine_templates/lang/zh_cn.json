@@ -1,0 +1,7 @@
+{
+  "block.blockspaceprogram.combustion_chamber": "燃烧室",
+  "block.blockspaceprogram.nozzle_segment": "喷管段",
+  "assembly.blockspaceprogram.exhaust_blocked": "喷口受阻。请检查分级。",
+  "block.blockspaceprogram.baking_table.shared_nozzle": "一个喷管只能连接一个燃烧室。",
+  "block.blockspaceprogram.baking_table.template_disassembly": "成品零件无法在烘焙台拆解。"
+}

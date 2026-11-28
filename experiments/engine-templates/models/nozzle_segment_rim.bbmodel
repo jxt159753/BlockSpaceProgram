@@ -1,0 +1,20 @@
+{
+  "meta": {"format_version": "5.0", "model_format": "java_block", "box_uv": false},
+  "name": "nozzle_segment_rim",
+  "parent": "minecraft:block/block",
+  "ambientocclusion": true,
+  "resolution": {"width": 16, "height": 16},
+  "elements": [
+    {"name": "Top flange edge", "type": "cube", "box_uv": false, "autouv": 0, "origin": [0, 0, 0], "export": true, "faces": {"north": {"uv": [0, 0, 16, 3], "texture": 1}, "east": {"uv": [15, 0, 16, 3], "texture": null}, "south": {"uv": [0, 0, 16, 3], "texture": null}, "west": {"uv": [0, 0, 1, 3], "texture": null}, "up": {"uv": [0, 0, 16, 1], "texture": null}, "down": {"uv": [0, 15, 16, 16], "texture": null}}, "uuid": "5f8988d9-0ead-55f2-8332-73958e6d6ce0", "from": [0, 13, 0], "to": [16, 16, 1]},
+    {"name": "Outer shoulder", "type": "cube", "box_uv": false, "autouv": 0, "origin": [0, 0, 0], "export": true, "faces": {"north": {"uv": [0, 3, 16, 7], "texture": 0}, "east": {"uv": [10, 3, 13, 7], "texture": null}, "south": {"uv": [0, 3, 16, 7], "texture": 2}, "west": {"uv": [3, 3, 6, 7], "texture": null}, "up": {"uv": [0, 3, 16, 6], "texture": 1}, "down": {"uv": [0, 10, 16, 13], "texture": 2}}, "uuid": "6db0d6bf-abaa-50a8-b4ea-6a907c38f121", "from": [0, 9, 3], "to": [16, 13, 6]},
+    {"name": "Exhaust wall", "type": "cube", "box_uv": false, "autouv": 0, "origin": [0, 0, 0], "export": true, "faces": {"north": {"uv": [0, 7, 16, 13], "texture": 0}, "east": {"uv": [11, 7, 15, 13], "texture": null}, "south": {"uv": [0, 7, 16, 13], "texture": 2}, "west": {"uv": [1, 7, 5, 13], "texture": null}, "up": {"uv": [0, 1, 16, 5], "texture": 1}, "down": {"uv": [0, 11, 16, 15], "texture": 2}}, "uuid": "20efd0c3-851d-5f13-8a95-4b39505d695e", "from": [0, 3, 1], "to": [16, 9, 5]},
+    {"name": "Lip", "type": "cube", "box_uv": false, "autouv": 0, "origin": [0, 0, 0], "export": true, "faces": {"north": {"uv": [0, 13, 16, 16], "texture": 1}, "east": {"uv": [12, 13, 16, 16], "texture": null}, "south": {"uv": [0, 13, 16, 16], "texture": 2}, "west": {"uv": [0, 13, 4, 16], "texture": null}, "up": {"uv": [0, 0, 16, 4], "texture": 1}, "down": {"uv": [0, 12, 16, 16], "texture": 1}}, "uuid": "251f1c17-721b-5456-aeff-9c662793a945", "from": [0, 0, 0], "to": [16, 3, 4]}
+  ],
+  "groups": [],
+  "outliner": ["5f8988d9-0ead-55f2-8332-73958e6d6ce0", "6db0d6bf-abaa-50a8-b4ea-6a907c38f121", "20efd0c3-851d-5f13-8a95-4b39505d695e", "251f1c17-721b-5456-aeff-9c662793a945"],
+  "textures": [
+    {"name": "smooth_basalt.png", "id": "smooth_basalt", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/smooth_basalt.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": true, "visible": true, "internal": false, "uuid": "df4aa6a6-9e20-5c09-a059-c2dada40e5c7"},
+    {"name": "iron_block.png", "id": "iron_block", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/iron_block.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": false, "visible": true, "internal": false, "uuid": "4beaeb68-6776-5282-9024-02866c2db566"},
+    {"name": "polished_blackstone.png", "id": "polished_blackstone", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/polished_blackstone.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": false, "visible": true, "internal": false, "uuid": "a20d9d6a-ac16-5f9e-830a-7c52450d9483"}
+  ]
+}

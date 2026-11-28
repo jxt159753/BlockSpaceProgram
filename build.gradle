@@ -149,3 +149,11 @@ if (providers.gradleProperty('surfaceColorMap').isPresent()) {
 if (providers.gradleProperty('functionBlockModels').isPresent()) {
     apply from: 'experiments/function-block-models/function-block-models.gradle'
 }
+
+if (providers.gradleProperty('engineTemplates').isPresent()) {
+    apply from: 'experiments/engine-templates/engine-templates.gradle'
+} else {
+    tasks.named('compileTestJava', JavaCompile) {
+        source 'experiments/engine-templates/java/io/github/jxt159753/blockspaceprogram/part/EnginePerformance.java'
+    }
+}

@@ -1,0 +1,19 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "minecraft:block/smooth_basalt",
+    "cap": "minecraft:block/iron_block",
+    "dark": "minecraft:block/polished_blackstone"
+  },
+  "elements": [
+    {
+      "name": "Shared plate",
+      "from": [0, 13, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "up": {"texture": "#cap"},
+        "down": {"texture": "#dark"}
+      }
+    }
+  ]
+}

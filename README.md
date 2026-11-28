@@ -42,6 +42,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 
 喷管的 JSON 与 OBJ 模型对照、截图和顶点计数见原型记录。 [功能方块模型原型](experiments/function-block-models/README.md)
 
+成品发动机和多方块喷管的试制、装配与验收记录见原型说明。 [发动机原型](experiments/engine-templates/README.md)
+
 用 `/bsp_bench` 复测零件渲染和飞船压力场景。 [性能基准命令](docs/benchmark.md)
 
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。

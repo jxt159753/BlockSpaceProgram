@@ -1,0 +1,66 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class PrepareEngineTemplateSources extends DefaultTask {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getBaseSources()
+
+    @InputFile @PathSensitive(PathSensitivity.NONE)
+    abstract RegularFileProperty getIntegrationPatch()
+
+    @OutputDirectory
+    abstract DirectoryProperty getPatchedSources()
+
+    @Inject
+    abstract FileSystemOperations getFiles()
+
+    @Inject
+    abstract ExecOperations getProcesses()
+
+    @TaskAction
+    void prepare() {
+        files.sync {
+            from baseSources
+            into patchedSources
+        }
+        File output = patchedSources.get().asFile
+        String patch = integrationPatch.get().asFile.getText('UTF-8').replace('\r\n', '\n')
+        processes.exec {
+            workingDir output
+            // Apply the integration patch to the generated sources outside Git's worktree discovery.
+            environment 'GIT_CEILING_DIRECTORIES', output.parent
+            standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
+            commandLine 'git', 'apply', '--whitespace=nowarn', '-'
+        }
+    }
+}
+
+def experiment = 'experiments/engine-templates'
+def prepare = tasks.register('prepareEngineTemplateSources', PrepareEngineTemplateSources) {
+    baseSources = layout.projectDirectory.dir('src/main/java')
+    integrationPatch = layout.projectDirectory.file("${experiment}/integration.patch")
+    patchedSources = layout.buildDirectory.dir('generated/engineTemplateSources')
+}
+
+sourceSets.main.java.setSrcDirs(["${experiment}/java"])
+sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources })
+sourceSets.main.resources.srcDir "${experiment}/resources"
+
+neoForge.runs.register('engineTemplatesServer') {
+    server()
+    gameDirectory = file('runs/engineTemplates/server')
+    programArgument '--nogui'
+}
+
+neoForge.runs.register('engineTemplatesClient') {
+    client()
+    gameDirectory = file('runs/engineTemplates/client')
+    programArguments.addAll('--username', 'EngineTester')
+    if (providers.gradleProperty('engineTemplatesJoin').isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', providers.gradleProperty('engineTemplatesJoin').get())
+    }
+}
+
+tasks.named('runEngineTemplatesServer', JavaExec) {
+    standardInput = System.in
+}
