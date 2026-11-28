@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -39,7 +40,8 @@ public record BakedPart(
         List<PartEngine> engines,
         Optional<ResourceLocation> displayModel,
         Optional<Component> name,
-        List<PartParachute> parachutes) {
+        List<PartParachute> parachutes,
+        List<PartRcsThruster> rcs) {
 
     public static final int MAX_SIDE = 9;
     public static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
@@ -59,7 +61,8 @@ public record BakedPart(
             PartEngine.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("engines").forGetter(part -> Optional.of(part.engines())),
             ResourceLocation.CODEC.optionalFieldOf("display_model").forGetter(BakedPart::displayModel),
             ComponentSerialization.CODEC.optionalFieldOf("name").forGetter(BakedPart::name),
-            PartParachute.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("parachutes", List.of()).forGetter(BakedPart::parachutes)
+            PartParachute.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("parachutes", List.of()).forGetter(BakedPart::parachutes),
+            PartRcsThruster.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("rcs", List.of()).forGetter(BakedPart::rcs)
     ).apply(instance, BakedPart::fromSaved));
 
     private static final StreamCodec<ByteBuf, BlockPartProperties> PROPERTIES_STREAM =
@@ -70,16 +73,20 @@ public record BakedPart(
             PartEngine.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
     private static final StreamCodec<FriendlyByteBuf, List<PartParachute>> PARACHUTE_STREAM =
             PartParachute.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
+    private static final StreamCodec<FriendlyByteBuf, List<PartRcsThruster>> RCS_STREAM =
+            PartRcsThruster.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
     // The block count fits in ten bits, leaving room for optional fields.
     private static final int TEMPLATE_FIELDS = 1 << 10;
     private static final int PARACHUTE_FIELDS = 1 << 11;
+    private static final int RCS_FIELDS = 1 << 12;
     private static final StreamCodec<ByteBuf, Optional<ResourceLocation>> DISPLAY_MODEL_STREAM =
             ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC);
     public static final StreamCodec<RegistryFriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
         boolean hasTemplateFields = part.isTemplatePart();
         boolean hasParachutes = !part.parachutes().isEmpty();
+        boolean hasRcs = !part.rcs().isEmpty();
         buffer.writeVarInt(part.blocks().size() | (hasTemplateFields ? TEMPLATE_FIELDS : 0)
-                | (hasParachutes ? PARACHUTE_FIELDS : 0));
+                | (hasParachutes ? PARACHUTE_FIELDS : 0) | (hasRcs ? RCS_FIELDS : 0));
         for (StructureBlock block : part.blocks()) {
             BlockPos pos = block.pos();
             buffer.writeShort(pos.getX() | pos.getY() << 4 | pos.getZ() << 8);
@@ -103,11 +110,15 @@ public record BakedPart(
         if (hasParachutes) {
             PARACHUTE_STREAM.encode(buffer, part.parachutes());
         }
+        if (hasRcs) {
+            RCS_STREAM.encode(buffer, part.rcs());
+        }
     }, buffer -> {
         int header = buffer.readVarInt();
         boolean hasTemplateFields = (header & TEMPLATE_FIELDS) != 0;
         boolean hasParachutes = (header & PARACHUTE_FIELDS) != 0;
-        int size = header & ~(TEMPLATE_FIELDS | PARACHUTE_FIELDS);
+        boolean hasRcs = (header & RCS_FIELDS) != 0;
+        int size = header & ~(TEMPLATE_FIELDS | PARACHUTE_FIELDS | RCS_FIELDS);
         if (size < 1 || size > MAX_BLOCKS) {
             throw new DecoderException("Invalid baked geometry size: " + size);
         }
@@ -123,7 +134,8 @@ public record BakedPart(
                 buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer), ENGINE_STREAM.decode(buffer),
                 hasTemplateFields ? DISPLAY_MODEL_STREAM.decode(buffer) : Optional.empty(),
                 hasTemplateFields ? ComponentSerialization.OPTIONAL_STREAM_CODEC.decode(buffer) : Optional.empty(),
-                hasParachutes ? PARACHUTE_STREAM.decode(buffer) : List.of());
+                hasParachutes ? PARACHUTE_STREAM.decode(buffer) : List.of(),
+                hasRcs ? RCS_STREAM.decode(buffer) : List.of());
     });
 
     public BakedPart {
@@ -135,14 +147,22 @@ public record BakedPart(
         connectors = connectors.stream().map(connector -> connector.atScale(scale)).toList();
         engines = List.copyOf(engines);
         parachutes = List.copyOf(parachutes);
+        rcs = List.copyOf(rcs);
     }
 
     private static BakedPart fromSaved(Geometry geometry, BlockPartProperties properties, Vec3 center,
             InertiaTensor inertia, Set<PartType> types, float scale, List<PartConnector> connectors,
             Optional<List<PartEngine>> engines, Optional<ResourceLocation> displayModel, Optional<Component> name,
-            List<PartParachute> parachutes) {
+            List<PartParachute> parachutes, List<PartRcsThruster> rcs) {
         return new BakedPart(geometry, properties, center, inertia, types, scale, connectors,
-                engines.orElseGet(() -> legacyEngines(geometry, properties, types)), displayModel, name, parachutes);
+                engines.orElseGet(() -> legacyEngines(geometry, properties, types)), displayModel, name, parachutes, rcs);
+    }
+
+    public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
+            Set<PartType> types, float scale, List<PartConnector> connectors, List<PartEngine> engines,
+            Optional<ResourceLocation> displayModel, Optional<Component> name, List<PartParachute> parachutes) {
+        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, engines, displayModel, name,
+                parachutes, List.of());
     }
 
     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
@@ -184,7 +204,7 @@ public record BakedPart(
 
     public BakedPart withScale(float newScale) {
         return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors, engines,
-                displayModel, name, parachutes);
+                displayModel, name, parachutes, rcs);
     }
 
     private static float migrateScale(float scale) {
@@ -216,6 +236,10 @@ public record BakedPart(
     }
 
     public static Optional<BakedPart> bake(Map<BlockPos, BlockState> structure) {
+        return bake(structure, PartRcsThruster::lookup);
+    }
+
+    static Optional<BakedPart> bake(Map<BlockPos, BlockState> structure, Function<BlockState, PartRcsThruster.Performance> rcsProfiles) {
         BlockPos origin = new BlockPos(
                 structure.keySet().stream().mapToInt(BlockPos::getX).min().orElseThrow(),
                 structure.keySet().stream().mapToInt(BlockPos::getY).min().orElseThrow(),
@@ -243,6 +267,7 @@ public record BakedPart(
         double heat = Double.POSITIVE_INFINITY;
         double electricCapacity = 0;
         double electricPower = 0;
+        double wheelTorque = 0;
         double impactResistance = Double.POSITIVE_INFINITY;
         Map<ResourceLocation, Double> fuelCapacity = new HashMap<>();
         for (int i = 0; i < contributions.size(); i++) {
@@ -260,6 +285,7 @@ public record BakedPart(
                 heat = Math.min(heat, contribution.heatResistance());
             }
             electricCapacity += contribution.electricCapacity();
+            wheelTorque += contribution.wheelTorque();
             impactResistance = Math.min(impactResistance, contribution.impactResistance());
             contribution.fuelCapacity().forEach((fuel, amount) -> fuelCapacity.merge(fuel, amount, Double::sum));
         }
@@ -274,7 +300,7 @@ public record BakedPart(
             engines = PartEngine.legacy(geometry, rating, electricPower, false);
         }
         if (!finite(mass, rating.thrust(), rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(),
-                electricCapacity, electricPower)
+                electricCapacity, electricPower, wheelTorque)
                 || fuelCapacity.values().stream().anyMatch(value -> !Double.isFinite(value))) {
             return Optional.empty();
         }
@@ -311,11 +337,12 @@ public record BakedPart(
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, rating.thrust(), rating.vacuumSpecificImpulse(),
                 rating.seaLevelSpecificImpulse(), BlockPartProperties.DEFAULT_DRAG_COEFFICIENT, Double.isFinite(heat) ? heat : 0,
-                electricCapacity, electricPower, impactResistance);
+                electricCapacity, electricPower, impactResistance, wheelTorque);
         var parachutes = PartParachute.bake(blocks);
+        var rcs = PartRcsThruster.bake(blocks, rcsProfiles);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
                 PartType.classify(structure.values(), !engines.isEmpty(), !parachutes.isEmpty()), scales.getFirst(), connectors,
-                engines, Optional.empty(), Optional.empty(), parachutes));
+                engines, Optional.empty(), Optional.empty(), parachutes, rcs));
     }
 
     static boolean finite(double... values) {

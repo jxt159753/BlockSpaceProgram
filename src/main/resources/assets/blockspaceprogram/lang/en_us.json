@@ -349,5 +349,18 @@
   "surface_map.blockspaceprogram.no_regeneration": "No surface maps are eligible for regeneration. See the server log.",
   "surface_map.blockspaceprogram.unknown_body": "No celestial body has the dimension ID %s.",
   "surface_map.blockspaceprogram.unavailable": "No surface map is available for %s.",
-  "surface_map.blockspaceprogram.cell": "Surface map biome at %s, %s: %s"
+  "surface_map.blockspaceprogram.cell": "Surface map biome at %s, %s: %s",
+  "block.blockspaceprogram.rcs_thruster": "RCS Thruster",
+  "key.blockspaceprogram.toggle_rcs": "Toggle RCS",
+  "key.blockspaceprogram.translate_left": "Translate Left",
+  "key.blockspaceprogram.translate_right": "Translate Right",
+  "key.blockspaceprogram.translate_up": "Translate Up",
+  "key.blockspaceprogram.translate_down": "Translate Down",
+  "key.blockspaceprogram.translate_forward": "Translate Forward",
+  "key.blockspaceprogram.translate_back": "Translate Back",
+  "flight.blockspaceprogram.rcs_on": "RCS On",
+  "flight.blockspaceprogram.rcs_off": "RCS Off",
+  "assembly.blockspaceprogram.rcs_translation": "RCS Translation",
+  "assembly.blockspaceprogram.rcs_thrust": "%s  %s N",
+  "assembly.blockspaceprogram.rcs_unavailable": "%s  No pure thrust"
 }

@@ -40,6 +40,7 @@
 | `electric_capacity` | 电量容量，J | `0.0` |
 | `electric_power` | 满推力时的耗电功率，W | `0.0` |
 | `impact_resistance` | 耐冲击速度，m/s | `8.0` |
+| `wheel_torque` | 反作用轮扭矩，N·m | `0.0` |
 
 所有数值须为有限非负数。内置燃料 ID 为 `blockspaceprogram:fuel`。当前飞行计算将容量表中的各项合计为可用燃料。未配置的非空气方块使用表中的默认值，空气的属性为零。模组内置木板、铁块、空炼药锅、燃烧室和喷管段的属性，可用优先级更高的数据包覆盖。同一方块匹配多条条目时，后加载的记录整体覆盖先加载的记录，省略的字段取默认值。 [NeoForge Data Maps](https://docs.neoforged.net/docs/1.21.1/resources/server/datamaps/)
 
@@ -48,6 +49,26 @@
 烘焙时将各方块的电量容量相加。没有燃烧室时，零件的 `electric_power` 取有推力方块的功率加权平均值，权重为各方块的推力。汇总功率与汇总推力一起平分给各个带标签的喷口。有燃烧室时，推力、比冲和耗电由 `engine_performance` 提供。拼装发动机的功率按台记录，功率大于零的发动机同时消耗燃料和电力。 [拼装发动机](engines.md)
 
 零件烘焙时取组成方块中最低的耐冲击速度。旧零件和蓝图中的零件使用 8 m/s 的默认耐冲击速度。 [着陆和撞击损坏](flight.md#着陆)
+
+烘焙时将方块的 `wheel_torque` 相加。飞行时只有完好零件提供扭矩。指令舱的内置扭矩可在服务端配置中调整。 [RCS 与反作用轮](flight.md#rcs-平移)
+
+## RCS 性能
+
+在数据包的 `data/blockspaceprogram/data_maps/block/rcs_performance.json` 中按方块配置。下面是内置条目。
+
+```json
+{
+  "values": {
+    "blockspaceprogram:rcs_thruster": {
+      "thrust": 350,
+      "isp": 220,
+      "electric_power": 0
+    }
+  }
+}
+```
+
+`thrust` 为额定推力，单位 N。`isp` 为比冲，单位 s。两者都须大于 0。`electric_power` 为额定耗电功率，单位 W，默认 0。烘焙时将喷口位置、排气方向和性能写入 `part_data.rcs`。执行 `/reload` 后，新烘焙的零件使用更新的数值。已烘焙的零件保留原来的喷口列表。 [成品模板](engines.md#零件模板)
 
 ## 降落伞性能
 
@@ -75,4 +96,4 @@
 - 有任意一种正容量燃料的方块使结构具备燃料舱类型 `FUEL_TANK`。
 - 一个结构可以同时具备多种功能类型。无功能类型的结构归为 `STRUCTURAL`。
 
-执行 `/reload` 后，新烘焙的零件使用更新后的属性和标签。已烘焙的零件保留当时的属性、发动机和降落伞列表。 [烘焙与拆解](part-baking.md)
+执行 `/reload` 后，新烘焙的零件使用更新后的属性和标签。已烘焙的零件保留当时的属性、发动机、RCS 和降落伞列表。 [烘焙与拆解](part-baking.md)

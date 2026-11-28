@@ -58,6 +58,13 @@ public final class ShipCollisionLayout {
 
     /** Bounds within one block, also in quarters. Mass includes the contributions of all parts in the cell. */
     public record Cell(BlockPos min, BlockPos max, double mass) {
+        public Vec3 center(BlockPos pos) {
+            return Vec3.atLowerCornerOf(pos)
+                    .add((min.getX() + max.getX()) / (2.0 * QUARTERS),
+                         (min.getY() + max.getY()) / (2.0 * QUARTERS),
+                         (min.getZ() + max.getZ()) / (2.0 * QUARTERS));
+        }
+
         private Cell enclose(Cell other) {
             return new Cell(minimum(min, other.min), maximum(max, other.max), mass + other.mass);
         }

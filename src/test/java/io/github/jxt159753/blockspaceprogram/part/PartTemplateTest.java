@@ -6,11 +6,15 @@ import io.netty.buffer.Unpooled;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.SharedConstants;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.loading.LoadingModList;
 import org.junit.BeforeClass;
@@ -81,8 +85,49 @@ public class PartTemplateTest {
         var part = decode(template.formatted(BakedPart.MAX_SIDE)).bake().getOrThrow();
         assertTrue(part.isTemplatePart());
         assertTrue(part.displayModel().isEmpty());
+        assertTrue(part.rcs().isEmpty());
+        assertEquals(0, part.properties().wheelTorque(), 0);
         assertEquals(BakedPart.MAX_SIDE, part.blocks().size());
         assertFalse(decode(template.formatted(BakedPart.MAX_SIDE + 1)).bake().isSuccess());
+    }
+
+    @Test
+    public void copiesTheSameRcsOutletsFromBlocksAndTemplates() {
+        var block = Blocks.DISPENSER.defaultBlockState().setValue(BlockStateProperties.FACING, Direction.EAST);
+        var west = block.setValue(BlockStateProperties.FACING, Direction.WEST);
+        var structure = Map.of(new BlockPos(8, 16, 24), block, new BlockPos(9, 16, 24), west);
+        var profile = new PartRcsThruster.Performance(350, 220, 0);
+        var baked = BakedPart.bake(structure, state -> profile).orElseThrow();
+        assertTrue(baked.engines().isEmpty());
+        var template = decode("""
+                {
+                  "name": "RCS pair", "size": [2, 1, 1], "connectors": [], "engines": [],
+                  "properties": {"wheel_torque": 23},
+                  "rcs": [
+                    {"outlet": {"position": [1, 0.5, 0.5], "face": "east"},
+                     "performance": {"thrust": 350, "isp": 220}},
+                    {"outlet": {"position": [1, 0.5, 0.5], "face": "west"},
+                     "performance": {"thrust": 350, "isp": 220}}
+                  ]
+                }
+                """).bake().getOrThrow().withScale(0.25F);
+        assertEquals(baked.rcs(), template.rcs());
+        assertEquals(23, template.properties().wheelTorque(), 0);
+        var nbt = BakedPart.CODEC.encodeStart(NbtOps.INSTANCE, baked).getOrThrow();
+        assertEquals(baked.rcs(), BakedPart.CODEC.parse(NbtOps.INSTANCE, nbt).getOrThrow().rcs());
+        assertFalse(baked.rcs().equals(BakedPart.bake(structure,
+                state -> new PartRcsThruster.Performance(500, 220, 30)).orElseThrow().rcs()));
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        try {
+            BakedPart.STREAM_CODEC.encode(buffer, template);
+            buffer.writeInt(123);
+            var synced = BakedPart.STREAM_CODEC.decode(buffer);
+            assertEquals(template.rcs(), synced.rcs());
+            assertEquals(23, synced.properties().wheelTorque(), 0);
+            assertEquals(123, buffer.readInt());
+        } finally {
+            buffer.release();
+        }
     }
 
     private static PartTemplate decode(String json) {
