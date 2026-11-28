@@ -1,0 +1,50 @@
+# 并联分级与推力矢量原型
+
+#117 采用 A/A/A。用 `-PparallelStaging` 启用原型。Gradle 用 Git 将补丁应用到 `build/generated/sources/parallelStaging/` 的 Java 源码副本。 [设计决策 #117](https://github.com/jxt159753/BlockSpaceProgram/issues/117)
+
+## 规则
+
+- `engine_stage` 表示点火级。留在船上、完好且仍能供油的发动机可以在后续级继续工作。每级先分离，再执行本级点火。
+- 每段燃烧先把发动机推力按船体坐标相加。有效比冲等于合推力的模除以标准重力和总质量流量的乘积。即使合推力为零，发动机照常耗油。
+- 装配台假设待分离的在用燃料组耗尽后切级。若多组耗尽时刻不同，取其中最晚的时刻。若下一级没有待丢弃且仍在供油的组，本级烧到可用燃料耗尽。
+- 表面模式下，来件的分离接口可以直接贴到芯级表面。二重对称生成两条可分离连接。各连接可分配到指定级。
+
+## 专用服实测
+
+Minecraft 1.21.1、NeoForge 21.1.267、Sable 2.0.6，使用主世界超平坦存档。原型数据包将侦测器设为测试喷管，橡木木板设为指令舱标记。三台发动机的有效排气速度均为 1,000 m/s，单台推力为 8,000 N。
+
+| 验证项 | 观测结果 |
+| --- | --- |
+| 并联分级 Δv | 第一级 194.156 m/s，燃烧 5.0 s。第二级 832.909 m/s，燃烧 32.5 s。装配估算与 JUnit 4 手算一致。 |
+| 两重对称侧挂 | 装配台的放置逻辑生成两条表面分离连接，分别位于芯级东西两侧。第二级触发两枚助推器分离，保留芯级。 |
+| 分离后续推 | 分离时海拔 322.659 m，世界坐标 Y=385.659，速度 117.002 m/s。芯级继续输出 8,000 N，剩余燃料从 259.2 kg 降到 257.6 kg。 |
+| 反向双机 | 近地飞行合推力为 0 N，3 s 内消耗 48 kg 燃料。客户端载入蓝图后，装配台第一级显示 Δv 为 0.0 m/s、燃烧时间为 5.0 s。轨道服务端拒绝规划 5 m/s 机动，预先排入的同一机动在执行时也被取消，速度变化为 0 m/s。 |
+| 反作用轮 | 同一偏置布局在 80 N 下燃烧 3 s。手动模式姿态偏离 121.92°，角速度 1.356 rad/s。姿态保持模式偏离 4.96°，角速度降到 0.00060 rad/s。推力增到 8,000 N 后，姿态保持模式仍以 151.66 rad/s 转动。 |
+| 无 Sable 专用服 | 挂载同一对助推器的蓝图可在发射台生成静态飞船。 |
+
+第一级满油质量为 680 kg。三台发动机各以 8 kg/s 烧 5 s，剩余 560 kg。由火箭方程得到 `1000 × ln(680 / 560) = 194.156 m/s`。分离丢弃 100 kg 助推器干质量，芯级剩 460 kg。芯级烧至干质量 200 kg，得到 `1000 × ln(460 / 200) = 832.909 m/s`。
+
+轨道地图在线传输沿用每组的标量推力。正式接入时需要让轨道地图也接收各燃料组的推力方向，以显示跨组抵消。
+
+## 复测
+
+从仓库根目录执行 `./gradlew -PparallelStaging build`。Windows PowerShell 用 `.\gradlew.bat -PparallelStaging build`。原型算例位于 `src/test/parallel-staging/`。
+
+准备一个新存档。在 `runs/parallelStaging/` 接受 Minecraft EULA，并将 Sable 2.0.6 的 NeoForge JAR 放进 `mods/`。用以下内容设置 `server.properties`。 [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)
+
+```properties
+server-ip=127.0.0.1
+server-port=0
+online-mode=false
+level-name=parallel-staging
+level-type=minecraft:flat
+generator-settings={"biome":"minecraft:plains","layers":[{"height":1,"block":"minecraft:bedrock"}],"structure_overrides":[]}
+spawn-protection=0
+view-distance=3
+simulation-distance=3
+difficulty=peaceful
+```
+
+执行 `./gradlew -PparallelStaging runParallelStaging`。Gradle 会把测试数据包放入指定存档。验收程序从发射台发射样本，完成后自动关服。日志 `runs/parallelStaging/logs/latest.log` 中应出现 `PARALLEL STAGING PASS all dedicated server checks`。
+
+复测无 Sable 场景时，在 `runs/parallelStagingWithoutSable/` 准备同样的 EULA 和服务器配置，留空 `mods/`。执行 `./gradlew -PparallelStaging -PparallelStagingWithoutSable runParallelStaging`。日志应出现 `PARALLEL STAGING PASS static launch without Sable`。
