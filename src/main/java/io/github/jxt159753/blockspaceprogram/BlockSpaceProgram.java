@@ -121,6 +121,8 @@ public final class BlockSpaceProgram {
             "parachute", Block::new, BlockBehaviour.Properties.of().strength(2.0F).noOcclusion());
     public static final DeferredBlock<Block> FAIRING_PANEL = BLOCKS.registerSimpleBlock(
             "fairing_panel", BlockBehaviour.Properties.of().strength(2.0F));
+    public static final DeferredBlock<Block> HEAT_SHIELD = BLOCKS.registerSimpleBlock(
+            "heat_shield", BlockBehaviour.Properties.of().strength(3.0F, 6.0F).requiresCorrectToolForDrops());
     public static final DeferredBlock<CollisionCellBlock> SHIP_COLLISION_CELL = BLOCKS.registerBlock(
             "ship_collision_cell", properties -> ModList.get().isLoaded("sable")
                     ? SableCollisionCellBlock.create(properties) : new CollisionCellBlock(properties),
@@ -167,6 +169,7 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(NOZZLE_SEGMENT);
         ITEMS.registerSimpleBlockItem(PARACHUTE);
         ITEMS.registerSimpleBlockItem(FAIRING_PANEL);
+        ITEMS.registerSimpleBlockItem(HEAT_SHIELD);
         CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup.blockspaceprogram.main"))
                 .icon(() -> new ItemStack(LAUNCH_PAD.get()))
@@ -180,6 +183,7 @@ public final class BlockSpaceProgram {
                     output.accept(NOZZLE_SEGMENT);
                     output.accept(PARACHUTE);
                     output.accept(FAIRING_PANEL);
+                    output.accept(HEAT_SHIELD);
                     ItemStack largeEngine = PartTemplate.creativeLargeEngine(parameters.holders());
                     if (!largeEngine.isEmpty()) {
                         output.accept(largeEngine);
