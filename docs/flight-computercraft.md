@@ -18,10 +18,12 @@
 | `setVerticalSpeed(mps)` | 设置目标垂直速度，负数表示下降 |
 | `setThrustToWeight(ratio)` | 设置非负的目标推重比 |
 | `setAxes(pitch, yaw, roll)` | 设置船体 X、Y、Z 轴输入，各值在 −1 到 1 之间，并切换为手动姿态模式 |
+| `setRcs(enabled)` | 用布尔值开关 RCS。关闭时清除平移指令 |
+| `setTranslation(x, y, z)` | 设置驾驶员坐标系中的平移输入。各分量须为 −1 到 1 之间的有限数值。RCS 开启时接收指令 |
 | `setAttitudeMode(mode)` | 接受 `manual`、`kill_rotation`、`hold`、`prograde`、`retrograde`。选择 `hold` 时记录当前姿态 |
 | `holdAttitude(pitch, yaw, roll)` | 保持指定姿态，角度单位为度，按 Y、X、Z 顺序表示旋转 |
 | `stage()` | 请求进入下一级。有后续级时返回 `true`。用分级事件确认已执行 |
-| `releaseControl()` | 主动交还控制权，关闭节流并保持当前姿态。交还成功时返回 `true` |
+| `releaseControl()` | 主动交还控制权，关闭节流、清除电脑的平移指令并保持当前姿态。交还成功时返回 `true` |
 
 | 遥测字段 | 单位或含义 |
 | --- | --- |
@@ -34,18 +36,35 @@
 | `thrust`、`availableThrust` | 实际合推力、已点火且完好有供能的发动机在满节流时的合推力，单位为 N。均取船体坐标中推力矢量和的大小 |
 | `gravity`、`thrustToWeight` | 当地重力加速度（m/s²）、实际推重比。重力为零时推重比返回 0 |
 | `throttle`、`axes` | 仲裁后的节流与姿态输入。姿态表键为 `pitch`、`yaw`、`roll` |
+| `rcs`、`translation` | RCS 开关状态和仲裁后的平移输入。平移表键为 `x`、`y`、`z`。RCS 关闭时各分量为 0 |
 | `stage`、`attitudeMode`、`throttleMode`、`landed` | 当前级（从 1 开始，待分级为 0）、模式 ID、着陆状态。节流模式 ID 为 `manual`、`direct`、`vertical_speed`、`thrust_to_weight` |
 | `planet` | 当前天体的 `seaLevel`、`radius`、`surfaceGravity`、`seaLevelDensity`、`atmosphereTop`、`scaleHeight`。维度没有配置时为 `nil` |
 
 电脑可用 `os.pullEvent()` 读取 `bsp_ship_fuel_depleted`、`bsp_ship_electric_depleted`、`bsp_ship_landed` 或 `bsp_ship_stage`。参数依次为事件名、外设连接名、飞船 UUID 和当前级。燃料事件表示正在供油的组耗尽。电量事件对应 `ShipFlightEvent.Kind.ELECTRIC_DEPLETED`，每次电推进烧完全船电量时发出一次。
 
-驾驶员按住某一轴的键时，该轴由驾驶员控制。按 X 关闭节流并清除自动节流设定值。已绑定的飞船跨维度或进入轨道层时，终端仍可查询遥测，飞控模式和设定值会随船交接。飞船按轨道数据传播时，物理飞控暂停，设定值在恢复实体后继续生效。节流、姿态和分级指令需要已加载的实体飞船。
+驾驶员按住某一姿态轴或平移轴的键时，该轴由驾驶员控制。按 X 关闭节流并清除自动节流设定值。已绑定的飞船跨维度或进入轨道层时，终端仍可查询遥测。节流和姿态模式及设定值随船交接。飞船按轨道数据传播时，物理飞控暂停。恢复实体后，节流和姿态设定值继续生效，RCS 为关闭状态。节流、姿态、分级和 RCS 指令需要已加载的实体飞船。
 
-电脑关机、断开线路、终端拆除或所在区块卸载后，飞船在下一次物理计算中关闭节流，并保持当时的姿态。船在轨道数据中时，可用 `releaseControl()` 主动交还之前取得的控制权。终端绑定随存档保存，控制权与设定值在重启后重置。
+电脑关机、断开线路、终端拆除或所在区块卸载后，飞船关闭节流、清除电脑的平移指令，并保持当时的姿态。船在轨道数据中时，可用 `releaseControl()` 主动交还之前取得的控制权。终端绑定随存档保存，控制权与设定值在重启后重置。
 
 每艘实体飞船同时接受一台电脑的物理飞控设定值。在终端继续加载的条件下，Sable 会为获得控制权的船保留区块加载票。每维度默认最多 8 艘，可在 `config/blockspaceprogram-server.toml` 的 `[flight]` 下调整 `maxRemoteShips`。释放控制或断开连接会移除这张票。恢复实体时如果所在维度的加载票已用完，飞船会关闭节流并保持当前姿态。 [性能预算 #22](https://github.com/jxt159753/BlockSpaceProgram/issues/22)
 
 Java 调用方可在服务端从 `AssembledShipEntity.flightControl()` 获取飞控接口，并订阅 `ShipFlightEvent`。接口使用 Java 的零基分级和与 Lua 相同的物理单位。
+
+## RCS 平移示例
+
+在装有 RCS 喷口且有可用燃料的飞船上运行。平移沿 `pilotRotation` 的坐标轴。+X、+Y、+Z 分别对应默认键位的右、上和 PageDown。越界或非有限分量会抛出 Lua 错误。驾驶员可用默认键 O 切换同一个 RCS 开关。
+
+```lua
+local flight = assert(peripheral.find("bsp_flight_terminal"))
+flight.setRcs(true)
+flight.setTranslation(0.35, 0, 0)
+sleep(1)
+
+local translation = flight.getTelemetry().translation
+print(translation.x, translation.y, translation.z)
+flight.setRcs(false)
+flight.releaseControl()
+```
 
 ## 轨道遥测与机动
 
@@ -61,7 +80,7 @@ Java 调用方可在服务端从 `AssembledShipEntity.flightControl()` 获取飞
 | `elements` | `semiMajorAxis`、`semiLatusRectum` 为 m，`eccentricity` 无量纲，`inclination`、`longitudeOfAscendingNode`、`argumentOfPeriapsis`、`meanAnomalyAtEpoch` 为弧度，`epochSeconds` 为历元秒数。抛物线的 `semiMajorAxis` 为 `nil` |
 | `maneuver` | 节点的 `seconds`、`prograde`、`normal`、`radial` 和 `queued`。没有草稿或已排队节点时为 `nil` |
 
-飞船按轨道数据传播时，顶层的 `dimension` 为 `blockspaceprogram:orbital_space`，顶层的 `position` 和 `velocity` 也使用天体惯性坐标。此时 `verticalSpeed` 为径向速度，姿态和角速度使用惯性轴，`throttle`、`thrust` 和 `axes` 为 0。
+飞船按轨道数据传播时，顶层的 `dimension` 为 `blockspaceprogram:orbital_space`，顶层的 `position` 和 `velocity` 也使用天体惯性坐标。此时 `verticalSpeed` 为径向速度，姿态和角速度使用惯性轴，`throttle`、`thrust`、`axes` 和 `translation` 为 0，`rcs` 为 `false`。
 
 | 方法 | 行为 |
 | --- | --- |

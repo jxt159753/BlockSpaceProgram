@@ -29,6 +29,57 @@ public class ShipFlightControlsTest {
     }
 
     @Test
+    public void pilotArbitratesTranslationOneAxisAtATime() {
+        var controls = new ShipFlightControls();
+        controls.setRcs(true);
+        controls.setTranslation(0.35, -0.25, 0.5);
+
+        var steered = controls.resolveTranslation(TRANSLATE_LEFT | TRANSLATE_FORWARD);
+        assertEquals(-1, steered.x, 0);
+        assertEquals(-0.25, steered.y, 0);
+        assertEquals(-1, steered.z, 0);
+        assertEquals(1, controls.resolveTranslation(TRANSLATE_UP).y, 0);
+        assertEquals(0, controls.resolveTranslation(TRANSLATE_LEFT | TRANSLATE_RIGHT).x, 0);
+        assertEquals(0.35, controls.resolveTranslation(0).x, 0);
+    }
+
+    @Test
+    public void disablingRcsClearsTranslationUntilNewInputArrives() {
+        var controls = new ShipFlightControls();
+        controls.setRcs(true);
+        controls.setTranslation(0.35, -0.25, 0.5);
+        controls.setRcs(false);
+
+        assertFalse(controls.rcsEnabled());
+        assertEquals(0, controls.resolveTranslation(TRANSLATE_RIGHT).lengthSquared(), 0);
+        controls.setTranslation(1, 1, 1);
+        controls.setRcs(true);
+        assertEquals(0, controls.resolveTranslation(0).lengthSquared(), 0);
+    }
+
+    @Test
+    public void releaseAndConnectionLossClearRemoteTranslation() {
+        var controls = new ShipFlightControls();
+        var heading = new Quaterniond();
+        var connected = new AtomicBoolean(true);
+        controls.connect(connected::get);
+        controls.setRcs(true);
+        controls.setTranslation(0.35, 0, 0);
+
+        assertFalse(controls.releaseRemote(() -> true, heading));
+        assertEquals(0.35, controls.resolveTranslation(0).x, 0);
+        assertTrue(controls.releaseRemote(controls.remote(), heading));
+        assertEquals(0, controls.resolveTranslation(0).lengthSquared(), 0);
+        assertEquals(1, controls.resolveTranslation(TRANSLATE_RIGHT).x, 0);
+
+        controls.connect(connected::get);
+        controls.setTranslation(-1, 1, 0);
+        connected.set(false);
+        assertTrue(controls.checkConnection(heading));
+        assertEquals(0, controls.resolveTranslation(0).lengthSquared(), 0);
+    }
+
+    @Test
     public void pilotThrottleOverrideResumesAutomationAndCutoffCancelsIt() {
         var controls = new ShipFlightControls();
         controls.setThrottle(DIRECT, 0.6);

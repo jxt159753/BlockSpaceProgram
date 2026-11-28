@@ -17,6 +17,10 @@ public interface ShipFlightControl {
 
     void setAxes(double pitch, double yaw, double roll);
 
+    void setRcs(boolean enabled);
+
+    void setTranslation(double x, double y, double z);
+
     void setAttitudeMode(AttitudeMode mode);
 
     void holdAttitude(double pitch, double yaw, double roll);
@@ -61,7 +65,17 @@ public interface ShipFlightControl {
                      Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double electric, double thrust,
                      double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
                      AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
-                     @Nullable PlanetFlightProperties planet, double verticalSpeed) {
+                     @Nullable PlanetFlightProperties planet, double verticalSpeed, boolean rcs, Vec3 translation) {
+        public Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
+                         Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double electric, double thrust,
+                         double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
+                         AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
+                         @Nullable PlanetFlightProperties planet, double verticalSpeed) {
+            this(shipId, dimension, position, velocity, altitude, attitude, angularVelocity, mass, fuel, electric, thrust,
+                    availableThrust, gravity, thrustToWeight, throttle, stage, attitudeMode, throttleMode, axes,
+                    landed, planet, verticalSpeed, false, Vec3.ZERO);
+        }
+
         public Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
                          Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double electric, double thrust,
                          double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
