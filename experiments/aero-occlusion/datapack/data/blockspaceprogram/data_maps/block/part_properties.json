@@ -1,0 +1,13 @@
+{
+  "values": {
+    "minecraft:raw_iron_block": { "mass": 350.0 },
+    "minecraft:iron_ore": { "mass": 50.0 },
+    "minecraft:spruce_planks": { "mass": 40.0, "drag_coefficient": 0.3 },
+    "minecraft:cut_copper": {
+      "mass": 25.0,
+      "thrust": 12000.0,
+      "vacuum_specific_impulse": 300.0,
+      "sea_level_specific_impulse": 270.0
+    }
+  }
+}
