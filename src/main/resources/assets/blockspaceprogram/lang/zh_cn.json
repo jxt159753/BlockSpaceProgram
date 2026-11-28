@@ -161,6 +161,7 @@
   "key.blockspaceprogram.cutoff": "关闭节流阀",
   "key.blockspaceprogram.cycle_attitude": "切换姿态模式",
   "key.blockspaceprogram.cycle_throttle": "切换节流模式",
+  "key.blockspaceprogram.toggle_ship_camera": "切换飞船视角",
   "flight.blockspaceprogram.modes": "姿态 %s   节流 %s",
   "flight.blockspaceprogram.orbit_heights": "海拔 %s m   近点 %s m",
   "flight.blockspaceprogram.attitude.manual": "手动",

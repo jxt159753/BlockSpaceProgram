@@ -12,6 +12,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
@@ -46,6 +47,9 @@ public final class ShipFlightClient {
         event.register(CUTOFF_KEY);
         event.register(ATTITUDE_KEY);
         event.register(THROTTLE_MODE_KEY);
+        if (ModList.get().isLoaded("sable")) {
+            SableShipCamera.register(event);
+        }
     }
 
     @SubscribeEvent
