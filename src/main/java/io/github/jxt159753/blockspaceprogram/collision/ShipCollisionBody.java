@@ -132,6 +132,10 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
         var pose = subLevel.logicalPose();
         var origin = pose.transformPosition(new Vector3d(plotOrigin.getX(), plotOrigin.getY(), plotOrigin.getZ()));
         var orientation = new Quaterniond(pose.orientation());
+        var previousCenter = new Vector3d(pose.position());
+        var pipeline = pipeline();
+        var linear = pipeline.getLinearVelocity(subLevel, new Vector3d());
+        var angular = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var positions = positions(cells, hull);
         var extras = new ArrayList<BlockPos>();
         for (var holder : subLevel.getPlot().getLoadedChunks()) {
@@ -156,13 +160,14 @@ public record ShipCollisionBody(ServerSubLevelContainer container, ServerSubLeve
         subLevel.buildMassTracker();
         assignMass(cells, hull);
         positionFromOrigin(origin, orientation);
+        // Keep the velocity at every ship-local point when the center of mass moves.
+        var centerShift = subLevel.logicalPose().position().sub(previousCenter, new Vector3d());
+        linear.add(angular.cross(centerShift, new Vector3d()));
+        pipeline.resetVelocity(subLevel);
+        pipeline.addLinearAndAngularVelocity(subLevel, linear, angular);
     }
 
     /** Restores the ship's mass after Sable builds its tracker from block defaults. */
-    public void assignMass(Map<BlockPos, Cell> cells) {
-        assignMass(cells, Map.of());
-    }
-
     private void assignMass(Map<BlockPos, Cell> cells, Map<BlockPos, SolidBlock> hull) {
         ServerLevel level = subLevel.getLevel();
         // Add the part mass before removing the defaults so the tracker keeps a positive total.

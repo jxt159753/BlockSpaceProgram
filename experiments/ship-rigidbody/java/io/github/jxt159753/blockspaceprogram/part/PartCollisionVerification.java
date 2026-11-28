@@ -5,10 +5,11 @@ import com.mojang.math.OctahedralGroup;
 import dev.ryanhcode.sable.api.sublevel.ticket.SubLevelLoadingTicketType;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
-import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
-import java.util.List;
+import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
@@ -89,8 +90,9 @@ public final class PartCollisionVerification {
     }
 
     private void startTrial(BakedPart sample) {
-        PartBox box = PartBox.fromPart(sample, BlockPos.ZERO, OctahedralGroup.IDENTITY);
-        var cells = ShipCollisionLayout.rasterize(List.of(box));
+        var cells = new LinkedHashMap<BlockPos, Cell>();
+        ShipCollisionLayout.addPart(cells, ShipCollisionLayout.rasterize(sample, BlockPos.ZERO, OctahedralGroup.IDENTITY),
+                sample.properties().mass());
         double expectedWidth = scaledTrial ? 1 : 4;
         check(cells.size() == expectedWidth && sample.modelToLocal(sample.geometry().size()).x == expectedWidth,
                 "Model width or cell count differs from " + expectedWidth);
@@ -100,7 +102,7 @@ public final class PartCollisionVerification {
         }
 
         var origin = new Vector3d(8.5 - expectedWidth / 2, 80, 20);
-        body = ShipCollisionBody.spawn(level, "part-collision-" + sample.scale(), List.of(box), origin, new Quaterniond());
+        body = ShipCollisionBody.spawn(level, "part-collision-" + sample.scale(), cells, origin, new Quaterniond());
         body.container().addForceLoadTicket(body.subLevel(), SubLevelLoadingTicketType.COMMAND_FORCED, Unit.INSTANCE);
         var plot = body.subLevel().getPlot().getEmbeddedLevelAccessor();
         double height = scaledTrial ? 0.25 : 1;
@@ -122,10 +124,8 @@ public final class PartCollisionVerification {
 
         var stack = new ItemStack(BlockSpaceProgram.BAKED_PART.get());
         stack.set(BlockSpaceProgram.PART_DATA, sample);
-        model = new PlacedPartEntity(BlockSpaceProgram.PLACED_PART.get(), level);
-        model.setPartStack(stack);
+        model = PlacedPartEntity.create(level, stack, Vec3.atLowerCornerOf(body.plotOrigin()), OctahedralGroup.IDENTITY);
         model.blocksBuilding = false;
-        model.setPos(Vec3.atLowerCornerOf(body.plotOrigin()));
         check(level.addFreshEntity(model), "Could not spawn the model preview");
         body.pipeline().addLinearAndAngularVelocity(body.subLevel(), new Vector3d(0, 0, 4), new Vector3d());
         ticks = 0;

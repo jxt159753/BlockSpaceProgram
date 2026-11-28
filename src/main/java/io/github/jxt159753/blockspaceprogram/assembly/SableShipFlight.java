@@ -205,12 +205,7 @@ public final class SableShipFlight implements ShipFlightControl {
         }
         var state = savedState(ship, design, savedFuel, savedStage);
         var body = new ShipCollisionBody(container, subLevel, origin);
-        if (state.hull().isEmpty()) {
-            body.assignMass(state.cells());
-            subLevel.updateLastPose();
-        } else {
-            body.restoreBlocks(state.cells(), state.hull());
-        }
+        body.restoreBlocks(state.cells(), state.hull());
         return new SableShipFlight(ship, body, state, design);
     }
 
