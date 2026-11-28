@@ -107,6 +107,8 @@ public final class FlightPeripheral implements IPeripheral {
         result.put("attitudeMode", data.attitudeMode().id());
         result.put("throttleMode", data.throttleMode().id());
         result.put("axes", Map.of("pitch", data.axes().x, "yaw", data.axes().y, "roll", data.axes().z));
+        result.put("rcs", data.rcs());
+        result.put("translation", vector(data.translation()));
         result.put("landed", data.landed());
         var planet = data.planet();
         if (planet != null) {
@@ -146,10 +148,23 @@ public final class FlightPeripheral implements IPeripheral {
 
     @LuaFunction(mainThread = true)
     public final void setAxes(IComputerAccess computer, IArguments args) throws LuaException {
-        double pitch = axis(args, 0);
-        double yaw = axis(args, 1);
-        double roll = axis(args, 2);
+        double pitch = axis(args, 0, "Attitude");
+        double yaw = axis(args, 1, "Attitude");
+        double roll = axis(args, 2, "Attitude");
         commandFlight(computer).setAxes(pitch, yaw, roll);
+    }
+
+    @LuaFunction(mainThread = true)
+    public final void setRcs(IComputerAccess computer, boolean enabled) throws LuaException {
+        commandFlight(computer).setRcs(enabled);
+    }
+
+    @LuaFunction(mainThread = true)
+    public final void setTranslation(IComputerAccess computer, IArguments args) throws LuaException {
+        double x = axis(args, 0, "Translation");
+        double y = axis(args, 1, "Translation");
+        double z = axis(args, 2, "Translation");
+        commandFlight(computer).setTranslation(x, y, z);
     }
 
     @LuaFunction(mainThread = true)
@@ -270,10 +285,10 @@ public final class FlightPeripheral implements IPeripheral {
         throw new LuaException("No loaded ship is bound to this flight terminal");
     }
 
-    private static double axis(IArguments args, int index) throws LuaException {
+    private static double axis(IArguments args, int index, String name) throws LuaException {
         double value = args.getFiniteDouble(index);
         if (value < -1 || value > 1) {
-            throw new LuaException("Attitude axes must be between -1 and 1");
+            throw new LuaException(name + " axes must be between -1 and 1");
         }
         return value;
     }

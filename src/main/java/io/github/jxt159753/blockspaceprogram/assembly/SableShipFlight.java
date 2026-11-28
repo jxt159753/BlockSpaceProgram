@@ -92,7 +92,6 @@ public final class SableShipFlight implements ShipFlightControl {
     private boolean stageRequested;
     private long inputExpiresAt = Long.MIN_VALUE;
     private boolean remoteTicket;
-    private boolean rcsEnabled;
     private double thrust;
     private boolean fuelDepleted;
     private boolean electricDepleted;
@@ -235,6 +234,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     void attach() {
+        controls.setRcs(false);
         flights.active.put(body.subLevel(), this);
         if (isInSpace() || ship.isBenchmark()) {
             body.container().addForceLoadTicket(body.subLevel(), HANDOFF_TICKET, Unit.INSTANCE);
@@ -741,7 +741,7 @@ public final class SableShipFlight implements ShipFlightControl {
                 }
             }
             if ((pressedKeys & TOGGLE_RCS) != 0) {
-                rcsEnabled = !rcsEnabled;
+                controls.setRcs(!controls.rcsEnabled());
             }
             controls.tickPilot(keys | (pressedKeys & CUTOFF));
             stageRequested |= (pressedKeys & STAGE) != 0;
@@ -768,7 +768,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     void syncStatus() {
-        ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage(), rcsEnabled);
+        ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage(), controls.rcsEnabled());
         ship.setParachuteStates(state.parachutes().snapshot());
         if (ship.level().getGameTime() % 4 == 0 || ship.reentryHeatRatio() == 0) {
             ship.setReentryStatus(state.reentryHeatRatio(), reentryWindward);
@@ -789,7 +789,8 @@ public final class SableShipFlight implements ShipFlightControl {
                 y - (planet == null ? 0 : planet.seaLevel()), attitude, motion.angularVelocity(),
                 mass, state.remainingFuel(), state.remainingElectric(), thrust, state.availableThrust().length(), gravity,
                 gravity > 0 ? thrust / (mass * gravity) : 0, controls.throttle(), state.stage(),
-                controls.attitudeMode(), controls.throttleMode(), vec(controls.axes()), landed, planet);
+                controls.attitudeMode(), controls.throttleMode(), vec(controls.axes()), landed, planet, motion.velocity().y,
+                controls.rcsEnabled(), vec(controls.resolveTranslation(keys)));
     }
 
     @Override
@@ -800,6 +801,16 @@ public final class SableShipFlight implements ShipFlightControl {
     @Override
     public void setAxes(double pitch, double yaw, double roll) {
         controls.setAxes(pitch, yaw, roll);
+    }
+
+    @Override
+    public void setRcs(boolean enabled) {
+        controls.setRcs(enabled);
+    }
+
+    @Override
+    public void setTranslation(double x, double y, double z) {
+        controls.setTranslation(x, y, z);
     }
 
     @Override
@@ -1404,10 +1415,9 @@ public final class SableShipFlight implements ShipFlightControl {
         var massData = subLevel.getMassTracker();
         var origin = body.plotOrigin();
         ShipRcs.Command rcs = null;
-        if (rcsEnabled) {
+        if (controls.rcsEnabled()) {
             var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
-            var translation = podRotation.transform(new Vector3d(axis(keys, TRANSLATE_RIGHT, TRANSLATE_LEFT),
-                    axis(keys, TRANSLATE_UP, TRANSLATE_DOWN), axis(keys, TRANSLATE_BACK, TRANSLATE_FORWARD)));
+            var translation = podRotation.transform(controls.resolveTranslation(keys));
             var torque = massData.getInertiaTensor().transform(acceleration, new Vector3d());
             rcs = state.rcsCommand(subLevel.getLevel().getServer().getTickCount(), center, translation, torque, wheelTorque);
         }

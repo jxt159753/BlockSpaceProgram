@@ -22,12 +22,14 @@ public final class ShipFlightControls {
 
     private final Vector3d axes = new Vector3d();
     private final Vector3d directAxes = new Vector3d();
+    private final Vector3d directTranslation = new Vector3d();
     private final Quaterniond heading = new Quaterniond();
     private AttitudeMode attitudeMode = AttitudeMode.MANUAL;
     private ThrottleMode throttleMode = ThrottleMode.MANUAL;
     private double throttleTarget;
     private double pilotThrottle;
     private double throttle;
+    private boolean rcsEnabled;
     @Nullable
     private BooleanSupplier remote;
 
@@ -47,6 +49,10 @@ public final class ShipFlightControls {
 
     Vector3dc axes() {
         return axes;
+    }
+
+    boolean rcsEnabled() {
+        return rcsEnabled;
     }
 
     @Nullable
@@ -78,6 +84,7 @@ public final class ShipFlightControls {
         remote = null;
         cutThrottle();
         setAttitudeMode(AttitudeMode.HOLD, orientation);
+        directTranslation.zero();
     }
 
     void inheritForHandoff(ShipFlightControls source, Quaterniondc rotation, Quaterniondc orientation) {
@@ -173,6 +180,31 @@ public final class ShipFlightControls {
         directAxes.set(pitch, yaw, roll);
     }
 
+    void setRcs(boolean enabled) {
+        rcsEnabled = enabled;
+        if (!enabled) {
+            directTranslation.zero();
+        }
+    }
+
+    void setTranslation(double x, double y, double z) {
+        if (!isAxis(x) || !isAxis(y) || !isAxis(z)) {
+            throw new IllegalArgumentException("Translation axes must be between -1 and 1");
+        }
+        if (rcsEnabled) {
+            directTranslation.set(x, y, z);
+        }
+    }
+
+    Vector3d resolveTranslation(int keys) {
+        if (!rcsEnabled) {
+            return new Vector3d();
+        }
+        return new Vector3d(pilotAxis(keys, TRANSLATE_RIGHT, TRANSLATE_LEFT, directTranslation.x),
+                pilotAxis(keys, TRANSLATE_UP, TRANSLATE_DOWN, directTranslation.y),
+                pilotAxis(keys, TRANSLATE_BACK, TRANSLATE_FORWARD, directTranslation.z));
+    }
+
     private static boolean isAxis(double value) {
         return value >= -1 && value <= 1;
     }
@@ -218,15 +250,12 @@ public final class ShipFlightControls {
                 axes.set(Math.clamp(axes.x, -1, 1), Math.clamp(axes.y, -1, 1), Math.clamp(axes.z, -1, 1));
             }
         }
-        if ((keys & (PITCH_DOWN | PITCH_UP)) != 0) {
-            axes.x = axis(keys, PITCH_DOWN, PITCH_UP);
-        }
-        if ((keys & (YAW_LEFT | YAW_RIGHT)) != 0) {
-            axes.y = axis(keys, YAW_LEFT, YAW_RIGHT);
-        }
-        if ((keys & (ROLL_RIGHT | ROLL_LEFT)) != 0) {
-            axes.z = axis(keys, ROLL_RIGHT, ROLL_LEFT);
-        }
-        return axes;
+        return axes.set(pilotAxis(keys, PITCH_DOWN, PITCH_UP, axes.x),
+                pilotAxis(keys, YAW_LEFT, YAW_RIGHT, axes.y),
+                pilotAxis(keys, ROLL_RIGHT, ROLL_LEFT, axes.z));
+    }
+
+    private static double pilotAxis(int keys, int positive, int negative, double automated) {
+        return (keys & (positive | negative)) != 0 ? axis(keys, positive, negative) : automated;
     }
 }
