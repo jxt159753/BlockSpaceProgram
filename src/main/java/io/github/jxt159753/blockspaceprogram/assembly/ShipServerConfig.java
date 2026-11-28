@@ -50,12 +50,12 @@ public final class ShipServerConfig {
                 .defineInRange("captureSpeed", 0.5, 0.01, 5.0);
         builder.pop();
         builder.push("orbitalPhysics");
-        ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres at which a nearby ship can enter local physics.")
+        ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres for entering local physics or merging orbital regions.")
                 .defineInRange("entryDistance", 1_000.0, 1.0, 4_000.0);
-        ORBIT_EXIT_DISTANCE = builder.comment("Distance in metres at which an isolated uncrewed ship leaves local physics.",
+        ORBIT_EXIT_DISTANCE = builder.comment("Distance in metres for an isolated member to leave its orbital region.",
                         "The effective distance is at least one metre greater than entryDistance.")
                 .defineInRange("exitDistance", 1_200.0, 2.0, 4_001.0);
-        ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for an uncrewed ship to enter local physics.")
+        ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for entry or merging orbital regions.")
                 .defineInRange("maxEntrySpeed", 40.0, 0.0, 1_000.0);
         builder.pop();
         FACILITY = new FacilityConfig(builder, BakedPart.MAX_BLOCKS);

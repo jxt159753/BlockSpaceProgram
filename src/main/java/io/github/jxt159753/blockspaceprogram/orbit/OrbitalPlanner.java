@@ -56,12 +56,17 @@ public final class OrbitalPlanner {
     /** Search a finite forecast interval and refine each sampled local minimum. */
     public static Approach closestApproach(DoubleFunction<OrbitalState> ship, DoubleFunction<OrbitalState> target,
                                            double from, double to) {
-        double step = (to - from) / APPROACH_STEPS;
+        return closestApproach(ship, target, from, to, APPROACH_STEPS);
+    }
+
+    static Approach closestApproach(DoubleFunction<OrbitalState> ship, DoubleFunction<OrbitalState> target,
+                                    double from, double to, int steps) {
+        double step = (to - from) / steps;
         var best = approach(ship, target, from);
         double before = best.distanceSquared();
         double middle = separation(ship, target, from + step);
         best = closer(best, approach(ship, target, refineMinimum(ship, target, from, from + step)));
-        for (int i = 2; i <= APPROACH_STEPS; i++) {
+        for (int i = 2; i <= steps; i++) {
             double time = from + step * i;
             double after = separation(ship, target, time);
             if (middle <= before && middle <= after && (middle < before || middle < after)) {
