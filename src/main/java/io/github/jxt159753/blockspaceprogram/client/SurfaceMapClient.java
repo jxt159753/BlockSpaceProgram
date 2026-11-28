@@ -12,6 +12,7 @@ import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapNetworking
 import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapNetworking.Request;
 import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapTransfer;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.Util;
@@ -36,6 +37,7 @@ import org.slf4j.Logger;
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class SurfaceMapClient {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Path CACHE_PATH = Path.of("blockspaceprogram", "surface_maps");
     // Keep completed hashes for the connection, including maps withdrawn by a newer manifest.
     private static final Map<Entry, Download> DOWNLOADS = new HashMap<>();
     private static Map<ResourceLocation, Entry> manifest = Map.of();
@@ -53,7 +55,7 @@ public final class SurfaceMapClient {
     public static void logout(ClientPlayerNetworkEvent.LoggingOut event) {
         for (var download : DOWNLOADS.values()) {
             if (download.texture != null) {
-                TextureUtil.releaseTextureId(download.texture);
+                TextureUtil.releaseTextureId(download.texture.id());
             }
         }
         DOWNLOADS.clear();
@@ -75,10 +77,16 @@ public final class SurfaceMapClient {
     }
 
     public static void receiveManifest(Manifest payload) {
+        var game = Minecraft.getInstance();
+        var connection = game.getConnection();
+        if (connection == null) {
+            return;
+        }
+        var biomes = connection.registryAccess().registryOrThrow(Registries.BIOME);
         var previous = manifest;
         var next = new HashMap<ResourceLocation, Entry>();
         for (var entry : payload.entries()) {
-            if (BiomeGrid.supportedWidth(entry.width()) && entry.hash().length() == 64) {
+            if (BiomeGrid.supportedWidth(entry.width()) && SurfaceMapDiskCache.isContentHash(entry.hash())) {
                 next.put(entry.dimension(), entry);
             }
         }
@@ -90,9 +98,9 @@ public final class SurfaceMapClient {
         }
         for (var entry : next.values()) {
             var download = DOWNLOADS.computeIfAbsent(entry, unused -> new Download());
-            if (!entry.equals(previous.get(entry.dimension())) && download.grid == null && !download.decoding) {
-                download.assembly = new SurfaceMapTransfer.Assembler();
-                PacketDistributor.sendToServer(new Request(entry));
+            if (!entry.equals(previous.get(entry.dimension())) && download.grid == null && !download.loading) {
+                download.loading = true;
+                Util.ioPool().execute(() -> load(game, biomes, entry, download, null));
             }
         }
     }
@@ -121,31 +129,67 @@ public final class SurfaceMapClient {
         var connection = game.getConnection();
         if (connection != null) {
             var biomes = connection.registryAccess().registryOrThrow(Registries.BIOME);
-            download.decoding = true;
-            Util.backgroundExecutor().execute(() -> decode(game, biomes, entry, download, assembly));
+            download.loading = true;
+            Util.ioPool().execute(() -> load(game, biomes, entry, download, assembly));
         }
     }
 
     @Nullable
-    static Integer texture(ResourceLocation dimension) {
+    static Texture texture(ResourceLocation dimension) {
         var download = DOWNLOADS.get(manifest.get(dimension));
         return download == null ? null : download.texture;
     }
 
-    private static void decode(Minecraft game, Registry<Biome> biomes, Entry entry, Download download,
-                               SurfaceMapTransfer.Assembler assembly) {
+    private static void load(Minecraft game, Registry<Biome> biomes, Entry entry, Download download,
+                             @Nullable SurfaceMapTransfer.Assembler assembly) {
         try {
-            var grid = BiomeGrid.decode(entry.width(), entry.hash(), assembly.assemble());
+            Path directory = game.gameDirectory.toPath().resolve(CACHE_PATH);
+            var grid = assembly == null ? readCache(directory, entry) : decodeAndCache(directory, entry, assembly);
+            if (grid == null) {
+                game.execute(() -> request(entry, download));
+                return;
+            }
             game.execute(() -> {
                 if (DOWNLOADS.get(entry) == download) {
-                    download.decoding = false;
+                    download.loading = false;
                     download.grid = grid;
+                    download.fromCache = assembly == null;
                     recolor(biomes, entry, download);
                 }
             });
         } catch (IOException | RuntimeException e) {
-            game.execute(() -> download.decoding = false);
-            LOGGER.warn("Could not decode surface map for {}: {}", entry.dimension(), e.getMessage());
+            game.execute(() -> download.loading = false);
+            LOGGER.warn("Could not load surface map for {}: {}", entry.dimension(), e.getMessage());
+        }
+    }
+
+    @Nullable
+    private static BiomeGrid readCache(Path directory, Entry entry) {
+        try {
+            return SurfaceMapDiskCache.read(directory, entry.width(), entry.hash());
+        } catch (IOException e) {
+            LOGGER.warn("Could not read surface map cache for {}: {}", entry.dimension(), e.getMessage());
+            return null;
+        }
+    }
+
+    private static BiomeGrid decodeAndCache(Path directory, Entry entry, SurfaceMapTransfer.Assembler assembly)
+            throws IOException {
+        byte[] compressed = assembly.assemble();
+        var decoded = BiomeGrid.decodeWithHash(entry.width(), entry.hash(), compressed);
+        try {
+            SurfaceMapDiskCache.write(directory, decoded.hash(), compressed);
+        } catch (IOException e) {
+            LOGGER.warn("Could not write surface map cache for {}: {}", entry.dimension(), e.getMessage());
+        }
+        return decoded.grid();
+    }
+
+    private static void request(Entry entry, Download download) {
+        download.loading = false;
+        if (DOWNLOADS.get(entry) == download && entry.equals(manifest.get(entry.dimension()))) {
+            download.assembly = new SurfaceMapTransfer.Assembler();
+            PacketDistributor.sendToServer(new Request(entry));
         }
     }
 
@@ -162,21 +206,32 @@ public final class SurfaceMapClient {
         long revision = colorRevision;
         var game = Minecraft.getInstance();
         Util.backgroundExecutor().execute(() -> {
-            var image = colorGrid(grid, colors);
+            long generationStart = System.nanoTime();
+            var images = buildMipmaps(grid.width(), grid.height(), colorGrid(grid, colors));
+            LOGGER.info("Surface map mipmaps generated: dimension={} grid={}x{} levels={} generation_ms={}",
+                    entry.dimension(), grid.width(), grid.height(), images.length,
+                    (System.nanoTime() - generationStart) / 1e6);
             game.execute(() -> {
-                try (image) {
+                try {
                     if (DOWNLOADS.get(entry) != download || colorRevision != revision) {
                         return;
                     }
                     var previous = download.texture;
-                    download.texture = upload(image);
+                    long uploadStart = System.nanoTime();
+                    download.texture = new Texture(upload(images), grid.width());
+                    long uploaded = System.nanoTime();
+                    double uploadMs = (uploaded - uploadStart) / 1e6;
                     if (previous != null) {
-                        TextureUtil.releaseTextureId(previous);
+                        TextureUtil.releaseTextureId(previous.id());
+                        LOGGER.info("Surface map recolored: dimension={} grid={}x{} hash={} upload_ms={}",
+                                entry.dimension(), grid.width(), grid.height(), entry.hash(), uploadMs);
                     } else {
-                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={}",
+                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={} source={} upload_ms={}",
                                 entry.dimension(), grid.width(), grid.height(), entry.hash(),
-                                (System.nanoTime() - loginNanos) / 1e6);
+                                (uploaded - loginNanos) / 1e6, download.fromCache ? "cache" : "network", uploadMs);
                     }
+                } finally {
+                    closeImages(images);
                 }
             });
         });
@@ -211,23 +266,65 @@ public final class SurfaceMapClient {
         return colors;
     }
 
-    private static NativeImage colorGrid(BiomeGrid grid, int[] colors) {
-        var image = new NativeImage(grid.width(), grid.height(), false);
+    private static int[] colorGrid(BiomeGrid grid, int[] colors) {
+        var pixels = new int[grid.width() * grid.height()];
         for (int row = 0; row < grid.height(); row++) {
             for (int column = 0; column < grid.width(); column++) {
-                image.setPixelRGBA(column, row, colors[grid.index(column, row)]);
+                pixels[row * grid.width() + column] = colors[grid.index(column, row)];
             }
         }
-        return image;
+        return pixels;
     }
 
-    private static int upload(NativeImage image) {
+    private static NativeImage[] buildMipmaps(int width, int height, int[] pixels) {
+        // Supported grids have a power-of-two width and half as many rows.
+        var images = new NativeImage[Integer.numberOfTrailingZeros(width) + 1];
+        try {
+            for (int level = 0; level < images.length; level++) {
+                var image = new NativeImage(width, height, false);
+                images[level] = image;
+                for (int row = 0; row < height; row++) {
+                    for (int column = 0; column < width; column++) {
+                        image.setPixelRGBA(column, row, pixels[row * width + column]);
+                    }
+                }
+                if (width > 1) {
+                    pixels = SurfaceMapMipmaps.downsample(width, height, pixels);
+                    width /= 2;
+                    height = Math.max(1, height / 2);
+                }
+            }
+            return images;
+        } catch (RuntimeException | Error e) {
+            closeImages(images);
+            throw e;
+        }
+    }
+
+    private static void closeImages(NativeImage[] images) {
+        for (var image : images) {
+            if (image != null) {
+                image.close();
+            }
+        }
+    }
+
+    private static int upload(NativeImage[] images) {
         int id = TextureUtil.generateTextureId();
         int target = GL11.GL_TEXTURE_2D;
         try {
-            TextureUtil.prepareImage(id, image.getWidth(), image.getHeight());
-            image.upload(0, 0, 0, false);
-            GlStateManager._texParameter(target, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GlStateManager._bindTexture(id);
+            GlStateManager._texParameter(target, GL12.GL_TEXTURE_MAX_LEVEL, images.length - 1);
+            // TextureUtil.prepareImage shifts the height to zero at the last level of a 2:1 texture.
+            for (int level = 0; level < images.length; level++) {
+                var image = images[level];
+                int width = image.getWidth();
+                int height = image.getHeight();
+                GlStateManager._texImage2D(target, level, GL11.GL_RGBA8, width, height, 0,
+                        GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, null);
+                image.upload(level, 0, 0, 0, 0, width, height, false, false);
+            }
+            GlStateManager._texParameter(target, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
             GlStateManager._texParameter(target, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
             GlStateManager._texParameter(target, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
             GlStateManager._texParameter(target, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
@@ -240,8 +337,11 @@ public final class SurfaceMapClient {
 
     private static final class Download {
         private SurfaceMapTransfer.Assembler assembly;
-        private boolean decoding;
+        private boolean loading;
+        private boolean fromCache;
         private BiomeGrid grid;
-        private Integer texture;
+        private Texture texture;
     }
+
+    record Texture(int id, int width) {}
 }

@@ -23,6 +23,7 @@
     { "name": "PixelPadding", "type": "float", "count": 2, "values": [0, 0] },
     { "name": "Horizon", "type": "float", "count": 1, "values": [-1] },
     { "name": "SurfaceMapWeight", "type": "float", "count": 1, "values": [0] },
+    { "name": "SurfaceMapSampling", "type": "float", "count": 2, "values": [1, 1] },
     { "name": "AmbientExtinction", "type": "float", "count": 3, "values": [0.047, 0.085, 0.145] },
     { "name": "LunarHaloStrength", "type": "float", "count": 1, "values": [0.058] },
     { "name": "HighlandColor", "type": "float", "count": 3, "values": [0.97, 0.96, 0.944] },
