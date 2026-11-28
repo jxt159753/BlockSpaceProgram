@@ -47,7 +47,9 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 飞船由烘焙零件和船体方块组成（#71）。零件图 `ShipDesign` 是飞船唯一的数据来源。船体是零件图中的节点，一块面相连的方块区域算一个节点。
 - Sable 子层级、飞船实体存档、轨道层快照和蓝图都保存或生成自零件图。不从子层级反向读取方块。
 - 船体方块只提供质量，取数据映射 `part_properties` 的 `mass`。推力、燃料容量这类功能属性只来自零件。
-- 船体节点不计入零件数上限。零件和船体节点合计不超过 63，因为损坏、起落架和指令舱的状态用 64 位 `long` 按节点下标记录。
+- 船体节点不计入零件数上限。单次装配、蓝图和世界内组装的零件和船体节点合计不超过 63。
+- 对接合并后的整船按 `[docking]` 配置的零件、船体节点和分级上限检查，同时受 3 MiB 的整船布局同步预算约束（#140、#156）。超限时拒绝合并，并用动作栏提示超限项。
+- 损坏、起落架、指令舱和分级块成员这类按节点下标记录的状态用变长位集。#156 完成前代码仍用 64 位 `long`，新代码不要依赖 63 这个上限。
 - 以后可能加大烘焙范围。船体区域的格式不绑定 `BakedPart.MAX_SIDE`，新代码也不按 9 格推算船体或飞船的范围。
 
 ### 推进与发动机
@@ -63,6 +65,18 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 成品发动机由零件模板生成，仍然是烘焙零件，装配、分级、Δv 和碰撞都走同一套流程。成品可以带显示模型，玩家烘焙的零件始终按方块渲染。成品不受烘焙台的尺寸上限限制，装配台和发射台的上限照常生效。
 - 喷口前方被挡住时，装配台和世界内组装只显示提示，不阻止放置。
 - 私人单人存档中，按轨道数据传播的无人飞船可以在时间加速中持续点火，燃料和电量按实际模拟的点火时长扣除。专用服和开放联机的存档只有 1 倍。
+- RCS（#138、#154）是单向喷口方块。它烘焙为零件数据中独立的 `rcs` 列表，与发动机列表一样在烘焙或按模板生成零件时写入。RCS 独立于点火级和主发动机节流。燃料取自喷口所在的分离段，耗电规则与电推进相同。
+- RCS 喷口开度和反作用轮扭矩由同一个有界最小二乘分配器决定。分配器是 `assembly` 包中的纯计算，装配台读数和飞行共用。RCS 只在 Sable 的近地物理和轨道局部物理中工作，按轨道数据传播时不工作。
+- 反作用轮扭矩来自零件的 `wheel_torque` 和指令舱的内置扭矩。前者取自 `part_properties`，默认 0。后者是服务端配置，默认 1,500 N·m。
+
+### 气动、再入与回收
+
+- 气动阻力按六向投影计算（#135、#144）。在船体坐标下以 1/4 格对 ±X、±Y、±Z 投影，每格取最前方的方块。飞行时按空速方向的轴分量加权合成。投影在飞行状态建立或重建时按方块重算。
+- `drag_coefficient` 是方块迎风面的阻力系数，默认 1.0。飞行时从当前的 `part_properties` 读取，烘焙不累加。阻力作用于压心，力矩倍率由服务端配置 `[aerodynamics]` 的 `torque_multiplier` 调整。
+- 主世界（#147）、卫星和轨道空间的 Sable 维度物理参数 `universal_drag` 都为 0，大气减速只来自六向阻力。
+- 再入加热按节点计算（#137、#148）。热量使用六向投影的受风面积。节点温度只在运行时保存，读档和轨道交接后从环境温度开始。
+- 耐热温度取 `part_properties` 的 `heat_resistance`，为 0 时用服务端的默认值。超温走现有的节点损坏流程。船体节点超温后不再遮挡热流。服务端只向客户端同步最高温度与耐热温度之比和迎风方向。
+- 降落伞（#136）的开伞级记录在 `ShipDesign.Node` 的 `parachute_stage` 中。整流罩（#145）是普通的烘焙零件，靠六向投影遮挡和侧挂分离实现，没有专门的代码路径。
 
 ### 天体外观
 
@@ -84,7 +98,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 ### 可选依赖
 
-- Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableHullInteractions`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody`、`SableCollisionDebugRenderer` 和 `SableShipCamera`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
+- Sable 的类只在专门的类中引用，目前是 `SableShipFlight`、`SableHullInteractions`、`SableCollisionCellBlock`、`ShipLandingGear`、`ShipCollisionBody`、`SableCollisionDebugRenderer`、`SableParachuteRenderer` 和 `SableShipCamera`。其他代码先用 `ModList.get().isLoaded("sable")` 判断，再调用这些类。
 - 其他模组的联动放在 `compat/<模组 ID>` 包中，入口同样用 `isLoaded` 守住，不拆成单独的 JAR。已规划的有 CC:Tweaked（#42、#44）、Iris（#51、#52）和 FTB Teams（#21、#69）。
 - 上表中的包不能引用 `compat`。联动的实现由主类在 `isLoaded` 判断后接入。例如 `facility` 定义解析等级归属的接口，装了 FTB Teams 时，主类把它换成 `compat/ftbteams` 中的实现。
 - 新增依赖（包括 `compileOnly`）属于架构决策，须先在 issue 中定下。复制其他模组的源码，或把它打包进本模组的 JAR 之前，须确认其许可证与 MIT 兼容。只在编译期引用公开 API 的不受此限，例如 FTB Teams（All Rights Reserved）。
@@ -106,6 +120,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 零件属性用数据映射 `data_maps/block/part_properties.json`，天体参数放在 `data/<命名空间>/ship_flight/<维度路径>.json`，修改后可用 `/reload` 生效。
 - 天体外观参数写在 `ship_flight` 文件的 `appearance` 对象中。生物群系的地表颜色用数据映射 `data_maps/worldgen/biome/surface_color.json`。
 - 拼装发动机的推力、耗电和比冲档位用数据映射 `data_maps/block/engine_performance.json`，以燃烧室方块为键。成品发动机的模板放在 `data/<命名空间>/part_template/<名称>.json`，配方类型为 `blockspaceprogram:part_template`。
+- 降落伞和 RCS 的性能参数分别用数据映射 `data_maps/block/parachute_performance.json` 和 `data_maps/block/rcs_performance.json`，以伞包方块和 RCS 方块为键。
+- Sable 的维度物理参数放在 `data/<命名空间>/dimension_physics/` 中，例如 `universal_drag`。整合包可用同名数据包覆盖。
 - 服务器管理员调整的参数放在 `blockspaceprogram-server.toml`（`ModConfigSpec`）。
 
 ### 多语言
