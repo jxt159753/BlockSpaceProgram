@@ -1,64 +1,73 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
-import io.netty.buffer.ByteBuf;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import org.joml.Vector3d;
 
 /** Wet mass, total fuel and the independently fed engine groups of one active stage. */
 public record VacuumPropulsion(double wetMass, double fuel, List<Group> groups) {
     static final double STANDARD_GRAVITY = 9.80665;
-    public static final StreamCodec<ByteBuf, VacuumPropulsion> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.DOUBLE, VacuumPropulsion::wetMass,
-            ByteBufCodecs.DOUBLE, VacuumPropulsion::fuel,
-            Group.STREAM_CODEC.apply(ByteBufCodecs.list(ShipDesign.MAX_PARTS)), VacuumPropulsion::groups,
-            VacuumPropulsion::new);
-
     public VacuumPropulsion {
         groups = List.copyOf(groups);
     }
 
-    static VacuumPropulsion fromGroups(double wetMass, double fuel, double[] capacity, double[] thrust, double[] flow) {
+    static VacuumPropulsion fromGroups(double wetMass, double fuel, double[] capacity, Vector3d[] thrust, double[] flow) {
         var groups = new ArrayList<Group>();
         for (int i = 0; i < capacity.length; i++) {
             if (capacity[i] > 0 && flow[i] > 0 && Double.isFinite(capacity[i] / flow[i])) {
-                groups.add(new Group(capacity[i], thrust[i], flow[i]));
+                groups.add(new Group(capacity[i], thrust[i].x, thrust[i].y, thrust[i].z, flow[i]));
             }
         }
         return new VacuumPropulsion(wetMass, fuel, groups);
     }
 
     double thrustToWeight() {
-        return wetMass > 0 ? groups.stream().mapToDouble(Group::thrust).sum() / (wetMass * STANDARD_GRAVITY) : 0;
+        return wetMass > 0 ? netThrust() / (wetMass * STANDARD_GRAVITY) : 0;
+    }
+
+    public double netThrust() {
+        var thrust = new Vector3d();
+        for (Group group : groups) {
+            thrust.add(group.thrustX(), group.thrustY(), group.thrustZ());
+        }
+        return thrust.length();
+    }
+
+    public boolean thrustCancels() {
+        return !groups.isEmpty() && netThrust() == 0;
     }
 
     /** Integrate the rocket equation piecewise as fuel groups run dry. */
     public Burn estimate(double requestedDeltaV) {
+        return estimate(requestedDeltaV, Double.POSITIVE_INFINITY);
+    }
+
+    Burn estimate(double requestedDeltaV, double timeLimit) {
         double delivered = 0;
         double elapsed = 0;
         double consumed = 0;
-        while (delivered < requestedDeltaV) {
+        var thrust = new Vector3d();
+        while (delivered < requestedDeltaV && elapsed < timeLimit) {
             double mass = wetMass - consumed;
-            double end = Double.POSITIVE_INFINITY;
-            double thrust = 0;
+            double end = timeLimit;
+            thrust.zero();
             double flow = 0;
             for (Group group : groups) {
                 double depletion = group.fuel() / group.flow();
                 if (depletion > elapsed) {
                     end = Math.min(end, depletion);
-                    thrust += group.thrust();
+                    thrust.add(group.thrustX(), group.thrustY(), group.thrustZ());
                     flow += group.flow();
                 }
             }
-            if (!Double.isFinite(end) || !Double.isFinite(flow) || !(mass > 0) || !Double.isFinite(mass)) {
+            if (!Double.isFinite(end) || !(flow > 0) || !Double.isFinite(flow) || !(mass > 0) || !Double.isFinite(mass)) {
                 break;
             }
-            double exhaust = thrust / flow;
+            double exhaust = thrust.length() / flow;
             double used = (end - elapsed) * flow;
-            double deltaV = exhaust * Math.log1p(used / Math.max(0, mass - used));
+            double deltaV = exhaust == 0 ? 0 : exhaust * Math.log1p(used / Math.max(0, mass - used));
             double required = requestedDeltaV - delivered;
-            if (Double.isFinite(requestedDeltaV) && required <= deltaV) {
+            if (exhaust > 0 && Double.isFinite(requestedDeltaV) && required <= deltaV) {
                 double amount = Math.min(used, -mass * Math.expm1(-required / exhaust));
                 return new Burn(requestedDeltaV, elapsed + amount / flow, consumed + amount);
             }
@@ -79,9 +88,9 @@ public record VacuumPropulsion(double wetMass, double fuel, List<Group> groups) 
         }
     }
 
-    public record Group(double fuel, double thrust, double flow) {
-        private static final StreamCodec<ByteBuf, Group> STREAM_CODEC = StreamCodec.composite(
-                ByteBufCodecs.DOUBLE, Group::fuel, ByteBufCodecs.DOUBLE, Group::thrust,
-                ByteBufCodecs.DOUBLE, Group::flow, Group::new);
+    public record Group(double fuel, double thrustX, double thrustY, double thrustZ, double flow) {
+        public Group(double fuel, double thrust, double flow) {
+            this(fuel, thrust, 0, 0, flow);
+        }
     }
 }

@@ -60,9 +60,9 @@ public final class OrbitalNetworking {
                 (payload, context) -> ClientOrbitalState.receiveSystem(payload.moonOrbit()));
         registrar.playToClient(Clock.TYPE, Clock.CODEC,
                 (payload, context) -> ClientOrbitalState.receiveClock(payload.orbitTicks()));
-        registrar.playToClient(ShipUpdate.TYPE, ShipUpdate.CODEC,
+        registrar.versioned("3").playToClient(ShipUpdate.TYPE, ShipUpdate.CODEC,
                 (payload, context) -> ClientOrbitalState.receiveShip(payload.id(), payload.ship()));
-        registrar.playToClient(ManeuverFeedback.TYPE, ManeuverFeedback.CODEC,
+        registrar.versioned("3").playToClient(ManeuverFeedback.TYPE, ManeuverFeedback.CODEC,
                 (payload, context) -> OrbitalMapClient.receiveResult(payload.id(), payload.result()));
         registrar.playToClient(RegionContacts.TYPE, RegionContacts.CODEC,
                 (payload, context) -> OrbitalRegionClient.receiveContacts(payload));

@@ -75,11 +75,15 @@ public final class WorldAssembly extends SavedData {
         }
     }
 
-    void connect(ServerLevel level, Group group, PlacedPartEntity target, PlacedPartEntity child, ShipDesign.Link edge) {
+    void connect(ServerLevel level, Group group, PlacedPartEntity target, List<PlacedPartEntity> children,
+            List<ShipDesign.Link> edges) {
         var members = new ArrayList<>(group.members());
         var links = new ArrayList<>(group.links());
-        links.add(edge.withNodes(group.indexOf(target.getUUID()), members.size()));
-        members.add(Member.placed(child));
+        int parent = group.indexOf(target.getUUID());
+        for (int i = 0; i < children.size(); i++) {
+            links.add(edges.get(i).withNodes(parent, members.size()));
+            members.add(Member.placed(children.get(i)));
+        }
         replace(level, group, List.of(new Group(members, links, group.stageCount())));
     }
 

@@ -31,12 +31,14 @@ public final class ShipPlacement {
         List<Source> sources = new ArrayList<>();
         for (int i = 0; i < part.connectors().size(); i++) {
             var connector = part.connectors().get(i);
-            if (connector.kind().isStack() == stack) {
+            if (stack ? connector.kind().isStack() : surfaceConnector(connector)) {
                 sources.add(new Source(i, connector.normal()));
             }
         }
-        return !stack && sources.isEmpty()
-                ? Arrays.stream(Direction.values()).map(normal -> new Source(-1, normal)).toList() : sources;
+        if (!stack && part.connectors().stream().allMatch(connector -> connector.kind().isStack())) {
+            Arrays.stream(Direction.values()).map(normal -> new Source(-1, normal)).forEach(sources::add);
+        }
+        return sources;
     }
 
     public static Result place(ShipDesign design, BakedPart part, Request request) {
@@ -171,12 +173,13 @@ public final class ShipPlacement {
         Direction targetNormal = target.pose().localDirection(outward);
         Vec3 touch = placed.point(source.center());
         Vec3 targetAnchor;
-        boolean separable = false;
+        boolean separable;
         if (targetMarker == -1) {
             if (!contains(boxFace(target.bounds(), outward), placed.transform(source.bounds()))) {
                 return null;
             }
             targetAnchor = target.pose().localPoint(touch).scale(1.0 / target.part().scale());
+            separable = surfaceSeparator(marker(placed.part(), partMarker));
         } else {
             PartConnector connector = marker(target.part(), targetMarker);
             PartConnector incoming = marker(placed.part(), partMarker);
@@ -208,7 +211,8 @@ public final class ShipPlacement {
             return false;
         }
         if (link.surface()) {
-            return first.marker() == -1 && !link.separable()
+            return first.marker() == -1 && !link.docking()
+                    && link.separable() == surfaceSeparator(marker(placed.part(), second.marker()))
                     && contains(boxFace(target.bounds(), outward), placed.transform(source.bounds()));
         }
         PartConnector targetConnector = marker(target.part(), first.marker());
@@ -231,10 +235,18 @@ public final class ShipPlacement {
             return new Face(normal, bounds.getCenter(), bounds);
         }
         PartConnector connector = marker(part, index);
-        if (connector == null || connector.kind().isStack() == surface) {
+        if (connector == null || !(surface ? surfaceConnector(connector) : connector.kind().isStack())) {
             return null;
         }
         return new Face(connector.normal(), connector.center(), connector.modelFace());
+    }
+
+    private static boolean surfaceConnector(PartConnector connector) {
+        return !connector.kind().isStack() || surfaceSeparator(connector);
+    }
+
+    private static boolean surfaceSeparator(@Nullable PartConnector connector) {
+        return connector != null && connector.kind() == PartConnector.Kind.SEPARATION;
     }
 
     static Direction turn(Direction tangent, Direction axis, int turns) {

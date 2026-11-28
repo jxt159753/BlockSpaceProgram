@@ -12,6 +12,8 @@
 
 `ShipFlightEvent.shipId()` 返回船只 UUID，`ownerId()` 返回归属玩家的 UUID，`dimensionId()` 返回所在维度。Java 调用方也可以通过 `ship()` 取得飞船实体。`stage()` 是保留船体当前级的零基编号，待分级时为 `-1`。
 
+在 `ShipFlightEvent` 中可用 `event.ship().flightControl().telemetry()` 读取推力。`thrust()` 是最近一次物理步施加的合推力，`availableThrust()` 是已点火、完好且有油的发动机在满节流时的合推力。两者均取船体坐标中推力矢量和的大小，单位为 N。分级事件中可用 `availableThrust()` 读取保留船体分离后的可用推力。
+
 `ShipOrbitEvent.shipId()` 和 `ownerId()` 返回相同用途的 UUID，无需加载船体实体。`center()` 返回当前天体 ID，下降交接时返回目标维度 ID。`orbit().elements()` 返回交接或切换时的轨道根数，下降交接时为离开前的轨道。轨道局部物理区的 SOI 切换和下降事件报告共享参考轨道。`orbit().elements().epochSeconds()` 是从轨道时钟起点计的秒数。`previousCenter()` 在 SOI 事件中返回原天体 ID。旧存档或无主飞船的归属 UUID 可能为 `null`。
 
 入轨事件表示成功切入轨道层。合同若要求稳定的束缚轨道，可以用偏心率和近点距离继续判断。调试指令直接设定轨道、轨道地图预测以及轨道层内部的实体加载均不发出入轨事件。

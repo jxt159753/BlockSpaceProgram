@@ -1,6 +1,8 @@
 # 并联分级与推力矢量原型
 
-#117 采用 A/A/A。用 `-PparallelStaging` 启用原型。Gradle 用 Git 将补丁应用到 `build/generated/sources/parallelStaging/` 的 Java 源码副本。 [设计决策 #117](https://github.com/jxt159753/BlockSpaceProgram/issues/117)
+已由 #128 并入正式代码。 [实现 #128](https://github.com/jxt159753/BlockSpaceProgram/issues/128)
+
+#117 采用 A/A/A。以下记录来自并联分级原型。 [设计决策 #117](https://github.com/jxt159753/BlockSpaceProgram/issues/117)
 
 ## 规则
 
@@ -24,27 +26,8 @@ Minecraft 1.21.1、NeoForge 21.1.267、Sable 2.0.6，使用主世界超平坦存
 
 第一级满油质量为 680 kg。三台发动机各以 8 kg/s 烧 5 s，剩余 560 kg。由火箭方程得到 `1000 × ln(680 / 560) = 194.156 m/s`。分离丢弃 100 kg 助推器干质量，芯级剩 460 kg。芯级烧至干质量 200 kg，得到 `1000 × ln(460 / 200) = 832.909 m/s`。
 
-轨道地图在线传输沿用每组的标量推力。正式接入时需要让轨道地图也接收各燃料组的推力方向，以显示跨组抵消。
+原型测试时，轨道地图同步各组的标量推力。正式代码同步各燃料组的推力矢量，以显示跨组抵消。
 
 ## 复测
 
-从仓库根目录执行 `./gradlew -PparallelStaging build`。Windows PowerShell 用 `.\gradlew.bat -PparallelStaging build`。原型算例位于 `src/test/parallel-staging/`。
-
-准备一个新存档。在 `runs/parallelStaging/` 接受 Minecraft EULA，并将 Sable 2.0.6 的 NeoForge JAR 放进 `mods/`。用以下内容设置 `server.properties`。 [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)
-
-```properties
-server-ip=127.0.0.1
-server-port=0
-online-mode=false
-level-name=parallel-staging
-level-type=minecraft:flat
-generator-settings={"biome":"minecraft:plains","layers":[{"height":1,"block":"minecraft:bedrock"}],"structure_overrides":[]}
-spawn-protection=0
-view-distance=3
-simulation-distance=3
-difficulty=peaceful
-```
-
-执行 `./gradlew -PparallelStaging runParallelStaging`。Gradle 会把测试数据包放入指定存档。验收程序从发射台发射样本，完成后自动关服。日志 `runs/parallelStaging/logs/latest.log` 中应出现 `PARALLEL STAGING PASS all dedicated server checks`。
-
-复测无 Sable 场景时，在 `runs/parallelStagingWithoutSable/` 准备同样的 EULA 和服务器配置，留空 `mods/`。执行 `./gradlew -PparallelStaging -PparallelStagingWithoutSable runParallelStaging`。日志应出现 `PARALLEL STAGING PASS static launch without Sable`。
+执行 `./gradlew test --tests '*ParallelStagingTest'` 复测正式代码中的 JUnit 算例。Windows PowerShell 用 `.\gradlew.bat test --tests '*ParallelStagingTest'`。原型专用服验收程序、测试数据包和复测步骤可从历史提交查看。 [原型复测步骤](https://github.com/jxt159753/BlockSpaceProgram/blob/e3a19658bc34a85ba59aef9c18defb48504b7426/experiments/parallel-staging/README.md#复测)

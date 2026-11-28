@@ -88,7 +88,8 @@ final class ShipFlightState {
                 tanks.add(new Tank(index, group, partCells));
             }
             if (hasEngine(node)) {
-                engines.add(engine(node, index, group));
+                var geometry = engineGeometry(node);
+                engines.add(new Engine(index, group, node.engineStage(), properties, geometry.direction(), geometry.moment()));
             }
             if (node.isCommandPod()) {
                 pods |= 1L << index;
@@ -136,7 +137,15 @@ final class ShipFlightState {
         return props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
     }
 
-    private static Engine engine(ShipDesign.Node node, int part, int group) {
+    static boolean hasIgnited(int engineStage, int stage) {
+        return engineStage >= 0 && engineStage <= stage;
+    }
+
+    static Vector3d vacuumThrust(ShipDesign.Node node) {
+        return new Vector3d(engineGeometry(node).direction()).mul(node.part().properties().thrust());
+    }
+
+    private static EngineGeometry engineGeometry(ShipDesign.Node node) {
         Vec3 direction = Vec3.ZERO;
         Vec3 moment = Vec3.ZERO;
         int nozzleCount = 0;
@@ -160,7 +169,7 @@ final class ShipFlightState {
             moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
             nozzleCount = 1;
         }
-        return new Engine(part, group, node.engineStage(), node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
+        return new EngineGeometry(direction.scale(1.0 / nozzleCount).toVector3f(),
                 moment.scale(1.0 / nozzleCount).toVector3f());
     }
 
@@ -330,7 +339,7 @@ final class ShipFlightState {
         var thrust = new Vector3d();
         collectGroupFuel();
         for (Engine engine : engines) {
-            if (engine.stage == stage && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
+            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
                 thrust.fma(engine.properties.thrust(), engine.direction);
             }
         }
@@ -345,7 +354,7 @@ final class ShipFlightState {
         collectGroupFuel();
         Arrays.fill(demand, 0);
         for (Engine engine : engines) {
-            if (engine.stage != stage || isDamaged(engine.part)) {
+            if (!hasIgnited(engine.stage, stage) || isDamaged(engine.part)) {
                 continue;
             }
             var props = engine.properties;
@@ -371,7 +380,7 @@ final class ShipFlightState {
             body.subLevel().updateMergedMassData(0);
         }
         for (Engine engine : engines) {
-            if (engine.stage == stage && !isDamaged(engine.part)) {
+            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part)) {
                 double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
                 impulse.fma(magnitude, engine.direction);
                 momentAboutOrigin.fma(magnitude, engine.moment);
@@ -393,6 +402,8 @@ final class ShipFlightState {
     private record ImpactPart(AABB bounds, double resistance) {}
 
     private record Tank(int part, int group, Map<BlockPos, Cell> cells) {}
+
+    private record EngineGeometry(Vector3fc direction, Vector3fc moment) {}
 
     private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
 }

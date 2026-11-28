@@ -1,5 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import java.util.Arrays;
 import java.util.Set;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -8,6 +9,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3d;
 
 /** Reads and writes the same per-part fuel saved by the local flight entity. */
 public final class OrbitalShipPropulsion {
@@ -27,7 +29,8 @@ public final class OrbitalShipPropulsion {
         groups = StagePerformance.tankGroups(design);
         groupFuel = new double[count];
         flow = new double[count];
-        double[] thrust = new double[count];
+        var thrust = new Vector3d[count];
+        Arrays.setAll(thrust, index -> new Vector3d());
         double dryMass = 0;
         double fuel = 0;
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
@@ -39,9 +42,9 @@ public final class OrbitalShipPropulsion {
             groupFuel[group] += partFuel[index];
             fuel += partFuel[index];
             dryMass += node.dryMass();
-            if (!damaged && node.engineStage() == stage && ShipFlightState.hasEngine(node)) {
+            if (!damaged && ShipFlightState.hasIgnited(node.engineStage(), stage) && ShipFlightState.hasEngine(node)) {
                 var properties = node.part().properties();
-                thrust[group] += properties.thrust();
+                thrust[group].add(ShipFlightState.vacuumThrust(node));
                 flow[group] += StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
             }
         }

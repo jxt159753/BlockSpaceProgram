@@ -38,6 +38,7 @@ public final class WorldPartPlacementClient {
     private static final KeyMapping SURFACE = key("placement_surface", GLFW.GLFW_KEY_G);
     private static final KeyMapping SOURCE = key("placement_source", GLFW.GLFW_KEY_H);
     private static final KeyMapping TURN = key("placement_turn", GLFW.GLFW_KEY_B);
+    private static final KeyMapping SYMMETRY = key("placement_symmetry", GLFW.GLFW_KEY_N);
     @Nullable
     private static BakedPart lastPart;
     @Nullable
@@ -45,6 +46,7 @@ public final class WorldPartPlacementClient {
     private static boolean surface;
     private static int source;
     private static int turns;
+    private static int symmetry = 1;
 
     private static KeyMapping key(String name, int defaultKey) {
         return new KeyMapping("key.blockspaceprogram." + name, InputConstants.Type.KEYSYM,
@@ -56,6 +58,7 @@ public final class WorldPartPlacementClient {
         event.register(SURFACE);
         event.register(SOURCE);
         event.register(TURN);
+        event.register(SYMMETRY);
     }
 
     @SubscribeEvent
@@ -67,6 +70,7 @@ public final class WorldPartPlacementClient {
             surface = false;
             source = 0;
             turns = 0;
+            symmetry = 1;
         }
         boolean canAdjust = part != null && game.screen == null;
         while (SURFACE.consumeClick()) {
@@ -83,6 +87,13 @@ public final class WorldPartPlacementClient {
         while (TURN.consumeClick()) {
             if (canAdjust) {
                 turns = (turns + 1) % 4;
+            }
+        }
+        while (SYMMETRY.consumeClick()) {
+            if (canAdjust) {
+                symmetry = symmetry == 4 ? 1 : symmetry * 2;
+                game.player.displayClientMessage(Component.translatable(
+                        "assembly.blockspaceprogram.world_symmetry", symmetry), true);
             }
         }
     }
@@ -139,12 +150,15 @@ public final class WorldPartPlacementClient {
             return;
         }
         previewError = preview.error();
-        if (preview.placement() != null) {
+        if (!preview.placements().isEmpty()) {
             var buffers = game.renderBuffers().bufferSource();
-            var box = preview.placement().bounds().move(event.getCamera().getPosition().reverse()).inflate(0.004);
             boolean valid = previewError == null;
-            LevelRenderer.renderLineBox(event.getPoseStack(), buffers.getBuffer(RenderType.lines()), box,
-                    valid ? 0.3F : 1.0F, valid ? 1.0F : 0.25F, 0.3F, 1.0F);
+            var offset = event.getCamera().getPosition().reverse();
+            for (var placement : preview.placements()) {
+                var box = placement.bounds().move(offset).inflate(0.004);
+                LevelRenderer.renderLineBox(event.getPoseStack(), buffers.getBuffer(RenderType.lines()), box,
+                        valid ? 0.3F : 1.0F, valid ? 1.0F : 0.25F, 0.3F, 1.0F);
+            }
             buffers.endBatch(RenderType.lines());
         }
     }
@@ -171,6 +185,6 @@ public final class WorldPartPlacementClient {
     }
 
     private static WorldPartPlacement.Options options() {
-        return new WorldPartPlacement.Options(surface, source, turns);
+        return new WorldPartPlacement.Options(surface, source, turns, symmetry);
     }
 }

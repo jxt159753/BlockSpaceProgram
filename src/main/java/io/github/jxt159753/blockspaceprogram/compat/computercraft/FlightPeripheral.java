@@ -230,6 +230,7 @@ public final class FlightPeripheral implements IPeripheral {
             case ALREADY_QUEUED -> throw new LuaException("A maneuver is already queued for this ship");
             case INVALID_NODE -> throw new LuaException("Invalid maneuver time or delta-v");
             case INSUFFICIENT_FUEL -> throw new LuaException("Insufficient fuel for the maneuver");
+            case NO_THRUST -> throw new LuaException("Engine thrust cancels out");
         }
     }
 

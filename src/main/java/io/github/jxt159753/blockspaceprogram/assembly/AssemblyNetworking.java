@@ -36,7 +36,7 @@ public final class AssemblyNetworking {
                 }
             }
         });
-        registrar.playToServer(WorldPlace.TYPE, WorldPlace.CODEC, (payload, context) -> {
+        registrar.versioned("2").playToServer(WorldPlace.TYPE, WorldPlace.CODEC, (payload, context) -> {
             if (context.player() instanceof ServerPlayer player
                     && player.serverLevel().getEntity(payload.target()) instanceof PlacedPartEntity part) {
                 WorldPartPlacement.placeAttached(player, part, payload.hand(), payload.hit(), payload.options());
@@ -110,8 +110,10 @@ public final class AssemblyNetworking {
             buffer.writeBoolean(payload.options().surface());
             buffer.writeVarInt(payload.options().source());
             buffer.writeVarInt(payload.options().turns());
+            buffer.writeVarInt(payload.options().symmetry());
         }, buffer -> new WorldPlace(buffer.readVarInt(), buffer.readEnum(InteractionHand.class), buffer.readVec3(),
-                new WorldPartPlacement.Options(buffer.readBoolean(), buffer.readVarInt(), buffer.readVarInt())));
+                new WorldPartPlacement.Options(buffer.readBoolean(), buffer.readVarInt(), buffer.readVarInt(),
+                        buffer.isReadable() ? buffer.readVarInt() : 1)));
 
         @Override
         public Type<WorldPlace> type() {

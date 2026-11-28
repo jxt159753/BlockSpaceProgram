@@ -17,6 +17,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
@@ -31,11 +32,11 @@ import org.jetbrains.annotations.Nullable;
 public final class WorldPartPlacement {
     private WorldPartPlacement() {}
 
-    public record Options(boolean surface, int source, int turns) {}
+    public record Options(boolean surface, int source, int turns, int symmetry) {}
 
     public record Placement(Vec3 origin, OctahedralGroup rotation, AABB bounds, @Nullable ShipDesign.Link link) {}
 
-    public record Preview(@Nullable Placement placement, @Nullable String error) {}
+    public record Preview(List<Placement> placements, @Nullable String error) {}
 
     public static Preview onBlock(Player player, ItemStack stack, BakedPart part, BlockPos clicked, Direction face) {
         AABB local = part.localBounds();
@@ -48,9 +49,9 @@ public final class WorldPartPlacement {
         var placement = new Placement(origin, OctahedralGroup.IDENTITY, bounds, null);
         BlockPos adjacent = clicked.relative(face);
         if (!player.mayUseItemAt(adjacent, face, stack) || !mayBuildIn(player, bounds)) {
-            return new Preview(placement, "world_permission");
+            return new Preview(List.of(placement), "world_permission");
         }
-        return new Preview(placement, obstruction(player.level(), bounds, Set.of()));
+        return new Preview(List.of(placement), obstruction(player.level(), bounds, Set.of()));
     }
 
     static InteractionResult placeOnBlock(UseOnContext context, Player player, BakedPart part) {
@@ -62,7 +63,7 @@ public final class WorldPartPlacement {
             return InteractionResult.FAIL;
         }
         if (context.getLevel() instanceof ServerLevel level) {
-            if (spawnPart(level, player, context.getHand(), part, preview.placement()) == null) {
+            if (spawnPart(level, player, context.getHand(), part, preview.placements().getFirst()) == null) {
                 return InteractionResult.FAIL;
             }
             takePart(player, context.getHand());
@@ -73,27 +74,27 @@ public final class WorldPartPlacement {
     public static Preview attached(Player player, PlacedPartEntity target, BakedPart part, Vec3 hit, Options options) {
         BakedPart targetPart = target.part();
         if (targetPart == null || options.turns() < 0 || options.turns() > 3) {
-            return new Preview(null, "target");
+            return new Preview(List.of(), "target");
         }
         Vec3 eye = player.getEyePosition();
         Vec3 aim = hit.subtract(eye);
         double distance = aim.length();
         double reach = player.entityInteractionRange();
         if (!(distance > 0 && distance <= reach)) {
-            return new Preview(null, "target");
+            return new Preview(List.of(), "target");
         }
         Vec3 start = eye.subtract(target.position());
         Vec3 end = start.add(aim.scale((reach + 0.001) / distance));
         var targetNode = ShipDesign.Node.placed(targetPart, new PartPose(BlockPos.ZERO, target.rotation()));
         var surface = AABB.clip(List.of(targetNode.bounds()), start, end, BlockPos.ZERO);
         if (surface == null) {
-            return new Preview(null, "target");
+            return new Preview(List.of(), "target");
         }
         MarkerHit marker = options.surface() ? null : pickMarker(targetNode, start, end);
         Vec3 contact = marker == null ? surface.getLocation() : marker.position();
         if (player.level().clip(new ClipContext(eye, contact.add(target.position()), ClipContext.Block.OUTLINE,
                 ClipContext.Fluid.NONE, player)).getType() != HitResult.Type.MISS) {
-            return new Preview(null, "target");
+            return new Preview(List.of(), "target");
         }
 
         int targetIndex = marker == null ? -1 : marker.index();
@@ -101,36 +102,48 @@ public final class WorldPartPlacement {
         Direction normal = port == null ? surface.getDirection() : target.rotation().rotate(port.normal());
         var sources = new ArrayList<>(ShipPlacement.sources(part, port != null));
         if (sources.isEmpty()) {
-            return new Preview(null, "source");
+            return new Preview(List.of(), "source");
         }
         sources.sort(Comparator.comparing((ShipPlacement.Source source) -> port != null
                         && !port.matchesStackSize(part.connectors().get(source.marker())))
                 .thenComparing(source -> source.normal() != normal.getOpposite()));
         var source = sources.get(Math.floorMod(options.source(), sources.size()));
         var request = new ShipPlacement.Request(0, targetIndex, source.marker(), normal, source.normal(),
-                contact, options.turns(), 1);
+                contact, options.turns(), port == null ? options.symmetry() : 1);
         var result = ShipPlacement.place(new ShipDesign(List.of(targetNode), List.of(), 1), part, request);
-        var candidate = result.candidate();
-        if (candidate == null) {
-            return new Preview(null, result.error());
-        }
-        Vec3 origin = target.position().add(candidate.pose().position());
-        AABB bounds = candidate.bounds().move(target.position());
-        var placement = new Placement(origin, candidate.pose().rotation(), bounds,
-                result.error() == null ? result.design().links().getFirst() : null);
-        if (targetIndex >= 0 && target.isMarkerOccupied(targetIndex)) {
-            return new Preview(placement, "world_occupied");
-        }
         if (result.error() != null) {
-            return new Preview(placement, result.error());
+            var candidate = result.candidate();
+            return new Preview(candidate == null ? List.of() : List.of(placement(target, candidate, null)), result.error());
         }
-        if (target.groupSize() >= ShipDesign.MAX_PARTS) {
-            return new Preview(placement, "part_limit");
+        var placements = result.design().links().stream()
+                .map(link -> placement(target, result.design().nodes().get(link.second().node()), link)).toList();
+        if (targetIndex >= 0 && target.isMarkerOccupied(targetIndex)) {
+            return new Preview(placements, "world_occupied");
         }
-        if (!WorldAssembly.canUse(player, target) || !mayBuildIn(player, bounds)) {
-            return new Preview(placement, "world_permission");
+        if (result.skippedMirrors() > 0) {
+            return new Preview(placements, "world_symmetry_fit");
         }
-        return new Preview(placement, obstruction(player.level(), bounds, Set.of()));
+        if (target.groupSize() + placements.size() > ShipDesign.MAX_PARTS) {
+            return new Preview(placements, "part_limit");
+        }
+        if (!WorldAssembly.canUse(player, target)) {
+            return new Preview(placements, "world_permission");
+        }
+        for (var placement : placements) {
+            if (!mayBuildIn(player, placement.bounds())) {
+                return new Preview(placements, "world_permission");
+            }
+            String error = obstruction(player.level(), placement.bounds(), Set.of());
+            if (error != null) {
+                return new Preview(placements, error);
+            }
+        }
+        return new Preview(placements, null);
+    }
+
+    private static Placement placement(PlacedPartEntity target, ShipDesign.Node node, @Nullable ShipDesign.Link link) {
+        return new Placement(target.position().add(node.pose().position()), node.pose().rotation(),
+                node.bounds().move(target.position()), link);
     }
 
     @Nullable
@@ -174,18 +187,70 @@ public final class WorldPartPlacement {
         ServerLevel level = player.serverLevel();
         WorldAssembly data = WorldAssembly.get(level);
         var group = data.group(target);
-        var placement = preview.placement();
-        var child = spawnPart(level, player, hand, part, placement);
-        if (child == null) {
+        var placements = preview.placements();
+        ItemStack sample = stack.copyWithCount(1);
+        if (!payForPlacement(player, hand, sample, placements.size(), false)) {
+            report(player, "world_symmetry_parts", placements.size());
             return;
         }
-        if (!target.isPickable() || !group.equals(data.group(target))) {
-            child.discard();
+        var children = new ArrayList<PlacedPartEntity>(placements.size());
+        for (var placement : placements) {
+            var child = spawnPart(level, player, hand, part, placement);
+            if (child == null) {
+                children.forEach(PlacedPartEntity::discard);
+                return;
+            }
+            children.add(child);
+        }
+        // Entity-join listeners may change the group or inventory during placement.
+        if (!target.isPickable() || !group.equals(data.group(target)) || children.stream().anyMatch(child -> !child.isPickable())) {
+            children.forEach(PlacedPartEntity::discard);
             report(player, "world_group");
             return;
         }
-        data.connect(level, group, target, child, placement.link());
-        takePart(player, hand);
+        if (!payForPlacement(player, hand, sample, placements.size(), true)) {
+            children.forEach(PlacedPartEntity::discard);
+            report(player, "world_symmetry_parts", placements.size());
+            return;
+        }
+        data.connect(level, group, target, children, placements.stream().map(Placement::link).toList());
+    }
+
+    private static boolean payForPlacement(Player player, InteractionHand hand, ItemStack sample, int count, boolean consume) {
+        ItemStack held = player.getItemInHand(hand);
+        if (!ItemStack.isSameItemSameComponents(sample, held)) {
+            return false;
+        }
+        if (player.hasInfiniteMaterials()) {
+            return true;
+        }
+        var inventory = player.getInventory();
+        int heldSlot = hand == InteractionHand.MAIN_HAND ? inventory.selected : Inventory.SLOT_OFFHAND;
+        var matching = new ArrayList<ItemStack>();
+        matching.add(held);
+        for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+            ItemStack stack = inventory.getItem(slot);
+            if (slot != heldSlot && ItemStack.isSameItemSameComponents(sample, stack)) {
+                matching.add(stack);
+            }
+        }
+        if (hand == InteractionHand.MAIN_HAND && ItemStack.isSameItemSameComponents(sample, player.getOffhandItem())) {
+            matching.add(player.getOffhandItem());
+        }
+        if (matching.stream().mapToInt(ItemStack::getCount).sum() < count) {
+            return false;
+        }
+        if (consume) {
+            for (ItemStack stack : matching) {
+                int used = Math.min(stack.getCount(), count);
+                stack.shrink(used);
+                count -= used;
+                if (count == 0) {
+                    break;
+                }
+            }
+        }
+        return true;
     }
 
     @Nullable
@@ -252,8 +317,8 @@ public final class WorldPartPlacement {
         return BlockPos.containing(Math.nextDown(box.maxX), Math.nextDown(box.maxY), Math.nextDown(box.maxZ));
     }
 
-    private static void report(Player player, String error) {
-        player.displayClientMessage(Component.translatable("assembly.blockspaceprogram." + error), true);
+    private static void report(Player player, String error, Object... args) {
+        player.displayClientMessage(Component.translatable("assembly.blockspaceprogram." + error, args), true);
     }
 
     private record MarkerHit(int index, Vec3 position) {}

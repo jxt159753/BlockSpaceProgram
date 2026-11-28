@@ -359,7 +359,9 @@ final class OrbitalMapScreen extends Screen {
             }
         }
         var budget = burnEstimate(selected, node);
-        if (node != null && node.deltaV().lengthSqr() > 0) {
+        if (selected.propulsion().filter(VacuumPropulsion::thrustCancels).isPresent()) {
+            panelLine(graphics, text("result.no_thrust"), 186, PLAN);
+        } else if (node != null && node.deltaV().lengthSqr() > 0) {
             if (budget != null && budget.supplies(node.deltaV().length())) {
                 panelLine(graphics, text("burn", number(budget.seconds(), 2), number(budget.fuel(), 1)), 186, PLAN);
             } else {
@@ -574,7 +576,8 @@ final class OrbitalMapScreen extends Screen {
         if (selected == null || node == null) {
             return null;
         }
-        return selected.propulsion().map(propulsion -> propulsion.estimate(node.deltaV().length())).orElse(null);
+        return selected.propulsion().filter(propulsion -> !propulsion.thrustCancels())
+                .map(propulsion -> propulsion.estimate(node.deltaV().length())).orElse(null);
     }
 
     private static List<UUID> sortedShips() {

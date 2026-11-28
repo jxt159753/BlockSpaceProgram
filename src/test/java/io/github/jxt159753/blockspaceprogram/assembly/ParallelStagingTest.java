@@ -2,6 +2,7 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 import org.junit.Test;
@@ -33,9 +34,11 @@ public class ParallelStagingTest {
                 new VacuumPropulsion.Group(40, 0, -8_000, 0, 8)));
         var burn = propulsion.estimate(1);
         assertFalse(burn.supplies(1));
+        assertTrue(propulsion.thrustCancels());
         assertEquals(0, propulsion.netThrust(), 0);
         assertEquals(0, burn.deltaV(), 0);
         assertEquals(80, burn.fuel(), 1e-9);
+        assertEquals(5, burn.seconds(), 1e-9);
     }
 
     @Test
