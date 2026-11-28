@@ -29,7 +29,7 @@ record OrbitalMapForecast(Path coast, @Nullable Path preview, @Nullable Vec3 nod
         double start = now;
         boolean hasPreview = false;
         Vec3 position = null;
-        if (node != null && node.seconds() >= now) {
+        if (node != null && node.seconds() >= Math.max(now, orbit.elements().epochSeconds())) {
             position = coasting.apply(node.seconds()).position();
             try {
                 Orbit changed = node.preview(system, orbit, now);
@@ -59,7 +59,8 @@ record OrbitalMapForecast(Path coast, @Nullable Path preview, @Nullable Vec3 nod
 
     private static DoubleFunction<OrbitalState> targetPath(OrbitalSystem system, OrbitalShipView ship, double now, double end) {
         var node = ship.maneuver().orElse(null);
-        if (node != null && node.seconds() > now && node.seconds() < end) {
+        if (node != null && node.seconds() > now && node.seconds() >= ship.orbit().elements().epochSeconds()
+                && node.seconds() < end) {
             var before = system.forecast(ship.orbit(), now, node.seconds());
             var after = system.forecast(node.preview(system, ship.orbit(), now), node.seconds(), end);
             return seconds -> seconds < node.seconds() ? before.apply(seconds) : after.apply(seconds);

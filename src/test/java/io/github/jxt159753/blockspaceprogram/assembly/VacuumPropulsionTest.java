@@ -44,6 +44,28 @@ public class VacuumPropulsionTest {
     }
 
     @Test
+    public void segmentsContinueOnChemicalThrustAfterTheBatteryAndStopWhenFuelRunsOut() {
+        var chemical = new Drive(20, 0, 0, 1);
+        var electric = new Drive(4, 0, 0, 0.25);
+        var propulsion = new VacuumPropulsion(10, 1, 0.75, List.of(new Group(0, 1, chemical, electric, 100)));
+        var burn = propulsion.startBurn();
+        var powered = burn.nextSegment(Double.POSITIVE_INFINITY, 0.05);
+        assertEquals(0.0075, powered.seconds(), 1e-12);
+        burn.consume(powered);
+        assertEquals(0, burn.remainingElectric(), 0);
+        assertTrue(burn.outOfElectricity());
+        var chemicalOnly = burn.nextSegment(Double.POSITIVE_INFINITY, 0.05 - powered.seconds());
+        assertEquals(0.0425, chemicalOnly.seconds(), 1e-12);
+        double mass = 10 - 1.25 * powered.seconds();
+        assertEquals(20 * Math.log(mass / (mass - 0.0425)), chemicalOnly.deltaV(), 1e-12);
+        burn.consume(chemicalOnly);
+        burn.consume(burn.nextSegment(Double.POSITIVE_INFINITY, 2));
+        assertEquals(0, burn.remainingFuel(), 1e-12);
+        assertEquals(0, burn.nextSegment(Double.POSITIVE_INFINITY, 2).seconds(), 0);
+        assertFalse(burn.outOfElectricity());
+    }
+
+    @Test
     public void groupWithoutFuelStopsDrawingPowerAndElectricityCanLimitTheManeuver() {
         var electric = new Drive(1_000, 0, 0, 1);
         var propulsion = new VacuumPropulsion(120, 11, 100, List.of(

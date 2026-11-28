@@ -71,7 +71,10 @@ public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Opti
 
     static OrbitalShipView of(OrbitingShip ship, HolderLookup.Provider registries) {
         var snapshot = OrbitalShipPropulsion.read(registries, ship.shipData());
-        return new OrbitalShipView(ship.orbit(), ship.maneuver(),
-                Optional.ofNullable(snapshot).map(OrbitalShipPropulsion::propulsion));
+        var maneuver = ship.maneuver().map(node -> ship.maneuverProgress().map(progress -> {
+            double fraction = 1 - progress.deltaV() / node.deltaV().length();
+            return new ManeuverNode(progress.startedAt(), node.deltaV().scale(fraction));
+        }).orElse(node));
+        return new OrbitalShipView(ship.orbit(), maneuver, Optional.ofNullable(snapshot).map(OrbitalShipPropulsion::propulsion));
     }
 }

@@ -248,6 +248,7 @@
   "map.blockspaceprogram.window": "Window in %s",
   "map.blockspaceprogram.node": "Node −%s · %s m/s",
   "map.blockspaceprogram.armed": "Burn −%s · %s m/s",
+  "map.blockspaceprogram.burning": "Burning · %s m/s left",
   "map.blockspaceprogram.expired": "Node time passed",
   "map.blockspaceprogram.prograde": "↔ Prograde %s m/s",
   "map.blockspaceprogram.normal": "↔ Normal %s m/s",
@@ -263,6 +264,7 @@
   "map.blockspaceprogram.result.invalid_node": "Invalid orbit or node time",
   "map.blockspaceprogram.result.insufficient_fuel": "Not enough usable fuel",
   "map.blockspaceprogram.result.insufficient_electricity": "Not enough electric charge",
+  "map.blockspaceprogram.result.incomplete": "Ship %s reached %s m/s of its planned burn (%s)",
   "map.blockspaceprogram.result.no_thrust": "Thrust cancels out (0 N)",
 
   "benchmark.blockspaceprogram.player_required": "Run this command as an online player.",

@@ -16,7 +16,7 @@ import org.joml.Quaterniond;
  * Angular velocity is in inertial axes, in radians per second.
  */
 public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData,
-                           Optional<ManeuverNode> maneuver) {
+                           Optional<ManeuverNode> maneuver, Optional<ManeuverBurn.Progress> maneuverProgress) {
     private static final Codec<Quaterniond> ORIENTATION_CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.DOUBLE.fieldOf("x").forGetter(Quaterniond::x),
             Codec.DOUBLE.fieldOf("y").forGetter(Quaterniond::y),
@@ -29,11 +29,17 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
             ORIENTATION_CODEC.fieldOf("orientation").forGetter(OrbitingShip::orientation),
             Vec3.CODEC.fieldOf("angular_velocity").forGetter(OrbitingShip::angularVelocity),
             CompoundTag.CODEC.fieldOf("ship_data").forGetter(OrbitingShip::shipData),
-            ManeuverNode.CODEC.optionalFieldOf("maneuver").forGetter(OrbitingShip::maneuver)
+            ManeuverNode.CODEC.optionalFieldOf("maneuver").forGetter(OrbitingShip::maneuver),
+            ManeuverBurn.Progress.CODEC.optionalFieldOf("maneuver_progress").forGetter(OrbitingShip::maneuverProgress)
     ).apply(instance, OrbitingShip::new));
 
     public OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData) {
         this(id, orbit, orientation, angularVelocity, shipData, Optional.empty());
+    }
+
+    public OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 angularVelocity, CompoundTag shipData,
+            Optional<ManeuverNode> maneuver) {
+        this(id, orbit, orientation, angularVelocity, shipData, maneuver, Optional.empty());
     }
 
     public OrbitingShip {
@@ -68,10 +74,16 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
     }
 
     public OrbitingShip withOrbit(Orbit next) {
-        return new OrbitingShip(id, next, orientation, angularVelocity, shipData, maneuver);
+        return new OrbitingShip(id, next, orientation, angularVelocity, shipData, maneuver, maneuverProgress);
     }
 
     OrbitingShip withManeuver(Optional<ManeuverNode> next) {
         return new OrbitingShip(id, orbit, orientation, angularVelocity, shipData, next);
+    }
+
+    OrbitingShip afterBurn(ManeuverBurn.Outcome outcome, CompoundTag data) {
+        return new OrbitingShip(id, outcome.orbit(), orientation, angularVelocity, data,
+                outcome.finished() ? Optional.empty() : maneuver,
+                outcome.finished() ? Optional.empty() : Optional.of(outcome.progress()));
     }
 }

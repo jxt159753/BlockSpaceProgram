@@ -248,6 +248,7 @@
   "map.blockspaceprogram.window": "窗口倒计时 %s",
   "map.blockspaceprogram.node": "节点 −%s · %s m/s",
   "map.blockspaceprogram.armed": "点火 −%s · %s m/s",
+  "map.blockspaceprogram.burning": "点火中 · 剩余 %s m/s",
   "map.blockspaceprogram.expired": "节点时刻已过",
   "map.blockspaceprogram.prograde": "↔ 顺向 %s m/s",
   "map.blockspaceprogram.normal": "↔ 法向 %s m/s",
@@ -263,6 +264,7 @@
   "map.blockspaceprogram.result.invalid_node": "轨道或节点时刻无效",
   "map.blockspaceprogram.result.insufficient_fuel": "可用燃料不足",
   "map.blockspaceprogram.result.insufficient_electricity": "可用电量不足",
+  "map.blockspaceprogram.result.incomplete": "飞船 %s 已完成 Δv %s m/s（%s）",
   "map.blockspaceprogram.result.no_thrust": "推力相互抵消（0 N）",
 
   "benchmark.blockspaceprogram.player_required": "请使用在线玩家执行此命令。",

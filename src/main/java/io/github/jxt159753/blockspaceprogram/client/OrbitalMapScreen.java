@@ -346,8 +346,11 @@ final class OrbitalMapScreen extends Screen {
             panelLine(graphics, window == null ? text("place_node")
                     : text("window", duration(window.node().seconds() - now)), 137, MUTED);
         } else {
+            boolean burning = armed != null && node.seconds() < Math.max(now, elements.epochSeconds());
             var label = armed != null ? "armed" : node.seconds() < now ? "expired" : "node";
-            panelLine(graphics, text(label, duration(node.seconds() - now), number(node.deltaV().length(), 1)), 137, PLAN);
+            var summary = burning ? text("burning", number(node.deltaV().length(), 2))
+                    : text(label, duration(node.seconds() - now), number(node.deltaV().length(), 1));
+            panelLine(graphics, summary, 137, PLAN);
             for (int i = 0; i < AXES.length; i++) {
                 int y = AXIS_TOP + i * AXIS_HEIGHT;
                 if (armed == null) {

@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import io.github.jxt159753.blockspaceprogram.assembly.OrbitalShipPropulsion;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalFlightControl.WarpResult;
@@ -112,9 +113,9 @@ final class OrbitalTimeWarp {
 
         long remaining = target == null ? Long.MAX_VALUE : target.tick() - data.orbitTicks();
         int requested = (int) Math.min(RATES[gear], remaining);
-        double from = data.orbitSeconds();
-        double to = (data.orbitTicks() + requested) / (double) OrbitalSavedData.TICKS_PER_SECOND;
-        var limit = firstLimit(space, data, reference, from, to);
+        long toTick = data.orbitTicks() + requested;
+        double to = toTick / (double) OrbitalSavedData.TICKS_PER_SECOND;
+        var limit = firstLimit(space, data, reference, toTick, to);
         if (limit.seconds() <= to) {
             stop(space, owner, limit.reason());
             return stepBefore(data.orbitTicks(), requested, limit.seconds());
@@ -153,47 +154,39 @@ final class OrbitalTimeWarp {
     }
 
     private static Limit firstLimit(ServerLevel space, OrbitalSavedData data, @Nullable Orbit reference,
-            double from, double to) {
-        var limit = new Limit(data.nextManeuverSeconds(), "burn");
-        if (limit.seconds() <= from) {
-            return limit;
-        }
+            long toTick, double to) {
+        double from = data.orbitSeconds();
+        var limit = new Limit(Double.POSITIVE_INFINITY, "");
         var system = data.system();
         var radii = new HashMap<ResourceLocation, Double>();
         for (var body : system.bodies()) {
             radii.put(body.id(), ShipOrbitHandoff.timeWarpRadius(space.getServer(), body));
         }
         var members = reference == null ? List.<OrbitalState>of() : OrbitalRegion.get(space.getServer()).warpMembers(space);
-        var referenceLegs = reference == null ? List.<Orbit>of() : system.conics(reference, from, Math.min(to, limit.seconds()));
+        var referenceLegs = reference == null ? List.<Orbit>of() : system.conics(reference, from, to);
         for (var member : members) {
             double time = firstDescent(system, referenceLegs, radii, member.position(), from, Math.min(to, limit.seconds()));
             limit = limit.earlier(time, "descent");
         }
 
-        var origin = referenceLegs.isEmpty() ? null : system.forecast(referenceLegs);
-        double originAcceleration = system.maxAcceleration(referenceLegs);
-        double entry = ShipServerConfig.orbitEntryDistance();
-        double speed = ShipServerConfig.orbitEntrySpeed();
+        var forecast = new ShipForecast(system, radii, members, referenceLegs, limit);
         for (var ship : data.ships()) {
-            if (limit.seconds() <= from) {
+            double until = Math.min(to, forecast.limit.seconds());
+            if (until <= from) {
                 break;
             }
-            var legs = system.conics(ship.orbit(), from, Math.min(to, limit.seconds()));
-            double descent = firstDescent(system, legs, radii, Vec3.ZERO, from, Math.min(to, limit.seconds()));
-            limit = limit.earlier(descent, "descent");
-            if (origin == null) {
-                continue;
-            }
-            var target = system.forecast(legs);
-            double acceleration = originAcceleration + system.maxAcceleration(legs);
-            for (var member : members) {
-                // The region's local positions are fixed during warp. Retain the member's own velocity for entry.
-                var contact = new Proximity(t -> target.apply(t).subtract(origin.apply(t)).subtract(member),
-                        entry, speed, acceleration);
-                limit = limit.earlier(contact.firstInside(from, Math.min(to, limit.seconds())), "encounter");
+            var node = ship.maneuver().orElse(null);
+            if (node != null && node.seconds() < until) {
+                // The thrust path can bring the ship into the descent shell or the local physics region.
+                var propulsion = OrbitalShipPropulsion.read(space.registryAccess(), ship.shipData());
+                var burn = propulsion == null ? null : propulsion.propulsion().startBurn();
+                long lastTick = Math.min(toTick, (long) Math.ceil(until * OrbitalSavedData.TICKS_PER_SECOND));
+                ManeuverBurn.advance(system, ship, node, burn, data.orbitTicks(), lastTick, forecast::advance);
+            } else {
+                forecast.advance(ship.orbit(), from, until);
             }
         }
-        return limit;
+        return forecast.limit;
     }
 
     private record Target(UUID owner, long tick) {}
@@ -234,6 +227,48 @@ final class OrbitalTimeWarp {
     private record Limit(double seconds, String reason) {
         Limit earlier(double candidate, String why) {
             return candidate < seconds ? new Limit(candidate, why) : this;
+        }
+    }
+
+    private static final class ShipForecast {
+        private final OrbitalSystem system;
+        private final Map<ResourceLocation, Double> radii;
+        private final List<OrbitalState> members;
+        @Nullable private final DoubleFunction<OrbitalState> origin;
+        private final double originAcceleration;
+        private final double entry = ShipServerConfig.orbitEntryDistance();
+        private final double speed = ShipServerConfig.orbitEntrySpeed();
+        private Limit limit;
+
+        private ShipForecast(OrbitalSystem system, Map<ResourceLocation, Double> radii, List<OrbitalState> members,
+                List<Orbit> referenceLegs, Limit limit) {
+            this.system = system;
+            this.radii = radii;
+            this.members = members;
+            this.origin = referenceLegs.isEmpty() ? null : system.forecast(referenceLegs);
+            this.originAcceleration = system.maxAcceleration(referenceLegs);
+            this.limit = limit;
+        }
+
+        @Nullable
+        Orbit advance(Orbit orbit, double from, double to) {
+            if (limit.seconds() <= from) {
+                return null;
+            }
+            to = Math.min(to, limit.seconds());
+            var legs = system.conics(orbit, from, to);
+            limit = limit.earlier(firstDescent(system, legs, radii, Vec3.ZERO, from, to), "descent");
+            if (origin != null && limit.seconds() > from) {
+                var target = system.forecast(legs);
+                double acceleration = originAcceleration + system.maxAcceleration(legs);
+                for (var member : members) {
+                    // The region's local positions are fixed during warp. Retain the member's own velocity for entry.
+                    var contact = new Proximity(t -> target.apply(t).subtract(origin.apply(t)).subtract(member),
+                            entry, speed, acceleration);
+                    limit = limit.earlier(contact.firstInside(from, Math.min(to, limit.seconds())), "encounter");
+                }
+            }
+            return limit.seconds() <= to ? null : legs.getLast();
         }
     }
 

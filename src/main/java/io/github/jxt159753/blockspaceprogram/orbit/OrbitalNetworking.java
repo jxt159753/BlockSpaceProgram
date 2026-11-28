@@ -4,10 +4,12 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalMapClient;
 import io.github.jxt159753.blockspaceprogram.client.OrbitalRegionClient;
+import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverFailure;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
 import io.netty.buffer.ByteBuf;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -79,11 +81,27 @@ public final class OrbitalNetworking {
 
     private static void handleCommand(ServerPlayer player, ManeuverCommand command) {
         var server = player.serverLevel().getServer();
-        // Ownerless ships have no per-player access lists. Only the host or an operator may burn.
-        var result = player.hasPermissions(2) || server.isSingleplayerOwner(player.getGameProfile())
+        var result = mayCommandManeuver(player)
                 ? OrbitalSavedData.get(server).commandManeuver(command.id(), command.node(), server.registryAccess())
                 : ManeuverResult.FORBIDDEN;
         PacketDistributor.sendToPlayer(player, new ManeuverFeedback(command.id(), result));
+    }
+
+    private static boolean mayCommandManeuver(ServerPlayer player) {
+        // Ownerless ships have no per-player access lists. Only the host or an operator may burn.
+        return player.hasPermissions(2) || player.serverLevel().getServer().isSingleplayerOwner(player.getGameProfile());
+    }
+
+    private static void reportManeuverFailure(List<ServerPlayer> players, ManeuverFailure failure) {
+        var reason = Component.translatable("map.blockspaceprogram.result." + failure.reason().name().toLowerCase(Locale.ROOT));
+        var message = Component.translatable("map.blockspaceprogram.result.incomplete",
+                failure.ship().toString().substring(0, 8), String.format(Locale.ROOT, "%.3f", failure.deltaV()), reason);
+        for (var player : players) {
+            if (player.getUUID().equals(failure.owner()) || mayCommandManeuver(player)) {
+                PacketDistributor.sendToPlayer(player, new ManeuverFeedback(failure.ship(), failure.reason()));
+                player.sendSystemMessage(message);
+            }
+        }
     }
 
     private static void onLevelLoad(LevelEvent.Load event) {
@@ -144,7 +162,8 @@ public final class OrbitalNetworking {
         int step = region == null ? 1 : region.timeWarp().nextStep(space, data);
         boolean warped = step > 1;
         // Run listeners after committing the orbital updates and leaving the active-ship iterator.
-        data.advanceTicks(server.registryAccess(), step).forEach(NeoForge.EVENT_BUS::post);
+        var advance = data.advanceTicks(server.registryAccess(), step);
+        advance.crossings().forEach(NeoForge.EVENT_BUS::post);
         if (sable) {
             ShipOrbitHandoff.tick(server, data, previousSeconds, warped);
         }
@@ -153,6 +172,7 @@ public final class OrbitalNetworking {
         if (players.isEmpty()) {
             return;
         }
+        advance.failures().forEach(failure -> reportManeuverFailure(players, failure));
         if (warped || data.orbitTicks() % OrbitalSavedData.TICKS_PER_SECOND == 0) {
             PacketDistributor.sendToAllPlayers(new Clock(data.orbitTicks()));
         }

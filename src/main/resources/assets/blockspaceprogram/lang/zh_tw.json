@@ -248,6 +248,7 @@
   "map.blockspaceprogram.window": "轉移時機倒數 %s",
   "map.blockspaceprogram.node": "節點 −%s · %s m/s",
   "map.blockspaceprogram.armed": "點火 −%s · %s m/s",
+  "map.blockspaceprogram.burning": "點火中 · 剩餘 %s m/s",
   "map.blockspaceprogram.expired": "已超過節點時間",
   "map.blockspaceprogram.prograde": "↔ 順向 %s m/s",
   "map.blockspaceprogram.normal": "↔ 法向 %s m/s",
@@ -263,6 +264,7 @@
   "map.blockspaceprogram.result.invalid_node": "軌道或節點時刻無效",
   "map.blockspaceprogram.result.insufficient_fuel": "可用燃料不足",
   "map.blockspaceprogram.result.insufficient_electricity": "可用電量不足",
+  "map.blockspaceprogram.result.incomplete": "太空船 %s 已完成 Δv %s m/s（%s）",
   "map.blockspaceprogram.result.no_thrust": "推力互相抵消（0 N）",
 
   "benchmark.blockspaceprogram.player_required": "請使用線上玩家執行此指令。",
