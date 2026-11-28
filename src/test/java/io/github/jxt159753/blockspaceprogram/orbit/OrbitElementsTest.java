@@ -1,14 +1,35 @@
 package io.github.jxt159753.blockspaceprogram.orbit;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonParser;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import net.minecraft.world.phys.Vec3;
 import org.junit.Test;
 
 public class OrbitElementsTest {
     private static final double MU = 3.528e10;
+
+    @Test
+    public void gameMapPositionsMatchTheSharedBrowserFixtures() throws IOException {
+        var gson = new Gson();
+        try (var reader = new InputStreamReader(getClass().getResourceAsStream("/orbit/kepler-position-cases.json"),
+                StandardCharsets.UTF_8)) {
+            for (var entry : JsonParser.parseReader(reader).getAsJsonArray()) {
+                var fixture = entry.getAsJsonObject();
+                var orbit = gson.fromJson(fixture.get("orbit"), OrbitElements.class);
+                double[] expected = gson.fromJson(fixture.get("position"), double[].class);
+                var position = orbit.stateAt(fixture.get("mu").getAsDouble(), fixture.get("seconds").getAsDouble()).position();
+                assertEquals(fixture.get("name").getAsString(), 0,
+                        position.distanceTo(new Vec3(expected[0], expected[1], expected[2])), 0.01);
+            }
+        }
+    }
 
     @Test
     public void lowCircularOrbitMatchesPeriodAndQuarterOrbit() {

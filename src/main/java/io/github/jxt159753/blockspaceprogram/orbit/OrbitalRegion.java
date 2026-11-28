@@ -6,12 +6,17 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
 import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight.Motion;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.DoubleFunction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
@@ -24,7 +29,9 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.DimensionDataStorage;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Quaterniond;
@@ -32,10 +39,10 @@ import org.joml.Quaterniondc;
 import org.joml.Vector3d;
 import org.slf4j.Logger;
 
-/** A single translating, non-rotating Sable region in the orbital-space dimension. */
-public final class OrbitalRegion extends SavedData {
+/** Owns the translating, non-rotating frames in the orbital-space dimension. */
+public final class OrbitalRegion {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final Factory<OrbitalRegion> FACTORY = new Factory<>(OrbitalRegion::new, OrbitalRegion::load);
+    private static final SavedData.Factory<Region> FACTORY = new SavedData.Factory<>(Region::new, Region::load);
     private static final String STORAGE_ID = "blockspaceprogram_orbital_region";
     private static final String PLAYER_RETURN = "BlockSpaceProgramOrbitalReturn";
     private static final String EVA_FLIGHT = "BlockSpaceProgramEvaFlight";
@@ -43,22 +50,36 @@ public final class OrbitalRegion extends SavedData {
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "orbital_gravity");
     private static final double REBASE_DISTANCE = 64;
     private static final double REBASE_SPEED = 12;
+    private static final double ENCOUNTER_LOOKAHEAD = 1;
+    private static final int SLOT_SPACING = 16_384;
     static final int CONTACT_INTERVAL = 5;
     public static final double CONTACT_RANGE = 4_000;
-    // Leave clearance below the region for target ships and untethered players.
+    // Leave clearance below each region for target ships and untethered players.
     public static final Vec3 ORIGIN = new Vec3(0, 4096, 0);
 
-    private final Map<UUID, Entity> members = new LinkedHashMap<>();
+    private final DimensionDataStorage storage;
+    private final Map<Vec3, Region> regions = new LinkedHashMap<>();
+    private final Map<UUID, Region> assignments = new HashMap<>();
     private final Map<UUID, ShipOrbitHandoff.RegionDescent> pendingDescents = new HashMap<>();
     private final OrbitalTimeWarp timeWarp = new OrbitalTimeWarp();
-    @Nullable private Orbit reference;
-    @Nullable private UUID anchor;
+    private List<Encounter> encounters = List.of();
     @Nullable private BenchmarkOrbit benchmark;
+    private final Set<UUID> benchmarkShips = new HashSet<>();
 
-    private OrbitalRegion() {}
+    OrbitalRegion(DimensionDataStorage storage) {
+        this.storage = storage;
+        // Slots are allocated in order. Recycled slots retain an empty record for reuse.
+        for (int slot = 0; ; slot++) {
+            var region = storage.get(FACTORY, storageId(slot));
+            if (region == null) {
+                break;
+            }
+            addSlot(slot, region);
+        }
+    }
 
     static OrbitalRegion get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(FACTORY, STORAGE_ID);
+        return OrbitalSavedData.get(server).orbitalRegions(server.overworld().getDataStorage());
     }
 
     OrbitalTimeWarp timeWarp() {
@@ -67,18 +88,19 @@ public final class OrbitalRegion extends SavedData {
 
     @Nullable
     Orbit reference() {
-        return reference;
+        // Only the private single-player time warp needs a global reference.
+        return regions.values().stream().filter(region -> !region.members.isEmpty())
+                .findFirst().map(region -> region.reference).orElse(null);
     }
 
     @Nullable
     Orbit orbitFor(AssembledShipEntity ship, OrbitalSavedData data) {
-        if (reference == null || benchmark != null) {
+        var region = regionFor(ship);
+        if (region == null || benchmark != null) {
             return null;
         }
-        var system = data.system();
-        double now = data.orbitSeconds();
         try {
-            return fit(system, new Frame(system, reference, now).absolute(localState(ship)), now);
+            return fit(data.system(), region.frame(data).absolute(localState(ship)), data.orbitSeconds());
         } catch (IllegalArgumentException error) {
             return null;
         }
@@ -86,19 +108,30 @@ public final class OrbitalRegion extends SavedData {
 
     List<OrbitalState> warpMembers(ServerLevel space) {
         syncMembers(space);
-        return members.values().stream().map(OrbitalRegion::localState)
-                .map(state -> new OrbitalState(toInertial(state.position().subtract(ORIGIN)), toInertial(state.velocity())))
-                .toList();
+        return regions.values().stream().filter(region -> !region.members.isEmpty()).findFirst()
+                .map(region -> region.members.values().stream().map(OrbitalRegion::localState)
+                        .map(state -> new OrbitalState(toInertial(state.position().subtract(region.origin)),
+                                toInertial(state.velocity()))).toList()).orElseGet(List::of);
     }
 
     @Nullable
     public static Orbit referenceFor(ServerPlayer player) {
-        if (!inSpace(player)) {
+        var view = viewFor(player);
+        return view == null ? null : view.reference();
+    }
+
+    @Nullable
+    public static View viewFor(ServerPlayer player) {
+        if (!inSpace(player) || !ModList.get().isLoaded("sable")) {
             return null;
         }
-        var region = get(player.serverLevel().getServer());
-        var benchmark = region.benchmark;
-        return benchmark != null && player.getUUID().equals(benchmark.observer()) ? benchmark.reference() : region.reference;
+        var regions = get(player.serverLevel().getServer());
+        var benchmark = regions.benchmark;
+        if (benchmark != null && player.getUUID().equals(benchmark.observer())) {
+            return new View(ORIGIN, benchmark.reference());
+        }
+        var region = regions.regionFor(player);
+        return region == null ? null : new View(region.origin, region.reference);
     }
 
     public static boolean inSpace(ServerPlayer player) {
@@ -118,8 +151,57 @@ public final class OrbitalRegion extends SavedData {
         return new Quaterniond().rotationX(Math.PI / 2);
     }
 
+    private static String storageId(int slot) {
+        return slot == 0 ? STORAGE_ID : STORAGE_ID + "_" + slot;
+    }
+
+    private void addSlot(int slot, Region region) {
+        region.origin = slotOrigin(slot);
+        regions.put(region.origin, region);
+    }
+
+    static Vec3 slotOrigin(int slot) {
+        if (slot == 0) {
+            return ORIGIN;
+        }
+        // Fill square rings so the first slots stay close to zero on both axes.
+        int ring = ((int) Math.sqrt(slot) + 1) / 2;
+        int side = 2 * ring;
+        int offset = slot - (side - 1) * (side - 1);
+        int along = offset % side - ring;
+        return switch (offset / side) {
+            case 0 -> ORIGIN.add(along * SLOT_SPACING, 0, -ring * SLOT_SPACING);
+            case 1 -> ORIGIN.add(ring * SLOT_SPACING, 0, along * SLOT_SPACING);
+            case 2 -> ORIGIN.add(-along * SLOT_SPACING, 0, ring * SLOT_SPACING);
+            default -> ORIGIN.add(-ring * SLOT_SPACING, 0, -along * SLOT_SPACING);
+        };
+    }
+
+    private static Vec3 slotAt(Vec3 position) {
+        return new Vec3(SLOT_SPACING * Math.round(position.x / SLOT_SPACING), ORIGIN.y,
+                SLOT_SPACING * Math.round(position.z / SLOT_SPACING));
+    }
+
+    @Nullable
+    private Region allocate(ServerLevel space) {
+        for (var region : regions.values()) {
+            if (region.reference == null && ShipOrbitHandoff.validPosition(space, region.origin)) {
+                return region;
+            }
+        }
+        int slot = regions.size();
+        if (!ShipOrbitHandoff.validPosition(space, slotOrigin(slot))) {
+            return null;
+        }
+        var region = new Region();
+        addSlot(slot, region);
+        storage.set(storageId(slot), region);
+        return region;
+    }
+
     boolean availableForBenchmark(ServerLevel space) {
-        return benchmark == null && reference == null && space.players().isEmpty() && SableShipFlight.activeShips(space).isEmpty();
+        return benchmark == null && regions.values().stream().noneMatch(region -> region.reference != null)
+                && space.players().isEmpty() && SableShipFlight.activeShips(space).isEmpty();
     }
 
     boolean enterBenchmark(ServerPlayer player, ServerLevel space, Vec3 position, float yaw, float pitch) {
@@ -132,9 +214,6 @@ public final class OrbitalRegion extends SavedData {
             return false;
         }
         benchmark = new BenchmarkOrbit(orbit, player.getUUID());
-        members.put(player.getUUID(), player);
-        // Use the orbital dimension's base physics without tidal forces for the controlled scene.
-        SableShipFlight.setOrbitalFrame(space, null, Vec3.ZERO);
         return true;
     }
 
@@ -143,16 +222,16 @@ public final class OrbitalRegion extends SavedData {
     }
 
     void addBenchmarkShip(AssembledShipEntity ship) {
-        members.put(ship.getUUID(), ship);
+        benchmarkShips.add(ship.getUUID());
     }
 
     boolean hasBenchmarkShip(AssembledShipEntity ship) {
-        return benchmark != null && members.get(ship.getUUID()) == ship;
+        return benchmark != null && benchmarkShips.contains(ship.getUUID());
     }
 
     void endBenchmark() {
         benchmark = null;
-        members.clear();
+        benchmarkShips.clear();
     }
 
     boolean enter(OrbitalSavedData data, AssembledShipEntity ship, Orbit orbit, Motion motion, Quaterniondc rotation) {
@@ -161,66 +240,117 @@ public final class OrbitalRegion extends SavedData {
             return false;
         }
         BenchmarkCommands.interruptOrbital(space);
-        double now = data.orbitSeconds();
-        Orbit path = reference == null ? orbit : reference;
         var system = data.system();
-        var frame = new Frame(system, path, now);
+        double now = data.orbitSeconds();
+        var absolute = system.absoluteState(orbit, now);
+        var region = entryRegion(space, data, absolute);
+        if (region == null) {
+            return false;
+        }
+        var frame = region.entryFrame(data, orbit);
         var transform = toInertialRotation().conjugate().mul(rotation);
         var angular = rotation.transform(new Vector3d(motion.angularVelocity().x, motion.angularVelocity().y,
                 motion.angularVelocity().z));
-        var local = frame.localMotion(system.absoluteState(orbit, now), new Quaterniond(rotation).mul(motion.orientation()),
+        var local = frame.localMotion(absolute, new Quaterniond(rotation).mul(motion.orientation()),
                 new Vec3(angular.x, angular.y, angular.z));
         var restored = ship.activeFlight().transfer(space, local, transform, false);
         if (restored == null) {
             return false;
         }
-        members.put(restored.getUUID(), restored);
-        if (reference == null) {
-            setReference(orbit, restored.getUUID());
-        }
+        registerEntry(region, restored, orbit, frame);
         return true;
+    }
+
+    @Nullable
+    private Region entryRegion(ServerLevel space, OrbitalSavedData data, OrbitalState state) {
+        var occupied = occupiedRegions(space);
+        if (OrbitalTimeWarp.isPrivateWorld(space.getServer()) && !occupied.isEmpty()) {
+            return occupied.iterator().next();
+        }
+        var nearby = nearestRegion(snapshots(occupied, data), state);
+        return nearby == null ? allocate(space) : nearby.region();
+    }
+
+    private void registerEntry(Region region, Entity entity, Orbit orbit, Frame frame) {
+        if (region.reference == null) {
+            region.setReference(orbit, entity.getUUID());
+        }
+        track(region, entity, true);
+        if (entity instanceof AssembledShipEntity ship) {
+            frame.configurePhysics(ship);
+        }
     }
 
     void tick(ServerLevel space, OrbitalSavedData data, double previousSeconds, boolean warped) {
         if (benchmark != null) {
-            syncMembers(space);
             return;
         }
-        if (reference == null) {
-            return;
-        }
-        boolean wasActive = !members.isEmpty();
         syncMembers(space);
-        double now = data.orbitSeconds();
-        if (space.players().stream().noneMatch(ServerPlayer::isAlive)) {
-            if (wasActive || !members.isEmpty()) {
-                recycle(space, data);
+        var occupied = occupiedRegions(space);
+        recycleUnoccupied(data, occupied);
+        boolean checkContacts = data.orbitTicks() % CONTACT_INTERVAL == 0;
+        boolean transferred = false;
+        for (var region : occupied) {
+            advanceReference(region, data, previousSeconds);
+            if (!warped) {
+                transferred |= descend(space, data, region, checkContacts);
             }
-            return;
+        }
+        if (transferred) {
+            syncMembers(space);
+            occupied = occupiedRegions(space);
+            recycleUnoccupied(data, occupied);
         }
 
-        var system = data.system();
-        var legs = system.conics(reference, previousSeconds, now);
-        if (legs.size() > 1) {
-            setReference(legs.getLast(), anchor);
-            for (int index = 1; index < legs.size(); index++) {
-                postSoiChange(legs.get(index - 1), legs.get(index));
+        if (!warped) {
+            if (!OrbitalTimeWarp.isPrivateWorld(space.getServer())) {
+                if (checkContacts) {
+                    split(space, data, occupied);
+                    occupied = occupiedRegions(space);
+                    encounters = forecastEncounters(data, occupied);
+                }
+                if (merge(space, data, occupied)) {
+                    occupied = occupiedRegions(space);
+                }
+            }
+            if (checkContacts) {
+                exchangeShips(space, data, occupied);
             }
         }
-        var frame = new Frame(system, reference, now);
-        if (warped) {
-            frame.configurePhysics(space);
-            return;
+        for (var region : occupied) {
+            if (!warped) {
+                rebase(space, data, region);
+            }
+            var frame = region.frame(data);
+            for (var member : region.members.values()) {
+                if (member instanceof AssembledShipEntity ship) {
+                    frame.configurePhysics(ship);
+                }
+            }
         }
-        boolean checkContacts = data.orbitTicks() % CONTACT_INTERVAL == 0;
-        for (Entity member : List.copyOf(members.values())) {
+    }
+
+    private void advanceReference(Region region, OrbitalSavedData data, double previousSeconds) {
+        var legs = data.system().conics(region.reference, previousSeconds, data.orbitSeconds());
+        if (legs.size() > 1) {
+            region.setReference(legs.getLast(), region.anchor);
+            for (int index = 1; index < legs.size(); index++) {
+                postSoiChange(region, legs.get(index - 1), legs.get(index));
+            }
+        }
+    }
+
+    private boolean descend(ServerLevel space, OrbitalSavedData data, Region region, boolean forecast) {
+        var frame = region.frame(data);
+        boolean transferred = false;
+        for (Entity member : List.copyOf(region.members.values())) {
             if (member instanceof AssembledShipEntity ship) {
                 try {
                     var id = ship.getUUID();
                     var descent = pendingDescents.get(id);
                     if (descent == null) {
-                        descent = ShipOrbitHandoff.regionDescent(space.getServer(), system, frame.absolute(localState(ship)),
-                                now, checkContacts);
+                        descent = ShipOrbitHandoff.regionDescent(space.getServer(), data.system(),
+                                frame.absolute(localState(ship)), frame.seconds(), forecast);
                     }
                     if (descent == null) {
                         continue;
@@ -232,125 +362,322 @@ public final class OrbitalRegion extends SavedData {
                     }
                     pendingDescents.remove(id);
                     if (descent.transfer(ship)) {
-                        members.remove(id);
+                        region.members.remove(id);
+                        assignments.remove(id);
+                        transferred = true;
                         NeoForge.EVENT_BUS.post(ShipOrbitEvent.leftOrbit(id, ship.owner(),
-                                descent.level().dimension().location(), reference));
+                                descent.level().dimension().location(), region.reference));
                     }
                 } catch (RuntimeException error) {
                     LOGGER.warn("Could not return ship {} from orbital space", ship.getUUID(), error);
                 }
             }
         }
-        syncMembers(space);
-        if (space.players().stream().noneMatch(ServerPlayer::isAlive)) {
-            recycle(space, data);
-            return;
+        return transferred;
+    }
+
+    @Nullable
+    private Region regionFor(Entity entity) {
+        if (entity instanceof ServerPlayer player) {
+            var ship = SableShipFlight.carriedShip(player);
+            if (ship != null) {
+                return regionFor(ship);
+            }
         }
-        if (checkContacts) {
-            exchangeShips(space, data, frame);
+        var assigned = assignments.get(entity.getUUID());
+        var region = assigned == null ? regions.get(slotAt(localState(entity).position())) : assigned;
+        return region != null && region.reference != null ? region : null;
+    }
+
+    private void track(Region region, Entity entity, boolean independent) {
+        var id = entity.getUUID();
+        var previous = assignments.put(id, region);
+        if (previous != null && previous != region) {
+            previous.members.remove(id);
         }
-        rebase(space, system, frame, now);
-        new Frame(system, reference, now).configurePhysics(space);
+        if (independent) {
+            region.members.put(id, entity);
+        } else {
+            region.members.remove(id);
+        }
+        region.seen = true;
     }
 
     private void syncMembers(ServerLevel space) {
         var active = new HashSet<UUID>();
+        var independent = new HashSet<UUID>();
         for (var ship : SableShipFlight.activeShips(space)) {
-            active.add(ship.getUUID());
-            members.put(ship.getUUID(), ship);
-        }
-        for (ServerPlayer player : space.players()) {
-            if (player.isAlive() && !(player.getRootVehicle() instanceof AssembledShipEntity)) {
-                active.add(player.getUUID());
-                members.put(player.getUUID(), player);
+            var region = regionFor(ship);
+            if (region != null) {
+                track(region, ship, true);
+                active.add(ship.getUUID());
+                independent.add(ship.getUUID());
             }
         }
-        members.keySet().retainAll(active);
-        pendingDescents.keySet().retainAll(active);
+        for (var player : space.players()) {
+            if (!player.isAlive() || player.getPersistentData().contains(PLAYER_RETURN)) {
+                continue;
+            }
+            var region = regionFor(player);
+            if (region != null) {
+                boolean eva = SableShipFlight.carriedShip(player) == null;
+                track(region, player, eva);
+                active.add(player.getUUID());
+                if (eva) {
+                    independent.add(player.getUUID());
+                }
+            }
+        }
+        assignments.keySet().retainAll(active);
+        regions.values().forEach(region -> region.members.keySet().retainAll(independent));
+        pendingDescents.keySet().retainAll(independent);
     }
 
-    private void rebase(ServerLevel space, OrbitalSystem system, Frame frame, double now) {
-        var entity = members.get(anchor);
+    private Set<Region> occupiedRegions(ServerLevel space) {
+        var occupied = new LinkedHashSet<Region>();
+        for (var player : space.players()) {
+            if (player.isAlive() && !player.getPersistentData().contains(PLAYER_RETURN)) {
+                var region = regionFor(player);
+                if (region != null) {
+                    occupied.add(region);
+                }
+            }
+        }
+        return occupied;
+    }
+
+
+    private void split(ServerLevel space, OrbitalSavedData data, Set<Region> occupied) {
+        double exit = ShipServerConfig.orbitExitDistance();
+        for (var region : occupied) {
+            var crewed = region.members.values().stream().filter(OrbitalRegion::hasPlayer).toList();
+            if (crewed.size() < 2) {
+                continue;
+            }
+            var sample = region.snapshot(data);
+            var isolated = crewed.stream().filter(member -> sample.isolated(member.getUUID(), exit)).toList();
+            // When every crewed member is isolated, keep one in the existing slot.
+            var keep = isolated.size() == crewed.size()
+                    ? crewed.stream().filter(member -> member.getUUID().equals(region.anchor)).findFirst().orElse(crewed.getFirst())
+                    : null;
+            for (var member : isolated) {
+                if (member == keep) {
+                    continue;
+                }
+                var state = sample.states().get(member.getUUID());
+                Orbit orbit;
+                try {
+                    orbit = fit(data.system(), state, data.orbitSeconds());
+                } catch (IllegalArgumentException error) {
+                    // A radial trajectory cannot serve as a Kepler reference.
+                    continue;
+                }
+                var target = allocate(space);
+                if (target == null) {
+                    break;
+                }
+                var frame = target.entryFrame(data, orbit);
+                if (shift(space, region, List.of(member), false, sample.frame().shiftTo(frame))) {
+                    registerEntry(target, member, orbit, frame);
+                }
+            }
+        }
+    }
+
+    private List<Encounter> forecastEncounters(OrbitalSavedData data, Set<Region> occupied) {
+        if (occupied.size() < 2) {
+            return List.of();
+        }
+        double from = data.orbitSeconds();
+        double to = from + ENCOUNTER_LOOKAHEAD;
+        var system = data.system();
+        var forecasts = snapshots(occupied, data).stream().map(sample -> {
+            var legs = system.conics(sample.region().reference, from, to);
+            var origin = sample.frame().origin();
+            double reach = sample.states().values().stream().mapToDouble(state -> state.position().distanceTo(origin.position())
+                    + ENCOUNTER_LOOKAHEAD * state.velocity().distanceTo(origin.velocity())).max().orElse(0);
+            return new Forecast(sample.region(), system.forecast(legs), origin, system.maxAcceleration(legs), reach);
+        }).toList();
+        double entry = ShipServerConfig.orbitEntryDistance();
+        var candidates = new ArrayList<Encounter>();
+        for (int i = 0; i < forecasts.size(); i++) {
+            var first = forecasts.get(i);
+            for (int j = i + 1; j < forecasts.size(); j++) {
+                var second = forecasts.get(j);
+                double range = entry + first.reach() + second.reach();
+                double drift = first.now().velocity().distanceTo(second.now().velocity()) * ENCOUNTER_LOOKAHEAD
+                        + (first.acceleration() + second.acceleration()) * ENCOUNTER_LOOKAHEAD * ENCOUNTER_LOOKAHEAD / 2;
+                if (first.now().position().distanceTo(second.now().position()) < range + drift
+                        && OrbitalPlanner.closestApproach(first.path(), second.path(), from, to, 4).distance() < range) {
+                    candidates.add(new Encounter(first.region(), second.region()));
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private boolean merge(ServerLevel space, OrbitalSavedData data, Set<Region> occupied) {
+        boolean changed = false;
+        double entry = ShipServerConfig.orbitEntryDistance();
+        double speed = ShipServerConfig.orbitEntrySpeed();
+        var samples = new HashMap<Region, Snapshot>();
+        for (var encounter : encounters) {
+            var first = encounter.first();
+            var second = encounter.second();
+            if (!occupied.contains(first) || !occupied.contains(second) || first.reference == null || second.reference == null) {
+                continue;
+            }
+            var a = samples.computeIfAbsent(first, region -> region.snapshot(data));
+            var b = samples.computeIfAbsent(second, region -> region.snapshot(data));
+            if (!canMerge(a.states().values(), b.states().values(), entry, speed)) {
+                continue;
+            }
+            var source = first.members.size() < second.members.size() ? a : b;
+            var target = source == a ? b : a;
+            var moving = List.copyOf(source.region().members.values());
+            if (shift(space, source.region(), moving, true, source.frame().shiftTo(target.frame()))) {
+                moving.forEach(member -> track(target.region(), member, true));
+                release(source.region());
+                samples.remove(target.region());
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    static boolean canMerge(Collection<OrbitalState> first, Collection<OrbitalState> second, double distance, double speed) {
+        boolean nearby = false;
+        for (var a : first) {
+            for (var b : second) {
+                if (a.position().distanceToSqr(b.position()) < distance * distance) {
+                    if (a.velocity().distanceToSqr(b.velocity()) > speed * speed) {
+                        return false;
+                    }
+                    nearby = true;
+                }
+            }
+        }
+        return nearby;
+    }
+
+    private static boolean shift(ServerLevel space, Region source, List<Entity> members, boolean wholeRegion, OrbitalState delta) {
+        if (members.stream().anyMatch(member -> !ShipOrbitHandoff.validPosition(space,
+                localState(member).position().add(delta.position())))) {
+            return false;
+        }
+        SableShipFlight.shiftOrbitalFrame(space, members, wholeRegion ? position -> slotAt(position).equals(source.origin) : null,
+                delta.position(), delta.velocity());
+        return true;
+    }
+
+    private static void rebase(ServerLevel space, OrbitalSavedData data, Region region) {
+        var entity = region.members.get(region.anchor);
         boolean changedAnchor = entity == null;
         if (changedAnchor) {
-            entity = members.values().stream().findFirst().orElse(null);
+            entity = region.members.values().stream().findFirst().orElse(null);
         }
         if (entity == null) {
             return;
         }
         var local = localState(entity);
-        Vec3 displacement = local.position().subtract(ORIGIN);
-        if (changedAnchor || displacement.lengthSqr() > REBASE_DISTANCE * REBASE_DISTANCE
-                || local.velocity().lengthSqr() > REBASE_SPEED * REBASE_SPEED) {
-            var before = reference;
-            Orbit next;
-            try {
-                next = fit(system, frame.absolute(local), now);
-                SableShipFlight.rebase(space, displacement.scale(-1), local.velocity().scale(-1));
-            } catch (IllegalArgumentException error) {
-                LOGGER.debug("Could not fit an orbital reference for {}", entity.getUUID(), error);
-                return;
-            }
-            setReference(next, entity.getUUID());
+        Vec3 displacement = local.position().subtract(region.origin);
+        if (!changedAnchor && displacement.lengthSqr() <= REBASE_DISTANCE * REBASE_DISTANCE
+                && local.velocity().lengthSqr() <= REBASE_SPEED * REBASE_SPEED) {
+            return;
+        }
+        var before = region.reference;
+        var frame = region.frame(data);
+        Orbit next;
+        try {
+            next = fit(data.system(), frame.absolute(local), frame.seconds());
+        } catch (IllegalArgumentException error) {
+            LOGGER.debug("Could not fit an orbital reference for {}", entity.getUUID(), error);
+            return;
+        }
+        var nextFrame = new Frame(data.system(), next, region.origin, frame.seconds());
+        if (shift(space, region, List.copyOf(region.members.values()), true, frame.shiftTo(nextFrame))) {
+            region.setReference(next, entity.getUUID());
             if (!before.center().equals(next.center())) {
-                postSoiChange(before, next);
+                postSoiChange(region, before, next);
             }
         }
     }
 
-    private void postSoiChange(Orbit before, Orbit after) {
-        for (var member : List.copyOf(members.values())) {
+    private static void postSoiChange(Region region, Orbit before, Orbit after) {
+        for (var member : List.copyOf(region.members.values())) {
             if (member instanceof AssembledShipEntity ship) {
                 NeoForge.EVENT_BUS.post(ShipOrbitEvent.soiChanged(ship.getUUID(), ship.owner(), before, after));
             }
         }
     }
 
-    private void exchangeShips(ServerLevel space, OrbitalSavedData data, Frame frame) {
-        double entry = ShipServerConfig.orbitEntryDistance();
-        double exit = ShipServerConfig.orbitExitDistance();
-        double speed = ShipServerConfig.orbitEntrySpeed();
-        var states = new LinkedHashMap<UUID, OrbitalState>();
-        members.forEach((id, entity) -> states.put(id, frame.absolute(localState(entity))));
+    private static boolean hasPlayer(Entity entity) {
+        return entity instanceof ServerPlayer || ((AssembledShipEntity) entity).activeFlight().carriesPlayer();
+    }
 
-        // Take the exit decisions from one sample, including the original anchor.
-        var justExited = new HashSet<UUID>();
-        for (var entity : List.copyOf(members.values())) {
-            if (entity instanceof AssembledShipEntity ship && !pendingDescents.containsKey(ship.getUUID())
-                    && !ship.activeFlight().carriesPlayer()) {
-                var state = states.get(ship.getUUID());
-                boolean isolated = states.entrySet().stream().noneMatch(peer -> !peer.getKey().equals(ship.getUUID())
-                        && state.position().distanceToSqr(peer.getValue().position()) <= exit * exit);
-                if (isolated && store(ship, data, state)) {
-                    justExited.add(ship.getUUID());
+    private static List<Snapshot> snapshots(Collection<Region> regions, OrbitalSavedData data) {
+        return regions.stream().map(region -> region.snapshot(data)).toList();
+    }
+
+    @Nullable
+    private static Snapshot nearestRegion(List<Snapshot> regions, OrbitalState state) {
+        double entry = ShipServerConfig.orbitEntryDistance();
+        double closest = entry * entry;
+        double speed = ShipServerConfig.orbitEntrySpeed();
+        Snapshot result = null;
+        for (var region : regions) {
+            for (var peer : region.states().values()) {
+                double distance = state.position().distanceToSqr(peer.position());
+                if (distance < closest && state.velocity().distanceToSqr(peer.velocity()) <= speed * speed) {
+                    closest = distance;
+                    result = region;
                 }
             }
         }
-        justExited.forEach(states::remove);
+        return result;
+    }
 
+    private void exchangeShips(ServerLevel space, OrbitalSavedData data, Set<Region> occupied) {
+        if (occupied.isEmpty()) {
+            return;
+        }
+        double exit = ShipServerConfig.orbitExitDistance();
+        var samples = snapshots(occupied, data);
+        // Take all exit decisions from a single sample, including the original anchors.
+        var justExited = new HashSet<UUID>();
+        for (var sample : samples) {
+            for (var entity : List.copyOf(sample.region().members.values())) {
+                if (entity instanceof AssembledShipEntity ship && !pendingDescents.containsKey(ship.getUUID())
+                        && !hasPlayer(ship) && sample.isolated(ship.getUUID(), exit)
+                        && store(sample.region(), ship, data, sample.states().get(ship.getUUID()))) {
+                    justExited.add(ship.getUUID());
+                }
+            }
+            sample.states().keySet().removeAll(justExited);
+        }
         for (var ship : List.copyOf(data.ships())) {
             if (justExited.contains(ship.id())) {
                 continue;
             }
-            var state = data.system().absoluteState(ship.orbit(), frame.seconds());
-            if (states.values().stream().anyMatch(peer -> state.position().distanceToSqr(peer.position()) < entry * entry
-                    && state.velocity().distanceToSqr(peer.velocity()) <= speed * speed)) {
-                var restored = restoreShip(space, data, frame, ship, state);
+            var state = data.system().absoluteState(ship.orbit(), data.orbitSeconds());
+            var sample = nearestRegion(samples, state);
+            if (sample != null) {
+                var restored = restoreShip(space, data, sample.frame(), ship, state);
                 if (restored != null) {
-                    members.put(restored.getUUID(), restored);
+                    registerEntry(sample.region(), restored, ship.orbit(), sample.frame());
                     data.remove(ship.id());
                 }
             }
         }
     }
 
-    private boolean store(AssembledShipEntity ship, OrbitalSavedData data, OrbitalState absolute) {
+    private boolean store(Region region, AssembledShipEntity ship, OrbitalSavedData data, OrbitalState absolute) {
         try {
-            var flight = ship.activeFlight();
-            var motion = flight.motion();
+            var motion = ship.activeFlight().motion();
             var orbit = fit(data.system(), absolute, data.orbitSeconds());
             ShipOrbitHandoff.storeFlight(data, ship, motion, orbit, toInertialRotation());
-            members.remove(ship.getUUID());
+            region.members.remove(ship.getUUID());
+            assignments.remove(ship.getUUID());
             return true;
         } catch (RuntimeException error) {
             LOGGER.warn("Could not store orbital-space ship {}", ship.getUUID(), error);
@@ -373,46 +700,70 @@ public final class OrbitalRegion extends SavedData {
         }
     }
 
-    private void recycle(ServerLevel space, OrbitalSavedData data) {
-        var frame = new Frame(data.system(), reference, data.orbitSeconds());
-        boolean allStored = true;
-        for (var ship : SableShipFlight.activeShips(space)) {
-            allStored &= store(ship, data, frame.absolute(localState(ship)));
-        }
-        if (allStored) {
-            setReference(null, null);
-            members.clear();
-            pendingDescents.clear();
-            SableShipFlight.setOrbitalFrame(space, null, Vec3.ZERO);
+    private void recycleUnoccupied(OrbitalSavedData data, Set<Region> occupied) {
+        for (var region : regions.values()) {
+            // A loaded reference may still be waiting for its Sable plots to attach after startup.
+            if (region.reference != null && region.seen && !occupied.contains(region)) {
+                recycle(region, data);
+            }
         }
     }
 
+    private void recycle(Region region, OrbitalSavedData data) {
+        var frame = region.frame(data);
+        boolean allStored = true;
+        for (var entity : List.copyOf(region.members.values())) {
+            if (entity instanceof AssembledShipEntity ship) {
+                allStored &= store(region, ship, data, frame.absolute(localState(ship)));
+            }
+        }
+        if (allStored) {
+            release(region);
+        }
+    }
+
+    private void release(Region region) {
+        region.setReference(null, null);
+        region.members.clear();
+        assignments.values().removeIf(assigned -> assigned == region);
+        // Slots are reusable. A forecast made for this reference must not follow its replacement.
+        encounters = encounters.stream().filter(pair -> pair.first() != region && pair.second() != region).toList();
+    }
+
+
     void onLogout(ServerPlayer player, OrbitalSavedData data) {
-        if (!inSpace(player)) {
+        if (!inSpace(player) || player.getPersistentData().contains(PLAYER_RETURN)) {
             return;
         }
-        timeWarp.reset(player.serverLevel());
-        if (reference == null) {
+        var space = player.serverLevel();
+        timeWarp.reset(space);
+        syncMembers(space);
+        var region = regionFor(player);
+        if (region == null) {
             configurePlayer(player, false);
             return;
         }
-        savePlayer(player, data);
-        if (player.serverLevel().players().stream().noneMatch(other -> other != player && other.isAlive())) {
-            recycle(player.serverLevel(), data);
+        savePlayer(player, data, region);
+        if (!occupiedRegions(space).contains(region)) {
+            recycle(region, data);
         }
     }
 
     void onStopping(ServerLevel space, OrbitalSavedData data) {
         timeWarp.reset(space);
-        if (reference != null) {
-            List.copyOf(space.players()).forEach(player -> savePlayer(player, data));
-            recycle(space, data);
+        if (benchmark == null) {
+            syncMembers(space);
+            for (var player : List.copyOf(space.players())) {
+                var region = regionFor(player);
+                if (region != null && !player.getPersistentData().contains(PLAYER_RETURN)) {
+                    savePlayer(player, data, region);
+                }
+            }
+            recycleUnoccupied(data, Set.of());
         }
     }
 
-    private void savePlayer(ServerPlayer player, OrbitalSavedData data) {
-        var system = data.system();
-        double now = data.orbitSeconds();
+    private static void savePlayer(ServerPlayer player, OrbitalSavedData data, Region region) {
         var tag = new CompoundTag();
         Motion motion = null;
         if (player.getRootVehicle() instanceof AssembledShipEntity ship && ship.activeFlight() != null) {
@@ -420,14 +771,15 @@ public final class OrbitalRegion extends SavedData {
             motion = ship.activeFlight().motion();
         }
         var local = motion == null ? localState(player) : new OrbitalState(motion.center(), motion.velocity());
+        var frame = region.frame(data);
         Orbit path;
         try {
-            path = fit(system, new Frame(system, reference, now).absolute(local), now);
+            path = fit(data.system(), frame.absolute(local), frame.seconds());
         } catch (IllegalArgumentException error) {
-            path = reference;
+            path = region.reference;
         }
         tag.put("orbit", Orbit.CODEC.encodeStart(NbtOps.INSTANCE, path).getOrThrow());
-        tag.putDouble("seconds", now);
+        tag.putDouble("seconds", frame.seconds());
         player.getPersistentData().put(PLAYER_RETURN, tag);
         player.stopRiding();
         SableShipFlight.clearTracking(player);
@@ -443,6 +795,7 @@ public final class OrbitalRegion extends SavedData {
             return;
         }
         BenchmarkCommands.interruptOrbital(space);
+        syncMembers(space);
         double now = data.orbitSeconds();
         UUID shipId = saved.hasUUID("ship") ? saved.getUUID("ship") : null;
         if (shipId != null) {
@@ -455,21 +808,21 @@ public final class OrbitalRegion extends SavedData {
             }
             var ship = data.ship(shipId);
             if (ship != null) {
-                Orbit path = reference == null ? ship.orbit() : reference;
-                var frame = new Frame(data.system(), path, now);
-                var restored = restoreShip(space, data, frame, ship, data.system().absoluteState(ship.orbit(), now));
-                if (restored != null) {
-                    var flight = restored.activeFlight();
-                    if (flight.board(player)) {
-                        data.remove(shipId);
-                        members.put(shipId, restored);
-                        if (reference == null) {
-                            setReference(path, shipId);
+                var absolute = data.system().absoluteState(ship.orbit(), now);
+                var region = entryRegion(space, data, absolute);
+                if (region != null) {
+                    var frame = region.entryFrame(data, ship.orbit());
+                    var restored = restoreShip(space, data, frame, ship, absolute);
+                    if (restored != null) {
+                        var flight = restored.activeFlight();
+                        if (flight.board(player)) {
+                            data.remove(shipId);
+                            registerEntry(region, restored, ship.orbit(), frame);
+                            player.getPersistentData().remove(PLAYER_RETURN);
+                            return;
                         }
-                        player.getPersistentData().remove(PLAYER_RETURN);
-                        return;
+                        flight.removeForOrbit();
                     }
-                    flight.removeForOrbit();
                 }
             }
         }
@@ -482,15 +835,15 @@ public final class OrbitalRegion extends SavedData {
         } else {
             orbit = data.system().advance(orbit, savedSeconds, now);
         }
-        Orbit path = reference == null ? orbit : reference;
-        var frame = new Frame(data.system(), path, now);
-        var local = frame.local(data.system().absoluteState(orbit, now));
-        if (SableShipFlight.movePlayer(player, space, local.position(), local.velocity(), player.getYRot(), player.getXRot())) {
-            if (reference == null) {
-                setReference(path, player.getUUID());
+        var absolute = data.system().absoluteState(orbit, now);
+        var region = entryRegion(space, data, absolute);
+        if (region != null) {
+            var frame = region.entryFrame(data, orbit);
+            var local = frame.local(absolute);
+            if (SableShipFlight.movePlayer(player, space, local.position(), local.velocity(), player.getYRot(), player.getXRot())) {
+                registerEntry(region, player, orbit, frame);
+                player.getPersistentData().remove(PLAYER_RETURN);
             }
-            members.put(player.getUUID(), player);
-            player.getPersistentData().remove(PLAYER_RETURN);
         }
     }
 
@@ -523,20 +876,31 @@ public final class OrbitalRegion extends SavedData {
     }
 
     List<OrbitalNetworking.Contact> contacts(OrbitalSavedData data) {
-        if (reference == null) {
-            return List.of();
+        var contacts = new ArrayList<OrbitalNetworking.Contact>();
+        for (var region : regions.values()) {
+            if (region.members.isEmpty()) {
+                continue;
+            }
+            var frame = region.frame(data);
+            for (var member : region.members.values()) {
+                if (member instanceof AssembledShipEntity) {
+                    contacts.add(new OrbitalNetworking.Contact(member.getUUID(), frame.absolute(localState(member))));
+                }
+            }
         }
-        var frame = new Frame(data.system(), reference, data.orbitSeconds());
-        return members.values().stream().filter(AssembledShipEntity.class::isInstance)
-                .map(ship -> new OrbitalNetworking.Contact(ship.getUUID(), frame.absolute(localState(ship))))
-                .toList();
+        return contacts;
+    }
+
+    /** Authoritative inertial positions of ships currently in local orbital physics. */
+    public static List<OrbitalNetworking.Contact> shipContacts(MinecraftServer server, OrbitalSavedData data) {
+        return get(server).contacts(data);
     }
 
     @Nullable
     Vec3 observerPosition(ServerPlayer player, OrbitalSavedData data) {
-        var path = referenceFor(player);
-        return path == null ? null : data.system().absoluteState(path, data.orbitSeconds()).position()
-                .add(toInertial(SableShipFlight.worldPosition(player).subtract(ORIGIN)));
+        var view = viewFor(player);
+        return view == null ? null : data.system().absoluteState(view.reference(), data.orbitSeconds()).position()
+                .add(toInertial(SableShipFlight.worldPosition(player).subtract(view.origin())));
     }
 
     private static OrbitalState localState(Entity entity) {
@@ -554,53 +918,97 @@ public final class OrbitalRegion extends SavedData {
         return ShipOrbitHandoff.fit(body, absolute.subtract(system.bodyState(body.id(), seconds)), seconds);
     }
 
-    private void setReference(@Nullable Orbit next, @Nullable UUID member) {
-        reference = next;
-        anchor = member;
-        setDirty();
-    }
-
-    private static OrbitalRegion load(CompoundTag tag, HolderLookup.Provider registries) {
-        var region = new OrbitalRegion();
-        if (tag.contains("reference")) {
-            region.reference = Orbit.CODEC.parse(NbtOps.INSTANCE, tag.get("reference")).getOrThrow();
-        }
-        if (tag.hasUUID("anchor")) {
-            region.anchor = tag.getUUID("anchor");
-        }
-        return region;
-    }
-
-    @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        if (reference != null) {
-            tag.put("reference", Orbit.CODEC.encodeStart(NbtOps.INSTANCE, reference).getOrThrow());
-        }
-        if (anchor != null) {
-            tag.putUUID("anchor", anchor);
-        }
-        return tag;
-    }
+    public record View(Vec3 origin, Orbit reference) {}
 
     private record BenchmarkOrbit(Orbit reference, UUID observer) {}
 
-    private record Frame(OrbitalState origin, OrbitalState relativeOrigin, double mu, double seconds) {
-        Frame(OrbitalSystem system, Orbit orbit, double seconds) {
-            this(system.absoluteState(orbit, seconds), system.relativeState(orbit, seconds),
+    private record Forecast(Region region, DoubleFunction<OrbitalState> path, OrbitalState now, double acceleration,
+                            double reach) {}
+
+    private record Encounter(Region first, Region second) {}
+
+    private record Snapshot(Region region, Frame frame, Map<UUID, OrbitalState> states) {
+        boolean isolated(UUID id, double distance) {
+            var position = states.get(id).position();
+            return states.entrySet().stream().noneMatch(peer -> !peer.getKey().equals(id)
+                    && position.distanceToSqr(peer.getValue().position()) <= distance * distance);
+        }
+    }
+
+    private static final class Region extends SavedData {
+        private final Map<UUID, Entity> members = new LinkedHashMap<>();
+        private Vec3 origin = ORIGIN;
+        @Nullable private Orbit reference;
+        @Nullable private UUID anchor;
+        private boolean seen;
+
+        Frame frame(OrbitalSavedData data) {
+            return new Frame(data.system(), reference, origin, data.orbitSeconds());
+        }
+
+        Frame entryFrame(OrbitalSavedData data, Orbit orbit) {
+            return new Frame(data.system(), reference == null ? orbit : reference, origin, data.orbitSeconds());
+        }
+
+        Snapshot snapshot(OrbitalSavedData data) {
+            var frame = frame(data);
+            var states = new LinkedHashMap<UUID, OrbitalState>();
+            members.forEach((id, entity) -> states.put(id, frame.absolute(localState(entity))));
+            return new Snapshot(this, frame, states);
+        }
+
+        void setReference(@Nullable Orbit next, @Nullable UUID member) {
+            reference = next;
+            anchor = member;
+            setDirty();
+        }
+
+        static Region load(CompoundTag tag, HolderLookup.Provider registries) {
+            var region = new Region();
+            if (tag.contains("reference")) {
+                region.reference = Orbit.CODEC.parse(NbtOps.INSTANCE, tag.get("reference")).getOrThrow();
+            }
+            if (tag.hasUUID("anchor")) {
+                region.anchor = tag.getUUID("anchor");
+            }
+            return region;
+        }
+
+        @Override
+        public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+            if (reference != null) {
+                tag.put("reference", Orbit.CODEC.encodeStart(NbtOps.INSTANCE, reference).getOrThrow());
+            }
+            if (anchor != null) {
+                tag.putUUID("anchor", anchor);
+            }
+            return tag;
+        }
+    }
+
+    record Frame(OrbitalState origin, OrbitalState relativeOrigin, Vec3 worldOrigin, double mu, double seconds) {
+        Frame(OrbitalSystem system, Orbit orbit, Vec3 worldOrigin, double seconds) {
+            this(system.absoluteState(orbit, seconds), system.relativeState(orbit, seconds), worldOrigin,
                     system.body(orbit.center()).gravitationalParameter(), seconds);
         }
 
-        void configurePhysics(ServerLevel space) {
-            SableShipFlight.setOrbitalFrame(space, this::gravity, toLocal(relativeOrigin.velocity()));
+        void configurePhysics(AssembledShipEntity ship) {
+            ship.activeFlight().setOrbitalFrame(this::gravity, toLocal(relativeOrigin.velocity()));
         }
 
         OrbitalState absolute(OrbitalState local) {
-            return origin.add(new OrbitalState(toInertial(local.position().subtract(ORIGIN)), toInertial(local.velocity())));
+            return origin.add(new OrbitalState(toInertial(local.position().subtract(worldOrigin)), toInertial(local.velocity())));
         }
 
         OrbitalState local(OrbitalState absolute) {
             var relative = absolute.subtract(origin);
-            return new OrbitalState(ORIGIN.add(toLocal(relative.position())), toLocal(relative.velocity()));
+            return new OrbitalState(worldOrigin.add(toLocal(relative.position())), toLocal(relative.velocity()));
+        }
+
+        OrbitalState shiftTo(Frame target) {
+            var delta = origin.subtract(target.origin);
+            return new OrbitalState(target.worldOrigin.subtract(worldOrigin).add(toLocal(delta.position())),
+                    toLocal(delta.velocity()));
         }
 
         Motion localMotion(OrbitalState state, Quaterniond orientation, Vec3 angularVelocity) {
@@ -610,7 +1018,7 @@ public final class OrbitalRegion extends SavedData {
         }
 
         Vec3 gravity(Vec3 position) {
-            var offset = toInertial(position.subtract(ORIGIN));
+            var offset = toInertial(position.subtract(worldOrigin));
             var gravityOrigin = relativeOrigin.position();
             var delta = OrbitalGravity.difference(mu, new Vector3d(gravityOrigin.x, gravityOrigin.y, gravityOrigin.z),
                     new Vector3d(offset.x, offset.y, offset.z));

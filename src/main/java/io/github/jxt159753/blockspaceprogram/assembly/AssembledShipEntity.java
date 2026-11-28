@@ -182,6 +182,12 @@ public final class AssembledShipEntity extends Entity {
         return flight != null && flight.isActive() ? flight : null;
     }
 
+    /** Center in dimension coordinates, including for ships whose entity sits in a Sable plot. */
+    public Vec3 dimensionCenter() {
+        var active = activeFlight();
+        return active == null ? position() : active.motion().center();
+    }
+
     @Nullable
     public ShipFlightControl flightControl() {
         var active = activeFlight();

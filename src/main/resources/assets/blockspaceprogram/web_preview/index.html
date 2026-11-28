@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BlockSpaceProgram</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="preview.mjs"></script>
+</head>
+<body>
+    <header class="masthead">
+        <div>
+            <p class="brand">BlockSpaceProgram</p>
+            <h1 data-text="title"></h1>
+        </div>
+        <div id="connection" class="status" role="status"></div>
+    </header>
+    <main class="dashboard">
+        <section class="panel chart" aria-labelledby="map-title">
+            <div class="map-toolbar">
+                <h2 id="map-title" data-text="map"></h2>
+                <div class="map-controls">
+                    <label for="focus" data-text="focus"></label>
+                    <select id="focus"></select>
+                    <div class="zoom">
+                        <button id="zoom-out" type="button" data-label="zoom_out">−</button>
+                        <button id="zoom-in" type="button" data-label="zoom_in">+</button>
+                    </div>
+                </div>
+            </div>
+            <div class="map-area">
+                <svg id="map" role="img" aria-labelledby="map-title"></svg>
+                <output class="scale" id="scale"></output>
+            </div>
+            <div class="timeline">
+                <div class="timeline-heading">
+                    <label for="timeline" data-text="orbit_time"></label>
+                    <output id="clock"></output>
+                    <button id="live" type="button" data-text="return_live" disabled></button>
+                </div>
+                <input id="timeline" type="range" min="0" max="14400" step="1" value="0" disabled>
+                <div class="timeline-range">
+                    <span data-text="now"></span>
+                    <span data-text="four_hours"></span>
+                </div>
+            </div>
+        </section>
+        <aside class="panel vessels" aria-labelledby="ships-title">
+            <h2 id="ships-title" data-text="ships"></h2>
+            <p id="empty" class="muted" data-text="empty" hidden></p>
+            <ul id="ships" class="ships"></ul>
+            <section id="selected" class="selected" aria-labelledby="ship-name" hidden>
+                <h3 id="ship-name"></h3>
+                <dl class="metrics">
+                    <div><dt data-text="center"></dt><dd id="center"></dd></div>
+                    <div><dt data-text="altitude"></dt><dd id="altitude"></dd></div>
+                    <div><dt data-text="periapsis"></dt><dd id="periapsis"></dd></div>
+                    <div><dt data-text="apoapsis"></dt><dd id="apoapsis"></dd></div>
+                    <div><dt data-text="period"></dt><dd id="period"></dd></div>
+                </dl>
+                <div id="maneuver" class="maneuver" hidden>
+                    <h4 data-text="maneuver"></h4>
+                    <p id="maneuver-time"></p>
+                    <dl class="metrics">
+                        <div><dt data-text="prograde"></dt><dd id="prograde"></dd></div>
+                        <div><dt data-text="normal"></dt><dd id="normal"></dd></div>
+                        <div><dt data-text="radial"></dt><dd id="radial"></dd></div>
+                    </dl>
+                </div>
+            </section>
+        </aside>
+    </main>
+</body>
+</html>

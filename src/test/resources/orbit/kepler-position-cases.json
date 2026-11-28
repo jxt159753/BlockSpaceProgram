@@ -1,0 +1,154 @@
+[
+  {
+    "name": "low circular quarter orbit",
+    "mu": 35280000000,
+    "seconds": 274.8826065386404,
+    "orbit": {
+      "semiLatusRectum": 70000,
+      "eccentricity": 0,
+      "inclination": 0,
+      "longitudeOfAscendingNode": 0,
+      "argumentOfPeriapsis": 0,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 120
+    },
+    "position": [
+      4.2862637970157364e-12,
+      70000,
+      0
+    ]
+  },
+  {
+    "name": "eccentric orbit at E = pi/2",
+    "mu": 35280000000,
+    "seconds": 409.90301275947456,
+    "orbit": {
+      "semiLatusRectum": 99180.00000000001,
+      "eccentricity": 0.71,
+      "inclination": 0,
+      "longitudeOfAscendingNode": 0,
+      "argumentOfPeriapsis": 0,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 0
+    },
+    "position": [
+      -141999.99999999997,
+      140840.33513166604,
+      0
+    ]
+  },
+  {
+    "name": "inclined ellipse after a full revolution",
+    "mu": 35280000000,
+    "seconds": 2360.1696816573726,
+    "orbit": {
+      "semiLatusRectum": 120000,
+      "eccentricity": 0.5,
+      "inclination": 0.7504915783575618,
+      "longitudeOfAscendingNode": 0.47123889803846897,
+      "argumentOfPeriapsis": -0.20943951023931956,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 10
+    },
+    "position": [
+      -16742.563094200377,
+      87814.91213928649,
+      80051.40715194275
+    ]
+  },
+  {
+    "name": "nearly parabolic ellipse",
+    "mu": 35280000000,
+    "seconds": 89.47207587639483,
+    "orbit": {
+      "semiLatusRectum": 159999.92,
+      "eccentricity": 0.999999,
+      "inclination": 0.9,
+      "longitudeOfAscendingNode": 1.5,
+      "argumentOfPeriapsis": -0.7,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 40
+    },
+    "position": [
+      13981.918979967897,
+      84669.39762924677,
+      -10027.85750115293
+    ]
+  },
+  {
+    "name": "parabola before epoch",
+    "mu": 35280000000,
+    "seconds": 924.8277669225508,
+    "orbit": {
+      "semiLatusRectum": 165000,
+      "eccentricity": 1,
+      "inclination": 1.1,
+      "longitudeOfAscendingNode": 0.3,
+      "argumentOfPeriapsis": 0.6,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 1000
+    },
+    "position": [
+      92299.75315358366,
+      21267.037213501455,
+      -13673.284022028818
+    ]
+  },
+  {
+    "name": "nearly parabolic hyperbola",
+    "mu": 35280000000,
+    "seconds": 89.47207846982158,
+    "orbit": {
+      "semiLatusRectum": 160000.08000000002,
+      "eccentricity": 1.000001,
+      "inclination": 0.9,
+      "longitudeOfAscendingNode": 1.5,
+      "argumentOfPeriapsis": -0.7,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 40
+    },
+    "position": [
+      13981.908166449532,
+      84669.41443916276,
+      -10027.842410107056
+    ]
+  },
+  {
+    "name": "hyperbolic escape",
+    "mu": 35280000000,
+    "seconds": 485.26256150255654,
+    "orbit": {
+      "semiLatusRectum": 172799.99999999997,
+      "eccentricity": 1.4,
+      "inclination": 0.2,
+      "longitudeOfAscendingNode": -0.14,
+      "argumentOfPeriapsis": 0.8,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 1000
+    },
+    "position": [
+      100058.41515699938,
+      -341655.5258748296,
+      -65749.06164480299
+    ]
+  },
+  {
+    "name": "lunar satellite",
+    "mu": 230400000,
+    "seconds": 313.0310770544205,
+    "orbit": {
+      "semiLatusRectum": 13910.400000000001,
+      "eccentricity": 0.08,
+      "inclination": 0.7,
+      "longitudeOfAscendingNode": -0.65,
+      "argumentOfPeriapsis": 0.4,
+      "meanAnomalyAtEpoch": 0,
+      "epochSeconds": 80
+    },
+    "position": [
+      -7236.948575858216,
+      11984.217850733756,
+      4346.830302371532
+    ]
+  }
+]

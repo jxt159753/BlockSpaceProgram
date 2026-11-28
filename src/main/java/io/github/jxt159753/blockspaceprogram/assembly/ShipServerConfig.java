@@ -7,6 +7,11 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class ShipServerConfig {
     public static final ModConfigSpec SPEC;
     public static final FacilityConfig FACILITY;
+    public static final ModConfigSpec.BooleanValue WEB_PREVIEW_ENABLED;
+    public static final ModConfigSpec.ConfigValue<String> WEB_PREVIEW_ADDRESS;
+    public static final ModConfigSpec.IntValue WEB_PREVIEW_PORT;
+    public static final ModConfigSpec.EnumValue<WebPreviewScope> WEB_PREVIEW_VISIBILITY;
+    public static final ModConfigSpec.IntValue WEB_PREVIEW_MAX_CONNECTIONS;
     static final ModConfigSpec.IntValue MAX_DEBRIS;
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
@@ -51,12 +56,12 @@ public final class ShipServerConfig {
                 .defineInRange("captureSpeed", 0.5, 0.01, 5.0);
         builder.pop();
         builder.push("orbitalPhysics");
-        ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres at which a nearby ship can enter local physics.")
+        ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres for entering local physics or merging orbital regions.")
                 .defineInRange("entryDistance", 1_000.0, 1.0, 4_000.0);
-        ORBIT_EXIT_DISTANCE = builder.comment("Distance in metres at which an isolated uncrewed ship leaves local physics.",
+        ORBIT_EXIT_DISTANCE = builder.comment("Distance in metres for an isolated member to leave its orbital region.",
                         "The effective distance is at least one metre greater than entryDistance.")
                 .defineInRange("exitDistance", 1_200.0, 2.0, 4_001.0);
-        ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for an uncrewed ship to enter local physics.")
+        ORBIT_ENTRY_SPEED = builder.comment("Maximum relative speed in metres per second for entry or merging orbital regions.")
                 .defineInRange("maxEntrySpeed", 40.0, 0.0, 1_000.0);
         builder.pop();
         FACILITY = new FacilityConfig(builder, BakedPart.MAX_BLOCKS);
@@ -68,6 +73,16 @@ public final class ShipServerConfig {
         STAR_SYSTEM_SEED = builder.comment("A signed 64-bit decimal seed. Leave blank to derive it from the world seed.")
                 .define("seed", "", ShipServerConfig::validStarSystemSeed);
         builder.pop();
+        builder.comment("Read-only orbit preview, applied at server startup.").push("webPreview");
+        WEB_PREVIEW_ENABLED = builder.define("enabled", false);
+        WEB_PREVIEW_ADDRESS = builder.comment("HTTP listening address.")
+                .define("bindAddress", "127.0.0.1", value -> value instanceof String address && !address.isBlank());
+        WEB_PREVIEW_PORT = builder.comment("HTTP listening port.").defineInRange("port", 8765, 1, 65535);
+        WEB_PREVIEW_VISIBILITY = builder.comment("Show PUBLIC ships only, or ALL ships.")
+                .defineEnum("visibility", WebPreviewScope.PUBLIC);
+        WEB_PREVIEW_MAX_CONNECTIONS = builder.comment("Maximum simultaneous browser event streams.")
+                .defineInRange("maxConnections", 16, 1, 256);
+        builder.pop();
         builder.push("surface_map");
         MOTHER_PLANET_SURFACE_MAP_WIDTH = builder.comment("Surface map width for the mother planet: 512, 1024 or 2048.",
                         "The height is half the width. Other bodies use 512 by 256.")
@@ -78,6 +93,10 @@ public final class ShipServerConfig {
     }
 
     private ShipServerConfig() {}
+
+    public enum WebPreviewScope {
+        PUBLIC, ALL
+    }
 
     public static double orbitEntryDistance() {
         return ORBIT_ENTRY_DISTANCE.get();

@@ -5,6 +5,7 @@ import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToDoubleFunction;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
@@ -28,9 +29,7 @@ public final class ShipCollisionLayout {
 
         /** The model's minimum corner is placed at originInQuarters, before rotation about that corner. */
         public static PartBox fromPart(BakedPart part, BlockPos originInQuarters, OctahedralGroup rotation) {
-            if (!isRotation(rotation)) {
-                throw new IllegalArgumentException("The ship grid supports rotations only");
-            }
+            requireRotation(rotation);
             AABB bounds = part.localBounds();
             BlockPos opposite = originInQuarters
                     .relative(rotation.rotate(Direction.EAST), toQuarters(bounds.getXsize()))
@@ -41,7 +40,7 @@ public final class ShipCollisionLayout {
         }
 
         public Iterable<BlockPos> coveredCells() {
-            return BlockPos.betweenClosed(cellContaining(min), cellContaining(max.offset(-1, -1, -1)));
+            return ShipCollisionLayout.coveredCells(min, max);
         }
     }
 
@@ -49,6 +48,12 @@ public final class ShipCollisionLayout {
         var x = rotation.rotate(Direction.EAST).getNormal();
         var y = rotation.rotate(Direction.UP).getNormal();
         return x.cross(y).equals(rotation.rotate(Direction.SOUTH).getNormal());
+    }
+
+    private static void requireRotation(OctahedralGroup rotation) {
+        if (!isRotation(rotation)) {
+            throw new IllegalArgumentException("The ship grid supports rotations only");
+        }
     }
 
     /** Bounds within one block, also in quarters. Mass includes the contributions of all parts in the cell. */
@@ -65,21 +70,60 @@ public final class ShipCollisionLayout {
         }
     }
 
-    public static Map<BlockPos, Cell> rasterize(List<PartBox> parts) {
+    /** Rasterizes the baked cubes with unit total mass so each cell stores its share of the part's volume. */
+    public static Map<BlockPos, Cell> rasterize(BakedPart part, BlockPos originInQuarters, OctahedralGroup rotation) {
+        requireRotation(rotation);
+        int side = toQuarters(part.scale());
+        Direction x = rotation.rotate(Direction.EAST);
+        Direction y = rotation.rotate(Direction.UP);
+        Direction z = rotation.rotate(Direction.SOUTH);
+        BlockPos diagonal = BlockPos.ZERO.relative(x, side).relative(y, side).relative(z, side);
+        double sharePerQuarterCube = 1.0 / (part.blocks().size() * side * side * side);
         Map<BlockPos, Cell> cells = new LinkedHashMap<>();
-        for (PartBox part : parts) {
-            BlockPos first = cellContaining(part.min);
-            BlockPos last = cellContaining(part.max.offset(-1, -1, -1));
-            double count = (last.getX() - first.getX() + 1.0) * (last.getY() - first.getY() + 1.0)
-                    * (last.getZ() - first.getZ() + 1.0);
-            for (BlockPos pos : part.coveredCells()) {
-                BlockPos lower = pos.multiply(QUARTERS);
-                BlockPos min = maximum(part.min, lower).subtract(lower);
-                BlockPos max = minimum(part.max, lower.offset(QUARTERS, QUARTERS, QUARTERS)).subtract(lower);
-                cells.merge(pos.immutable(), new Cell(min, max, part.mass / count), Cell::enclose);
-            }
+        for (var block : part.blocks()) {
+            BlockPos pos = block.pos();
+            BlockPos corner = originInQuarters.relative(x, pos.getX() * side)
+                    .relative(y, pos.getY() * side).relative(z, pos.getZ() * side);
+            BlockPos opposite = corner.offset(diagonal);
+            addBox(cells, minimum(corner, opposite), maximum(corner, opposite), volume -> volume * sharePerQuarterCube);
         }
         return cells;
+    }
+
+    public static void addPart(Map<BlockPos, Cell> ship, Map<BlockPos, Cell> part, double mass) {
+        if (!Double.isFinite(mass) || mass < 0) {
+            throw new IllegalArgumentException("Invalid part mass");
+        }
+        part.forEach((pos, cell) ->
+                ship.merge(pos, new Cell(cell.min, cell.max, cell.mass * mass), Cell::enclose));
+    }
+
+    public static Map<BlockPos, Cell> rasterize(List<PartBox> boxes) {
+        Map<BlockPos, Cell> cells = new LinkedHashMap<>();
+        for (PartBox box : boxes) {
+            BlockPos first = cellContaining(box.min);
+            BlockPos last = cellContaining(box.max.offset(-1, -1, -1));
+            double count = (last.getX() - first.getX() + 1.0) * (last.getY() - first.getY() + 1.0)
+                    * (last.getZ() - first.getZ() + 1.0);
+            double massPerCell = box.mass / count;
+            addBox(cells, box.min, box.max, ignored -> massPerCell);
+        }
+        return cells;
+    }
+
+    private static void addBox(Map<BlockPos, Cell> cells, BlockPos min, BlockPos max, IntToDoubleFunction massForVolume) {
+        for (BlockPos pos : coveredCells(min, max)) {
+            BlockPos lower = pos.multiply(QUARTERS);
+            BlockPos cellMin = maximum(min, lower).subtract(lower);
+            BlockPos cellMax = minimum(max, lower.offset(QUARTERS, QUARTERS, QUARTERS)).subtract(lower);
+            var size = cellMax.subtract(cellMin);
+            double mass = massForVolume.applyAsDouble(size.getX() * size.getY() * size.getZ());
+            cells.merge(pos.immutable(), new Cell(cellMin, cellMax, mass), Cell::enclose);
+        }
+    }
+
+    private static Iterable<BlockPos> coveredCells(BlockPos min, BlockPos max) {
+        return BlockPos.betweenClosed(cellContaining(min), cellContaining(max.offset(-1, -1, -1)));
     }
 
     private static int toQuarters(double blocks) {
