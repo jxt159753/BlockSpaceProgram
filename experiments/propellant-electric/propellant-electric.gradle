@@ -1,0 +1,27 @@
+def experiment = 'experiments/propellant-electric'
+
+sourceSets {
+    propellantElectric {
+        java.srcDirs = ["${experiment}/java"]
+    }
+    test.java.srcDir 'src/test/propellant-electric'
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.propellantElectric)
+neoForge.mods[mod_id].sourceSet(sourceSets.propellantElectric)
+neoForge.runs.register('propellantElectric') {
+    server()
+    gameDirectory = file('runs/propellantElectric')
+    programArgument '--nogui'
+}
+
+tasks.named('runPropellantElectric', JavaExec) {
+    standardInput = System.in
+}
+
+dependencies {
+    propellantElectricCompileOnly sourceSets.main.output
+    testImplementation sourceSets.propellantElectric.output
+}
+
+configurations.propellantElectricCompileOnly.extendsFrom(configurations.compileOnly)
