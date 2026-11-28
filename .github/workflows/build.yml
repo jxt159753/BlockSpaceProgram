@@ -19,6 +19,8 @@ jobs:
 
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
+      - name: Test browser orbital propagation
+        run: node --test src/test/js/kepler.test.mjs
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v7

@@ -891,6 +891,11 @@ public final class OrbitalRegion {
         return contacts;
     }
 
+    /** Authoritative inertial positions of ships currently in local orbital physics. */
+    public static List<OrbitalNetworking.Contact> shipContacts(MinecraftServer server, OrbitalSavedData data) {
+        return get(server).contacts(data);
+    }
+
     @Nullable
     Vec3 observerPosition(ServerPlayer player, OrbitalSavedData data) {
         var view = viewFor(player);

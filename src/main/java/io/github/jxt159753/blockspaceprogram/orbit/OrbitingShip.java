@@ -57,9 +57,14 @@ public record OrbitingShip(UUID id, Orbit orbit, Quaterniond orientation, Vec3 a
     }
 
     @Nullable
-    UUID ownerId() {
+    public UUID ownerId() {
         String key = AssembledShipEntity.SAVED_OWNER_TAG;
         return shipData.hasUUID(key) ? shipData.getUUID(key) : null;
+    }
+
+    @Nullable
+    public String customNameJson() {
+        return shipData.contains("CustomName") ? shipData.getString("CustomName") : null;
     }
 
     public OrbitingShip withOrbit(Orbit next) {

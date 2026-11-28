@@ -12,6 +12,8 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 新存档可以选择卫星间距和轨道形状。天空和轨道地图随该存档的卫星位置推进。 [天体与新存档](docs/orbit.md#天体与新存档) · [生成原型复测](experiments/star-system/README.md)
 
+服务器管理员可以开启只读网页，让玩家从浏览器查看轨道、飞船和已提交的机动节点。 [网页轨道预览](docs/web-orbit-preview.md)
+
 ## 构建
 
 安装 64 位 JDK 21，然后在项目根目录执行以下命令。首次构建会下载 Gradle、NeoForge、Minecraft、Sable、CC:Tweaked 和 FTB Teams 的编译依赖。
