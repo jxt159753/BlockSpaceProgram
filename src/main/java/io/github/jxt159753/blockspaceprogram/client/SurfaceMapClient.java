@@ -28,6 +28,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.registries.datamaps.DataMapsUpdatedEvent;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -41,6 +42,7 @@ public final class SurfaceMapClient {
     private static final Map<Entry, Download> DOWNLOADS = new HashMap<>();
     private static Map<ResourceLocation, Entry> manifest = Map.of();
     private static long loginNanos;
+    private static long colorRevision;
 
     private SurfaceMapClient() {}
 
@@ -52,12 +54,26 @@ public final class SurfaceMapClient {
     @SubscribeEvent
     public static void logout(ClientPlayerNetworkEvent.LoggingOut event) {
         for (var download : DOWNLOADS.values()) {
-            if (download.completed != null) {
-                TextureUtil.releaseTextureId(download.completed.texture());
+            if (download.texture != null) {
+                TextureUtil.releaseTextureId(download.texture);
             }
         }
         DOWNLOADS.clear();
         manifest = Map.of();
+    }
+
+    @SubscribeEvent
+    public static void dataMapsUpdated(DataMapsUpdatedEvent event) {
+        if (event.getCause() == DataMapsUpdatedEvent.UpdateCause.CLIENT_SYNC) {
+            event.ifRegistry(Registries.BIOME, biomes -> {
+                colorRevision++;
+                DOWNLOADS.forEach((entry, download) -> {
+                    if (download.grid != null) {
+                        recolor(biomes, entry, download);
+                    }
+                });
+            });
+        }
     }
 
     public static void receiveManifest(Manifest payload) {
@@ -82,7 +98,7 @@ public final class SurfaceMapClient {
         }
         for (var entry : next.values()) {
             var download = DOWNLOADS.computeIfAbsent(entry, unused -> new Download());
-            if (!entry.equals(previous.get(entry.dimension())) && download.completed == null && !download.loading) {
+            if (!entry.equals(previous.get(entry.dimension())) && download.grid == null && !download.loading) {
                 download.loading = true;
                 Util.ioPool().execute(() -> load(game, biomes, entry, download, null));
             }
@@ -121,7 +137,7 @@ public final class SurfaceMapClient {
     @Nullable
     static Integer texture(ResourceLocation dimension) {
         var download = DOWNLOADS.get(manifest.get(dimension));
-        return download == null || download.completed == null ? null : download.completed.texture();
+        return download == null ? null : download.texture;
     }
 
     private static void load(Minecraft game, Registry<Biome> biomes, Entry entry, Download download,
@@ -133,16 +149,12 @@ public final class SurfaceMapClient {
                 game.execute(() -> request(entry, download));
                 return;
             }
-            var image = colorGrid(grid, biomes);
             game.execute(() -> {
-                try (image) {
-                    if (DOWNLOADS.get(entry) == download) {
-                        download.loading = false;
-                        download.completed = new Completed(grid, upload(image));
-                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={} source={}",
-                                entry.dimension(), grid.width(), grid.height(), entry.hash(),
-                                (System.nanoTime() - loginNanos) / 1e6, assembly == null ? "cache" : "network");
-                    }
+                if (DOWNLOADS.get(entry) == download) {
+                    download.loading = false;
+                    download.grid = grid;
+                    download.fromCache = assembly == null;
+                    recolor(biomes, entry, download);
                 }
             });
         } catch (IOException | RuntimeException e) {
@@ -181,7 +193,40 @@ public final class SurfaceMapClient {
         }
     }
 
-    private static NativeImage colorGrid(BiomeGrid grid, Registry<Biome> biomes) throws IOException {
+    private static void recolor(Registry<Biome> biomes, Entry entry, Download download) {
+        var grid = download.grid;
+        int[] colors;
+        try {
+            // Snapshot the palette on the client thread, where synced data maps are updated.
+            colors = palette(grid, biomes);
+        } catch (IOException e) {
+            LOGGER.warn("Could not color surface map for {}: {}", entry.dimension(), e.getMessage());
+            return;
+        }
+        long revision = colorRevision;
+        var game = Minecraft.getInstance();
+        Util.backgroundExecutor().execute(() -> {
+            var image = colorGrid(grid, colors);
+            game.execute(() -> {
+                try (image) {
+                    if (DOWNLOADS.get(entry) != download || colorRevision != revision) {
+                        return;
+                    }
+                    var previous = download.texture;
+                    download.texture = upload(image);
+                    if (previous != null) {
+                        TextureUtil.releaseTextureId(previous);
+                    } else {
+                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={} source={}",
+                                entry.dimension(), grid.width(), grid.height(), entry.hash(),
+                                (System.nanoTime() - loginNanos) / 1e6, download.fromCache ? "cache" : "network");
+                    }
+                }
+            });
+        });
+    }
+
+    private static int[] palette(BiomeGrid grid, Registry<Biome> biomes) throws IOException {
         var colors = new int[grid.palette().size()];
         for (int index = 0; index < colors.length; index++) {
             String name = grid.palette().get(index);
@@ -191,14 +236,26 @@ public final class SurfaceMapClient {
             }
             var biome = biomes.getHolder(ResourceKey.create(Registries.BIOME, id))
                     .orElseThrow(() -> new IOException("Biome missing from client registry: " + id));
-            var value = biome.value();
-            boolean water = biome.is(BiomeTags.IS_OCEAN) || biome.is(BiomeTags.IS_RIVER);
-            int rgb = water ? value.getWaterColor()
-                    : value.hasPrecipitation() && value.getBaseTemperature() < 0.15F ? 0xf2f7fa
-                    : value.getGrassColor(0, 0);
+            var surface = biome.getData(BlockSpaceProgram.SURFACE_COLOR);
+            int rgb;
+            boolean water;
+            if (surface != null) {
+                rgb = surface.rgb();
+                water = surface.water();
+            } else {
+                var value = biome.value();
+                water = biome.is(BiomeTags.IS_OCEAN) || biome.is(BiomeTags.IS_RIVER);
+                rgb = water ? value.getWaterColor()
+                        : value.hasPrecipitation() && value.getBaseTemperature() < 0.15F ? 0xf2f7fa
+                        : value.getGrassColor(0, 0);
+            }
             // NativeImage stores ABGR. The alpha byte is the shader's water mask.
             colors[index] = (water ? 0xff000000 : 0) | (rgb & 0xff) << 16 | (rgb & 0xff00) | (rgb >>> 16 & 0xff);
         }
+        return colors;
+    }
+
+    private static NativeImage colorGrid(BiomeGrid grid, int[] colors) {
         var image = new NativeImage(grid.width(), grid.height(), false);
         for (int row = 0; row < grid.height(); row++) {
             for (int column = 0; column < grid.width(); column++) {
@@ -228,8 +285,8 @@ public final class SurfaceMapClient {
     private static final class Download {
         private SurfaceMapTransfer.Assembler assembly;
         private boolean loading;
-        private Completed completed;
+        private boolean fromCache;
+        private BiomeGrid grid;
+        private Integer texture;
     }
-
-    private record Completed(BiomeGrid grid, int texture) {}
 }

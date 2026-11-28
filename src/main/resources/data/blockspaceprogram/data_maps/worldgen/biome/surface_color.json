@@ -1,0 +1,21 @@
+{
+  "values": {
+    "#minecraft:is_overworld": { "color": "#606F40" },
+    "#minecraft:is_river": { "color": "#606F40", "priority": 10 },
+    "#minecraft:is_ocean": { "color": "#15446F", "water": true, "priority": 10 },
+    "#minecraft:is_deep_ocean": { "color": "#0D284F", "water": true, "priority": 20 },
+    "#minecraft:is_forest": { "color": "#344D29", "priority": 10 },
+    "#minecraft:is_jungle": { "color": "#264D24", "priority": 10 },
+    "#minecraft:is_taiga": { "color": "#2A3B31", "priority": 10 },
+    "#minecraft:is_savanna": { "color": "#7F7548", "priority": 10 },
+    "#c:is_swamp": { "color": "#303F2B", "priority": 10 },
+    "#c:is_mushroom": { "color": "#746775", "priority": 10 },
+    "#c:is_sandy": { "color": "#AE986F", "priority": 15 },
+    "#c:is_badlands": { "color": "#8C593D", "priority": 20 },
+    "#c:is_stony_shores": { "color": "#726F6A", "priority": 20 },
+    "minecraft:stony_peaks": { "color": "#726F6A", "priority": 20 },
+    "#c:is_snowy": { "color": "#B8C6D2", "priority": 30 },
+    "#c:is_icy": { "color": "#B8C6D2", "priority": 30 },
+    "#c:is_aquatic_icy": { "color": "#B8C6D2", "priority": 30 }
+  }
+}
