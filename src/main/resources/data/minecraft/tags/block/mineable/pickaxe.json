@@ -9,6 +9,7 @@
     "blockspaceprogram:attachment_face",
     "blockspaceprogram:combustion_chamber",
     "blockspaceprogram:nozzle_segment",
-    "blockspaceprogram:parachute"
+    "blockspaceprogram:parachute",
+    "blockspaceprogram:fairing_panel"
   ]
 }
