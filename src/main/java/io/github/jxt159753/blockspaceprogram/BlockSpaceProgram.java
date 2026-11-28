@@ -136,7 +136,7 @@ public final class BlockSpaceProgram {
                     .networkSynchronized(BakedPart.STREAM_CODEC));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> SHIP_DESIGN =
             COMPONENTS.registerComponentType("ship_design", builder -> builder.persistent(ShipDesign.CODEC)
-                    .networkSynchronized(ShipDesign.FLIGHT_STREAM_CODEC));
+                    .networkSynchronized(ShipDesign.BLUEPRINT_STREAM_CODEC));
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ShipDesign>> FLIGHT_LAYOUT =
             COMPONENTS.registerComponentType("flight_layout", builder -> builder.persistent(ShipDesign.FLIGHT_CODEC)
                     .networkSynchronized(ShipDesign.FLIGHT_STREAM_CODEC));

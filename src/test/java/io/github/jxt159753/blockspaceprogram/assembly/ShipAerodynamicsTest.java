@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 import io.github.jxt159753.blockspaceprogram.assembly.AeroProjection.Side;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Node;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.SharedConstants;
@@ -35,7 +36,7 @@ public class ShipAerodynamicsTest {
         var hull = HullRegion.capture(Map.of(BlockPos.ZERO, stone), BlockPos.ZERO);
         var design = new ShipDesign(List.of(Node.hull(hull, BlockPos.ZERO), new Node(part, pose, -1)), List.of(), 1);
 
-        var projection = ShipAerodynamics.project(design, 0);
+        var projection = ShipAerodynamics.project(design, new BitSet());
         assertEquals(1.25, projection.area(Side.POS_Y), 0);
         assertEquals(0.75, projection.exposedArea(Side.POS_Y, 0), 0);
         assertEquals(0.50, projection.exposedArea(Side.POS_Y, 1), 0);

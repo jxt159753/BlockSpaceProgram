@@ -19,7 +19,7 @@ public final class AssemblyNetworking {
     private AssemblyNetworking() {}
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("1");
+        var registrar = event.registrar("2");
         registrar.playToServer(Place.TYPE, Place.CODEC, (payload, context) -> {
             if (context.player() instanceof ServerPlayer player) {
                 AssemblyMenu menu = activeMenu(player, payload.container(), payload.revision());

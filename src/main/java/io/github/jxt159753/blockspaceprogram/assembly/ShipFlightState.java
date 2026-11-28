@@ -8,6 +8,7 @@ import io.github.jxt159753.blockspaceprogram.part.PartEngine;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,13 +41,13 @@ final class ShipFlightState {
     private final Vec3 seat;
     private final AeroProjection aerodynamics;
     private final double weakestPart;
-    private final long commandPods;
+    private final BitSet commandPods = new BitSet();
+    private final BitSet damagedParts;
+    private final BitSet pendingDamage = new BitSet();
     private int stage;
-    private long damagedParts;
-    private long pendingDamage;
 
-    ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
-        aerodynamics = ShipAerodynamics.project(design, 0);
+    ShipFlightState(ShipDesign design, ShipPropellantData saved, BitSet savedDamage, int stage) {
+        aerodynamics = ShipAerodynamics.project(design, new BitSet());
         int count = design.nodes().size();
         parachutes = new ShipParachutes(design);
         fuel = new double[count];
@@ -55,7 +56,7 @@ final class ShipFlightState {
         supply = new PropellantFlow(count);
         impactParts = new ImpactPart[count];
         this.stage = stage;
-        damagedParts = savedDamage & ((1L << count) - 1);
+        damagedParts = savedDamage.get(0, count);
         int[] groups = StagePerformance.tankGroups(design);
         double dryMass = design.nodes().stream().mapToDouble(ShipDesign.Node::dryMass).sum();
         if (!Double.isFinite(dryMass)) {
@@ -64,7 +65,6 @@ final class ShipFlightState {
         // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
         double extraMass = flightDryMass(dryMass) - dryMass;
         double weakest = Double.POSITIVE_INFINITY;
-        long pods = 0;
         cells = new LinkedHashMap<>();
         var hullBlocks = new LinkedHashMap<BlockPos, SolidBlock>();
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
@@ -74,7 +74,7 @@ final class ShipFlightState {
                 BlockPos origin = node.hullOrigin();
                 node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
                         new SolidBlock(material.state(), material.mass())));
-                damagedParts &= ~(1L << index);
+                damagedParts.clear(index);
                 continue;
             }
             var part = node.part();
@@ -100,7 +100,7 @@ final class ShipFlightState {
                 }
             }
             if (node.isCommandPod()) {
-                pods |= 1L << index;
+                commandPods.set(index);
             }
             var bounds = node.bounds();
             impactParts[index] = new ImpactPart(bounds, properties.impactResistance());
@@ -111,9 +111,9 @@ final class ShipFlightState {
             hullBlocks.put(first.getKey(), new SolidBlock(first.getValue().state(), extraMass));
         }
         hull = hullBlocks;
-        seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
+        int firstPod = commandPods.nextSetBit(0);
+        seat = firstPod < 0 ? Vec3.ZERO : seat(design, firstPod);
         weakestPart = weakest;
-        commandPods = pods;
     }
 
     static int initialStage(ShipDesign design) {
@@ -194,7 +194,7 @@ final class ShipFlightState {
     }
 
     boolean isDebris() {
-        return commandPods == 0;
+        return commandPods.isEmpty();
     }
 
     int stage() {
@@ -217,30 +217,33 @@ final class ShipFlightState {
         return updated;
     }
 
-    ShipFlightState fragment(ShipDesign design, List<Integer> members, int stage) {
+    ShipFlightState fragment(ShipDesign design, List<Integer> members, int[] indices, int stage) {
         var remainingFuel = new ListTag();
         var remainingElectric = new ListTag();
-        long damage = 0;
         for (int part : members) {
-            if (isDamaged(part)) {
-                damage |= 1L << remainingFuel.size();
-            }
             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
             remainingElectric.add(DoubleTag.valueOf(electric[part]));
         }
-        var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
+        var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric),
+                ShipNodeBits.remap(damagedParts, indices), stage);
         for (int index = 0; index < members.size(); index++) {
             fragment.parachutes.copyNode(parachutes, members.get(index), index);
         }
         return fragment;
     }
 
-    ShipFlightState docked(ShipDesign design, ShipFlightState incoming) {
+    BitSet dockedDamage(ShipFlightState incoming) {
+        var combined = ShipNodeBits.shifted(incoming.damagedParts, fuel.length);
+        combined.or(damagedParts);
+        return combined;
+    }
+
+    ShipFlightState docked(ShipDesign design, ShipFlightState incoming, BitSet damage) {
         var combined = savePropellant();
         var added = incoming.savePropellant();
         combined.fuel().addAll(added.fuel());
         combined.electric().addAll(added.electric());
-        var docked = new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
+        var docked = new ShipFlightState(design, combined, damage, stage);
         for (int index = 0; index < fuel.length; index++) {
             docked.parachutes.copyNode(parachutes, index, index);
         }
@@ -251,15 +254,16 @@ final class ShipFlightState {
     }
 
     double wheelTorque() {
-        return POD_WHEEL_TORQUE * Long.bitCount(commandPods & ~damagedParts);
+        return POD_WHEEL_TORQUE * ShipNodeBits.workingCount(commandPods, damagedParts);
     }
 
-    long damagedParts() {
+    /** Callers inspect these bits or take a snapshot before retaining them. */
+    BitSet damagedParts() {
         return damagedParts;
     }
 
     boolean isDamaged(int part) {
-        return (damagedParts & (1L << part)) != 0;
+        return damagedParts.get(part);
     }
 
     void recordImpact(BlockPos origin, BlockPos cell, Vector3dc point, double speed) {
@@ -269,7 +273,7 @@ final class ShipFlightState {
         var contact = new Vec3(point.x() - origin.getX(), point.y() - origin.getY(), point.z() - origin.getZ());
         BlockPos local = cell.subtract(origin);
         double nearestDistance = Double.POSITIVE_INFINITY;
-        long hits = 0;
+        var hits = new BitSet();
         for (int i = 0; i < impactParts.length; i++) {
             ImpactPart part = impactParts[i];
             if (part == null || !part.bounds.intersects(local.getX(), local.getY(), local.getZ(),
@@ -280,33 +284,31 @@ final class ShipFlightState {
             double distance = part.bounds.distanceToSqr(contact);
             if (distance < nearestDistance) {
                 nearestDistance = distance;
-                hits = 0;
+                hits.clear();
             }
             if (distance == nearestDistance && speed > part.resistance) {
-                hits |= 1L << i;
+                hits.set(i);
             }
         }
-        pendingDamage |= hits;
+        pendingDamage.or(hits);
     }
 
     boolean applyImpactDamage(ShipCollisionBody body) {
-        long damage = pendingDamage & ~damagedParts;
-        pendingDamage = 0;
-        if (damage == 0) {
+        pendingDamage.andNot(damagedParts);
+        if (pendingDamage.isEmpty()) {
             return false;
         }
-        damagedParts |= damage;
-        for (int part = 0; part < electric.length; part++) {
-            if ((damage & (1L << part)) != 0) {
-                electric[part] = 0;
-            }
+        damagedParts.or(pendingDamage);
+        for (int part = pendingDamage.nextSetBit(0); part >= 0; part = pendingDamage.nextSetBit(part + 1)) {
+            electric[part] = 0;
         }
         boolean drained = false;
         for (Tank tank : tanks) {
-            if ((damage & (1L << tank.part)) != 0) {
+            if (pendingDamage.get(tank.part)) {
                 drained |= setFuel(tank, 0, body);
             }
         }
+        pendingDamage.clear();
         if (drained) {
             body.subLevel().updateMergedMassData(0);
         }

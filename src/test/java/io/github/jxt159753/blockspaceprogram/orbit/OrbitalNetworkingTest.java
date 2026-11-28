@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion;
 import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion.Drive;
 import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion.Group;
@@ -13,6 +14,7 @@ import io.netty.buffer.Unpooled;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -60,6 +62,18 @@ public class OrbitalNetworkingTest {
         ClientOrbitalState.onDisconnect(new ClientPlayerNetworkEvent.LoggingOut(null, null, null));
         assertTrue(ClientOrbitalState.ships().isEmpty());
         assertEquals(0, ClientOrbitalState.orbitSeconds(), 0);
+    }
+
+    @Test
+    public void encodesMaximumMergedPropellantGroups() {
+        var orbit = new Orbit(OrbitalSystem.MOTHER_PLANET,
+                OrbitElements.fromSemiMajorAxis(70_000, 0, 0, 0, 0, 0, 0));
+        var drive = new Drive(0, 10, 0, 1);
+        var groups = IntStream.range(108, 108 + ShipDesign.MAX_MERGED_PARTS)
+                .mapToObj(index -> new Group(index, 1, drive, drive, 10)).toList();
+        var view = new OrbitalShipView(orbit, Optional.empty(),
+                Optional.of(new VacuumPropulsion(500, 288, 600_000, groups)));
+        assertEquals(view, roundTrip(OrbitalShipView.STREAM_CODEC, view));
     }
 
     @Test

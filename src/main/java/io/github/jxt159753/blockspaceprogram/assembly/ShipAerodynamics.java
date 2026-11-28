@@ -2,6 +2,7 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.assembly.AeroProjection.Grid;
 import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
+import java.util.BitSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 
@@ -9,10 +10,10 @@ import net.minecraft.world.phys.Vec3;
 final class ShipAerodynamics {
     private ShipAerodynamics() {}
 
-    static AeroProjection project(ShipDesign design, long ignoredNodes) {
+    static AeroProjection project(ShipDesign design, BitSet ignoredNodes) {
         var grid = new Grid();
         for (int index = 0; index < design.nodes().size(); index++) {
-            if ((ignoredNodes & (1L << index)) != 0) {
+            if (ignoredNodes.get(index)) {
                 continue;
             }
             var node = design.nodes().get(index);

@@ -50,23 +50,24 @@
          return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
 --- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
 +++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
-@@ -38,15 +38,19 @@
+@@ -39,15 +39,20 @@
      private final Map<BlockPos, Cell> cells;
      private final Map<BlockPos, SolidBlock> hull;
      private final Vec3 seat;
 +    private final Vector3d projectedDragArea = new Vector3d();
      private final AeroProjection aerodynamics;
      private final double weakestPart;
-     private final long commandPods;
+     private final BitSet commandPods = new BitSet();
+     private final BitSet damagedParts;
+     private final BitSet pendingDamage = new BitSet();
      private int stage;
-     private long damagedParts;
-     private long pendingDamage;
 +    private final long projectionBuildNanos;
 
-     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
--        aerodynamics = ShipAerodynamics.project(design, 0);
+     ShipFlightState(ShipDesign design, ShipPropellantData saved, BitSet savedDamage, int stage) {
+-        aerodynamics = ShipAerodynamics.project(design, new BitSet());
 +        long projectionStart = System.nanoTime();
-+        aerodynamics = Boolean.getBoolean("bsp.aeroOcclusion.baseline") ? null : ShipAerodynamics.project(design, 0);
++        aerodynamics = Boolean.getBoolean("bsp.aeroOcclusion.baseline") ? null
++                : ShipAerodynamics.project(design, new BitSet());
 +        projectionBuildNanos = System.nanoTime() - projectionStart;
          int count = design.nodes().size();
          parachutes = new ShipParachutes(design);

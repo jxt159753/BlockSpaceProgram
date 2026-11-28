@@ -10,15 +10,23 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipDockingState.StageBloc
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.EncoderException;
+import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
@@ -127,8 +135,8 @@ public class ShipDockingTest {
     public void releaseRestoresOriginalStageOrderAndIdentity() {
         var first = new Identity(UUID.randomUUID(), Optional.empty(), Optional.empty());
         var second = new Identity(UUID.randomUUID(), Optional.of(UUID.randomUUID()), Optional.empty());
-        var a = new ShipDockingState(List.of(new StageBlock(0b11, 0, 2, 0, Optional.of(first))), Set.of());
-        var b = new ShipDockingState(List.of(new StageBlock(0b11, 0, 3, 1, Optional.of(second))), Set.of());
+        var a = new ShipDockingState(List.of(new StageBlock(bits(0, 1), 0, 2, 0, Optional.of(first))), Set.of());
+        var b = new ShipDockingState(List.of(new StageBlock(bits(0, 1), 0, 3, 1, Optional.of(second))), Set.of());
         var merged = a.merge(b, 2).release(new PortKey(2, 0));
         assertEquals(3, merged.nextStage(1));
         assertEquals(second, merged.rootIn(List.of(3, 2)).identity().orElseThrow());
@@ -139,6 +147,110 @@ public class ShipDockingTest {
         assertEquals(2, incoming.mapStage(4));
         assertEquals(Set.of(new PortKey(0, 0)), incoming.state().released());
         assertEquals(2, merged.project(new int[]{-1, -1, 0, 1}, 4, 5).stage());
+    }
+
+    @Test
+    public void stageMembershipSurvivesDockingSaveAndReorderedProjection() {
+        var first = new Identity(UUID.randomUUID(), Optional.empty(), Optional.empty());
+        var second = new Identity(UUID.randomUUID(), Optional.empty(), Optional.empty());
+        var a = ShipDockingState.EMPTY.snapshot(chain(70, 2), 0, first);
+        var b = ShipDockingState.EMPTY.snapshot(chain(70, 3), 1, second);
+        var merged = a.merge(b, 70).release(new PortKey(139, 0));
+        var codec = ShipDockingState.Serialization.CODEC;
+        var restored = codec.parse(NbtOps.INSTANCE, codec.encodeStart(NbtOps.INSTANCE, merged).getOrThrow()).getOrThrow();
+        assertEquals(merged, restored);
+        assertEquals(70, restored.stages().getFirst().parts().cardinality());
+        assertEquals(70, restored.stages().getLast().parts().cardinality());
+        assertEquals(0, restored.actionStage(64, -1));
+        assertEquals(3, restored.actionStage(139, -1));
+
+        var indices = ShipDesign.indices(140, List.of(70, 139, 0, 64, 69));
+        var fragment = restored.project(indices, 1, 5);
+        assertEquals(bits(2, 3, 4), fragment.state().stages().getFirst().parts());
+        assertEquals(bits(0, 1), fragment.state().stages().getLast().parts());
+        assertEquals(0, fragment.state().stages().getLast().root());
+        assertEquals(second, fragment.state().rootIn(List.of(0, 1)).identity().orElseThrow());
+
+        var incoming = restored.project(ShipDesign.indices(140, IntStream.range(70, 140).boxed().toList()), 1, 5);
+        assertEquals(3, incoming.stageCount());
+        assertEquals(1, incoming.stage());
+        assertEquals(Set.of(new PortKey(69, 0)), incoming.state().released());
+    }
+
+    @Test
+    public void damageFollowsHighNodeIndicesThroughDockingAndSeparation() {
+        var a = new ShipFlightState(chain(65, 1), ShipPropellantData.EMPTY, bits(1, 63, 64, 200), 0);
+        var b = new ShipFlightState(chain(67, 1), ShipPropellantData.EMPTY, bits(0, 64, 65), 0);
+        var layout = chain(132, 2);
+        var merged = a.docked(layout, b, a.dockedDamage(b));
+        assertEquals(bits(1, 63, 64, 65, 129, 130), merged.damagedParts());
+        assertFalse(merged.isDamaged(2));
+
+        var members = IntStream.iterate(131, node -> node >= 63, node -> node - 1).boxed().toList();
+        var fragment = layout.subset(members, Set.of(), new BlockPos(131, 0, 0));
+        var separated = merged.fragment(fragment, members, ShipDesign.indices(132, members), 0);
+        assertEquals(bits(1, 2, 66, 67, 68), separated.damagedParts());
+
+        var saved = new CompoundTag();
+        saved.putLongArray("DamagedParts", merged.damagedParts().toLongArray());
+        assertEquals(merged.damagedParts(), AssembledShipEntity.readDamagedParts(saved));
+        saved.putLong("DamagedParts", -1);
+        assertTrue(AssembledShipEntity.readDamagedParts(saved).isEmpty());
+    }
+
+    @Test
+    public void flightCodecsAcceptMergedLimitsWhileBlueprintsKeepAssemblyLimits() {
+        var layout = chain(ShipDesign.MAX_MERGED_PARTS, ShipDesign.MAX_MERGED_STAGES);
+        assertTrue(layout.isValidLayout());
+        assertFalse(layout.isValid());
+        var tag = ShipDesign.FLIGHT_CODEC.encodeStart(NbtOps.INSTANCE, layout).getOrThrow();
+        assertEquals(layout, ShipDesign.FLIGHT_CODEC.parse(NbtOps.INSTANCE, tag).getOrThrow());
+        assertTrue(ShipDesign.CODEC.parse(NbtOps.INSTANCE, tag).error().isPresent());
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        try {
+            ShipDesign.FLIGHT_STREAM_CODEC.encode(buffer, layout);
+            assertEquals(layout.flightLayoutBytes(RegistryAccess.EMPTY), buffer.readableBytes());
+            var synced = ShipDesign.FLIGHT_STREAM_CODEC.decode(buffer);
+            assertEquals(layout.stageCount(), synced.stageCount());
+            assertEquals(layout.links(), synced.links());
+            assertEquals(layout.nodes().stream().map(ShipDesign.Node::pose).toList(),
+                    synced.nodes().stream().map(ShipDesign.Node::pose).toList());
+            assertEquals(0, buffer.readableBytes());
+            assertThrows(EncoderException.class, () -> ShipDesign.BLUEPRINT_STREAM_CODEC.encode(buffer, layout));
+
+            buffer.clear();
+            var pose = new PartPose(new BlockPos(-345, 4_096, 7_250), OctahedralGroup.IDENTITY);
+            PartPose.STREAM_CODEC.encode(buffer, pose);
+            assertEquals(pose, PartPose.STREAM_CODEC.decode(buffer));
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private static BitSet bits(int... indices) {
+        var bits = new BitSet();
+        for (int index : indices) {
+            bits.set(index);
+        }
+        return bits;
+    }
+
+    private static ShipDesign chain(int count, int stages) {
+        var sample = BakedPart.bake(Map.of(BlockPos.ZERO, Blocks.STONE.defaultBlockState())).orElseThrow();
+        var pod = new BakedPart(sample.geometry(), sample.properties(), sample.centerOfMass(), sample.inertia(),
+                Set.of(PartType.COMMAND_POD), 1, List.of());
+        var nodes = new ArrayList<ShipDesign.Node>();
+        var links = new ArrayList<ShipDesign.Link>();
+        for (int index = 0; index < count; index++) {
+            var pose = new PartPose(new BlockPos(index * 4, 0, 0), OctahedralGroup.IDENTITY);
+            nodes.add(new ShipDesign.Node(index == 0 ? pod : sample, pose, -1));
+            if (index > 0) {
+                var first = new Endpoint(index - 1, -1, Direction.EAST, new Vec3(1, 0.5, 0.5));
+                var second = new Endpoint(index, -1, Direction.WEST, new Vec3(0, 0.5, 0.5));
+                links.add(new ShipDesign.Link(first, second, true, false, -1));
+            }
+        }
+        return new ShipDesign(nodes, links, stages);
     }
 
     private static Port port(Vec3 center, Direction normal, int size) {

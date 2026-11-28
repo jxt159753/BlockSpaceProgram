@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Set;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -19,7 +20,7 @@ public final class OrbitalShipPropulsion {
     private final VacuumPropulsion propulsion;
     private final int stage;
 
-    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ShipPropellantData saved, long damage) {
+    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ShipPropellantData saved, BitSet damage) {
         this.shipData = shipData;
         this.stage = stage;
         int count = design.nodes().size();
@@ -33,7 +34,7 @@ public final class OrbitalShipPropulsion {
             int index = branch.node();
             var node = design.nodes().get(index);
             int group = groups[index];
-            boolean damaged = (damage & (1L << index)) != 0;
+            boolean damaged = damage.get(index);
             partFuel[index] = ShipPropellantData.initialAmount(saved.fuel(), count, index,
                     StagePerformance.fuelCapacity(node), damaged);
             partElectric[index] = ShipPropellantData.initialAmount(saved.electric(), count, index,
@@ -63,7 +64,7 @@ public final class OrbitalShipPropulsion {
             stage = ShipFlightState.initialStage(design);
         }
         return new OrbitalShipPropulsion(shipData, design, stage, ShipPropellantData.read(shipData),
-                shipData.getLong("DamagedParts"));
+                AssembledShipEntity.readDamagedParts(shipData));
     }
 
     public VacuumPropulsion propulsion() {

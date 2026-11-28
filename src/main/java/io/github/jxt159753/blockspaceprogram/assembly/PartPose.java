@@ -20,7 +20,7 @@ import org.joml.Quaternionf;
 
 /** The baked minimum corner and a proper right-angle rotation, in ship coordinates. */
 public record PartPose(BlockPos origin, OctahedralGroup rotation) {
-    private static final int MAX_OFFSET = ShipDesign.MAX_PARTS * 9 * 4;
+    private static final int MAX_ASSEMBLY_OFFSET = ShipDesign.MAX_PARTS * BakedPart.MAX_SIDE * 4;
     private static final OctahedralGroup[] ORIENTATIONS = OctahedralGroup.values();
     private static final List<OctahedralGroup> ROTATIONS = Arrays.stream(ORIENTATIONS)
             .filter(ShipCollisionLayout::isRotation).toList();
@@ -32,9 +32,13 @@ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
             ROTATION_CODEC.fieldOf("rotation").forGetter(PartPose::rotation)
     ).apply(instance, PartPose::new));
     static final StreamCodec<FriendlyByteBuf, PartPose> STREAM_CODEC = StreamCodec.of((buffer, pose) -> {
-        buffer.writeBlockPos(pose.origin());
+        // Packed block positions truncate the Y coordinate to 12 bits, which is too small in quarters.
+        buffer.writeVarInt(pose.origin().getX());
+        buffer.writeVarInt(pose.origin().getY());
+        buffer.writeVarInt(pose.origin().getZ());
         buffer.writeEnum(pose.rotation());
-    }, buffer -> new PartPose(buffer.readBlockPos(), buffer.readEnum(OctahedralGroup.class)));
+    }, buffer -> new PartPose(new BlockPos(buffer.readVarInt(), buffer.readVarInt(), buffer.readVarInt()),
+            buffer.readEnum(OctahedralGroup.class)));
 
     public static final PartPose ROOT = new PartPose(BlockPos.ZERO, OctahedralGroup.IDENTITY);
 
@@ -43,8 +47,8 @@ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
     }
 
     boolean valid() {
-        return Math.abs((long) origin.getX()) <= MAX_OFFSET && Math.abs((long) origin.getY()) <= MAX_OFFSET
-                && Math.abs((long) origin.getZ()) <= MAX_OFFSET && validRotation();
+        return Math.abs((long) origin.getX()) <= MAX_ASSEMBLY_OFFSET && Math.abs((long) origin.getY()) <= MAX_ASSEMBLY_OFFSET
+                && Math.abs((long) origin.getZ()) <= MAX_ASSEMBLY_OFFSET && validRotation();
     }
 
     boolean validRotation() {

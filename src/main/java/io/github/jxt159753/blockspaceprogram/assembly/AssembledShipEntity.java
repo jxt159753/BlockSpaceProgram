@@ -4,11 +4,13 @@ import com.mojang.logging.LogUtils;
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.LongArrayTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
@@ -44,6 +46,7 @@ public final class AssembledShipEntity extends Entity {
     private static final String DOCKING = BlockSpaceProgram.MOD_ID + ":docking";
     private static final String SEATS = BlockSpaceProgram.MOD_ID + ":seats";
     private static final String LAST_SEAT = BlockSpaceProgram.MOD_ID + ":last_seat";
+    private static final String DAMAGE = "DamagedParts";
     private static final EntityDataAccessor<ItemStack> BLUEPRINT = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.ITEM_STACK);
     private static final EntityDataAccessor<Byte> LAUNCH_ROTATION = SynchedEntityData.defineId(
@@ -58,8 +61,8 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Long> ELECTRIC = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.LONG);
-    private static final EntityDataAccessor<Long> DAMAGED_PARTS = SynchedEntityData.defineId(
-            AssembledShipEntity.class, EntityDataSerializers.LONG);
+    private static final EntityDataAccessor<CompoundTag> DAMAGED_PARTS = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
     private static final EntityDataAccessor<Integer> ACTIVE_STAGE = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> ATTITUDE_MODE = SynchedEntityData.defineId(
@@ -96,7 +99,7 @@ public final class AssembledShipEntity extends Entity {
         builder.define(THROTTLE, 0);
         builder.define(FUEL, 0.0F);
         builder.define(ELECTRIC, 0L);
-        builder.define(DAMAGED_PARTS, 0L);
+        builder.define(DAMAGED_PARTS, new CompoundTag());
         builder.define(ACTIVE_STAGE, -1);
         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
         builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
@@ -368,15 +371,33 @@ public final class AssembledShipEntity extends Entity {
     }
 
     public int damagedPartCount() {
-        return Long.bitCount(damagedParts());
+        return damagedParts().cardinality();
     }
 
-    long damagedParts() {
-        return entityData.get(DAMAGED_PARTS);
+    BitSet damagedParts() {
+        return BitSet.valueOf(entityData.get(DAMAGED_PARTS).getLongArray(DAMAGE));
     }
 
-    void setDamagedParts(long damage) {
-        entityData.set(DAMAGED_PARTS, damage);
+    void setDamagedParts(BitSet damage) {
+        var tag = new CompoundTag();
+        if (!damage.isEmpty()) {
+            tag.putLongArray(DAMAGE, damage.toLongArray());
+        }
+        entityData.set(DAMAGED_PARTS, tag);
+    }
+
+    static BitSet readDamagedParts(CompoundTag tag) {
+        Tag damage = tag.get(DAMAGE);
+        if (damage instanceof LongArrayTag array && array.size() <= ShipDesign.MAX_NODE_WORDS) {
+            var parts = BitSet.valueOf(array.getAsLongArray());
+            if (parts.length() <= ShipDesign.MAX_MERGED_NODES) {
+                return parts;
+            }
+        }
+        if (damage != null) {
+            LOGGER.warn("Ignoring invalid {} in saved ship data (tag type {})", DAMAGE, damage.getType().getName());
+        }
+        return new BitSet();
     }
 
     public byte[] parachuteStates() {
@@ -666,14 +687,19 @@ public final class AssembledShipEntity extends Entity {
         Tag savedDocking = getPersistentData().get(DOCKING);
         if (savedDocking != null) {
             var ops = registryAccess().createSerializationContext(NbtOps.INSTANCE);
-            docking = ShipDockingState.Serialization.CODEC.parse(ops, savedDocking).getOrThrow();
+            var saved = ShipDockingState.Serialization.CODEC.parse(ops, savedDocking);
+            docking = saved.result().orElse(ShipDockingState.EMPTY);
+            saved.error().ifPresent(error -> {
+                LOGGER.warn("Ignoring invalid docking state for ship {}: {}", getUUID(), error.message());
+                getPersistentData().remove(DOCKING);
+            });
         }
         if (tag.hasUUID("FlightBody")) {
             bodyId = tag.getUUID("FlightBody");
             savedPropellant = ShipPropellantData.read(tag);
             entityData.set(FLYING, true);
             entityData.set(ACTIVE_STAGE, tag.contains("FlightStage") ? tag.getInt("FlightStage") : NO_SAVED_STAGE);
-            setDamagedParts(tag.getLong("DamagedParts"));
+            setDamagedParts(readDamagedParts(tag));
             debrisSince = tag.contains("DebrisSince") ? tag.getLong("DebrisSince") : -1;
         }
     }
@@ -688,7 +714,7 @@ public final class AssembledShipEntity extends Entity {
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
             (flight == null ? savedPropellant : flight.savePropellant()).write(tag);
-            tag.putLong("DamagedParts", damagedParts());
+            tag.putLongArray(DAMAGE, entityData.get(DAMAGED_PARTS).getLongArray(DAMAGE));
             if (activeStage() >= -1) {
                 tag.putInt("FlightStage", activeStage());
             }

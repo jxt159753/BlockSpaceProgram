@@ -91,7 +91,7 @@ final class HullAssembly {
         }
         parts.addFirst(parts.remove(parts.indexOf(pod)));
         var design = design(region, origin, contacts, groups, parts);
-        if (!design.isValidLayout()) {
+        if (!design.isValid()) {
             return message("world_group");
         }
         rejection = ShipFacilityLimits.checkLaunch(player, design);
