@@ -29,7 +29,6 @@
   ],
   "properties": {
     "mass": 220,
-    "drag_coefficient": 0.6,
     "impact_resistance": 12
   },
   "display_model": "blockspaceprogram:part/large_engine"

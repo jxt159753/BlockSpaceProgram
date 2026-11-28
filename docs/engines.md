@@ -66,7 +66,7 @@
       "electric_power": 0
     }
   ],
-  "properties": {"mass": 220, "drag_coefficient": 0.6, "impact_resistance": 12},
+  "properties": {"mass": 220, "impact_resistance": 12},
   "display_model": "blockspaceprogram:part/large_engine"
 }
 ```
@@ -75,7 +75,7 @@
 - `size` 是未缩放的 `[x, y, z]` 尺寸，每边为 1 到 9 格。原点位于包围盒的最小角，碰撞格填满整个包围盒。
 - `connectors` 是接口列表，可为空。`kind` 支持 `stack`、`separation`、`docking` 和 `surface`。`center` 是接口中心，`normal` 是所在面的外法线。`width` 和 `height` 为未缩放的整格尺寸，接口须完全落在所在面上，堆叠类接口须为正方形。
 - `engines` 是发动机列表，可为空。`outlet.position` 是喷口在未缩放零件坐标中的位置，须落在 `outlet.face` 指定的面上。`face` 是排气方向，推力方向与它相反。`performance.thrust` 的单位为 N，`performance.vacuum_specific_impulse` 和 `performance.sea_level_specific_impulse` 的单位为 s。`electric_power` 是满推力耗电功率，单位为 W，省略时为 0。
-- `properties` 沿用 `part_properties` 的字段和默认值。`mass`、`fuel_capacity`、`electric_capacity`、`drag_coefficient`、`heat_resistance` 和 `impact_resistance` 写入零件。`thrust`、`vacuum_specific_impulse`、`sea_level_specific_impulse` 和 `electric_power` 的零件级读数从 `engines` 汇总。 [零件属性数据包](part-properties.md)
+- `properties` 沿用 `part_properties` 的字段和默认值。`mass`、`fuel_capacity`、`electric_capacity`、`heat_resistance` 和 `impact_resistance` 写入零件。`thrust`、`vacuum_specific_impulse`、`sea_level_specific_impulse` 和 `electric_power` 的零件级读数从 `engines` 汇总。飞行时从填充模板的铁块读取阻力系数。 [零件属性数据包](part-properties.md)
 - `display_model` 可省略。省略时成品按填充包围盒的铁块结构渲染。
 
 `normal` 和 `face` 接受 `down`、`up`、`north`、`south`、`west` 和 `east`。制作时选择接口尺寸配置允许的最大比例。

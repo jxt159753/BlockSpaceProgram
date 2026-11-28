@@ -107,12 +107,16 @@ server-port=25835
 
 在服务端的 `defaultconfigs/blockspaceprogram-server.toml` 设定 `[debris]` 下的 `distance = 0`，以便记录残骸离开时的运动。运行候选专用服，等 `Done` 后从另一终端启动客户端。
 
+复测 #144 的地面接触时，在验收服的 `config/sable-server.toml` 中设置 `sub_level_substeps_per_tick = 6`。同一斜入轨迹在每刻 2 个子步的测试中穿过了地面。
+
 ```powershell
 .\gradlew.bat -PaeroOcclusion -PaeroOcclusionVerify runAeroOcclusionServer
 .\gradlew.bat -PaeroOcclusion '-PaeroOcclusionJoin=127.0.0.1:25835' runAeroOcclusionClient
 ```
 
-对照组使用 `-PaeroOcclusionRun=baseline -PaeroOcclusionBaseline`，客户端连接对照服端口。服务端等待客户端连接后执行布置、飞行、分级和性能测试。结果写入每个服务端的 `logs/latest.log`，以 `AERO` 开头。试验结束后服务端关闭。`AERO INCOMPLETE contact verification` 表示至少一个返回舱只取得掠过地面时的速度。
+对照组使用 `-PaeroOcclusionRun=baseline -PaeroOcclusionBaseline`，客户端连接对照服端口。服务端就绪 80 刻后开始布置、飞行、分级和性能测试。客户端连接可用于观察。结果写入每个服务端的 `logs/latest.log`，以 `AERO` 开头。试验结束后服务端关闭。
+
+`AERO IMPACT` 记录近地速度突变前后的空速，`AERO TOUCH` 确认收到了 Sable 的方块接触回调。`AERO INCOMPLETE contact verification` 表示至少一个返回舱缺少接触证据。 [实现验收 #144](https://github.com/jxt159753/BlockSpaceProgram/issues/144)
 
 无 Sable 复测使用同样的超平坦设置，在 `runs/aeroOcclusion/no-sable/server/mods/` 留空。执行以下命令检查静态飞船。
 

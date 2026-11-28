@@ -17,6 +17,7 @@ public final class ShipServerConfig {
     static final ModConfigSpec.IntValue LIFETIME;
     static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
     static final ModConfigSpec.IntValue MAX_HULL_BLOCKS;
+    static final ModConfigSpec.DoubleValue AERO_TORQUE_MULTIPLIER;
     static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
     static final ModConfigSpec.DoubleValue DOCK_ANGLE;
     static final ModConfigSpec.DoubleValue DOCK_SPEED;
@@ -46,6 +47,10 @@ public final class ShipServerConfig {
         builder.push("hull");
         MAX_HULL_BLOCKS = builder.comment("Maximum blocks in the connected hull collected by a ship assembler.")
                 .defineInRange("maxBlocks", 8192, 1, Integer.MAX_VALUE);
+        builder.pop();
+        builder.push("aerodynamics");
+        AERO_TORQUE_MULTIPLIER = builder.comment("Scale drag torque from the center of pressure.")
+                .defineInRange("torque_multiplier", 1.0, 0.0, 1.0);
         builder.pop();
         builder.push("docking");
         DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")

@@ -12,7 +12,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.registries.datamaps.DataMapType;
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent;
 
-/** The contribution of one block to a part's baked properties. */
+/** Block properties used by part baking and the flight aerodynamics snapshot. */
 public record BlockPartProperties(
         double mass,
         Map<ResourceLocation, Double> fuelCapacity,
@@ -25,10 +25,11 @@ public record BlockPartProperties(
         double electricPower,
         double impactResistance) {
 
+    static final double DEFAULT_DRAG_COEFFICIENT = 1.0;
     private static final double DEFAULT_MASS = 1.0;
     private static final double DEFAULT_IMPACT_RESISTANCE = 8.0;
     private static final BlockPartProperties DEFAULT = new BlockPartProperties(
-            DEFAULT_MASS, Map.of(), 0, 0, 0, 0, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
+            DEFAULT_MASS, Map.of(), 0, 0, 0, DEFAULT_DRAG_COEFFICIENT, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
     private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0, 0);
     private static final Codec<Double> NON_NEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
     static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -38,7 +39,7 @@ public record BlockPartProperties(
             NON_NEGATIVE.optionalFieldOf("thrust", 0.0).forGetter(BlockPartProperties::thrust),
             NON_NEGATIVE.optionalFieldOf("vacuum_specific_impulse", 0.0).forGetter(BlockPartProperties::vacuumSpecificImpulse),
             NON_NEGATIVE.optionalFieldOf("sea_level_specific_impulse", 0.0).forGetter(BlockPartProperties::seaLevelSpecificImpulse),
-            NON_NEGATIVE.optionalFieldOf("drag_coefficient", 0.0).forGetter(BlockPartProperties::dragCoefficient),
+            NON_NEGATIVE.optionalFieldOf("drag_coefficient", DEFAULT_DRAG_COEFFICIENT).forGetter(BlockPartProperties::dragCoefficient),
             NON_NEGATIVE.optionalFieldOf("heat_resistance", 0.0).forGetter(BlockPartProperties::heatResistance),
             NON_NEGATIVE.optionalFieldOf("electric_capacity", 0.0).forGetter(BlockPartProperties::electricCapacity),
             NON_NEGATIVE.optionalFieldOf("electric_power", 0.0).forGetter(BlockPartProperties::electricPower),

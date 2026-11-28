@@ -48,8 +48,10 @@ final class AeroCacheTrial {
         var liveTimes = new long[samples];
         var cachedTimes = new long[samples];
         for (int i = -15; i < samples; i++) {
-            long liveNanos = ShipAerodynamics.compute(design).buildNanos();
             long start = System.nanoTime();
+            ShipAerodynamics.project(design, 0);
+            long liveNanos = System.nanoTime() - start;
+            start = System.nanoTime();
             AeroProjection projection = assembleFromCache(design, baked);
             long cachedNanos = System.nanoTime() - start;
             if (projection.area(Side.POS_Y) <= 0) {
@@ -66,7 +68,7 @@ final class AeroCacheTrial {
     }
 
     private static void checkEquivalent(ShipDesign design, CompoundTag baked) {
-        AeroProjection live = ShipAerodynamics.compute(design).projection();
+        AeroProjection live = ShipAerodynamics.project(design, 0);
         AeroProjection cached = assembleFromCache(design, baked);
         for (Side side : SIDES) {
             var direction = new Vector3d().setComponent(side.axis, side.sign);

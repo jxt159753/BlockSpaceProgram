@@ -133,7 +133,7 @@ public record PartTemplate(Component name, BlockPos size, List<PartConnector> co
         }
 
         var bakedProperties = new BlockPartProperties(mass, properties.fuelCapacity(), rating.thrust(),
-                rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(), properties.dragCoefficient(),
+                rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(), BlockPartProperties.DEFAULT_DRAG_COEFFICIENT,
                 properties.heatResistance(), properties.electricCapacity(), power, properties.impactResistance());
         var inertia = new BakedPart.InertiaTensor(xx, yy, zz, 0, 0, 0);
         return DataResult.success(new BakedPart(BakedPart.Geometry.filledBox(size), bakedProperties, max.scale(0.5), inertia,
