@@ -6,6 +6,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.DecoderException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -17,12 +19,15 @@ import java.util.Set;
 import java.util.function.IntUnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.network.connection.ConnectionType;
 import org.jetbrains.annotations.Nullable;
 
 /** Blueprints start at their root command pod. Flight layouts may also describe detached parts. */
@@ -30,56 +35,93 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     // Keep the original blueprint part limit. Hull nodes have their own limit.
     public static final int MAX_PARTS = 36;
     public static final int MAX_HULL_NODES = 27;
-    static final int MAX_NODES = MAX_PARTS + MAX_HULL_NODES;
     public static final int BENCHMARK_MAX_PARTS = 50;
     public static final int MAX_STAGES = MAX_PARTS * 2;
     static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;
-    private static final int MAX_NODE_LINKS = MAX_NODES * (MAX_NODES - 1) / 2;
+    private static final int MAX_ASSEMBLY_NODES = MAX_PARTS + MAX_HULL_NODES;
+    private static final int MAX_ASSEMBLY_NODE_LINKS = MAX_ASSEMBLY_NODES * (MAX_ASSEMBLY_NODES - 1) / 2;
+    public static final int MAX_MERGED_PARTS = 288;
+    static final int MAX_MERGED_HULL_NODES = 108;
+    static final int MAX_MERGED_STAGES = 576;
+    static final int MAX_MERGED_NODES = MAX_MERGED_PARTS + MAX_MERGED_HULL_NODES;
+    static final int MAX_NODE_WORDS = Math.ceilDiv(MAX_MERGED_NODES, Long.SIZE);
+    private static final int MAX_MERGED_PART_LINKS = MAX_MERGED_PARTS * (MAX_MERGED_PARTS - 1) / 2;
+    private static final int MAX_MERGED_NODE_LINKS = MAX_MERGED_NODES * (MAX_MERGED_NODES - 1) / 2;
+    static final int MAX_FLIGHT_LAYOUT_BYTES = 3 * 1024 * 1024;
     static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
+    static final Codec<Integer> FLIGHT_STAGE = Codec.intRange(-1, MAX_MERGED_STAGES - 1);
     public static final ShipDesign EMPTY = new ShipDesign(List.of(), List.of(), 1);
 
     public static final Codec<ShipDesign> FLIGHT_CODEC = RecordCodecBuilder.<ShipDesign>create(instance -> instance.group(
-            Node.CODEC.listOf(1, MAX_NODES).fieldOf("nodes").forGetter(ShipDesign::nodes),
-            Link.CODEC.listOf(0, MAX_NODE_LINKS).fieldOf("links").forGetter(ShipDesign::links),
-            Codec.intRange(1, MAX_STAGES).fieldOf("stages").forGetter(ShipDesign::stageCount)
+            Node.CODEC.listOf(1, MAX_MERGED_NODES).fieldOf("nodes").forGetter(ShipDesign::nodes),
+            Link.FLIGHT_CODEC.listOf(0, MAX_MERGED_NODE_LINKS).fieldOf("links").forGetter(ShipDesign::links),
+            Codec.intRange(1, MAX_MERGED_STAGES).fieldOf("stages").forGetter(ShipDesign::stageCount)
     ).apply(instance, ShipDesign::new)).validate(design -> design.isValidLayout() ? DataResult.success(design)
             : DataResult.error(() -> "Invalid ship layout"));
 
-    public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.hasBlueprintRoot()
-            ? DataResult.success(design) : DataResult.error(() -> "Invalid ship blueprint root"));
+    public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design ->
+            design.withinAssemblyLimits() && design.hasBlueprintRoot() ? DataResult.success(design)
+                    : DataResult.error(() -> "Invalid ship blueprint"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS);
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS, MAX_STAGES);
     public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> BENCHMARK_STREAM_CODEC =
-            streamCodec(BENCHMARK_MAX_PARTS, BENCHMARK_MAX_PARTS - 1);
+            streamCodec(BENCHMARK_MAX_PARTS, BENCHMARK_MAX_PARTS - 1, MAX_STAGES);
     private static final int HULL_STREAM_MARKER = -1;
-    private static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> HULL_STREAM_CODEC =
-            ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC);
-    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> FLIGHT_STREAM_CODEC = StreamCodec.of((buffer, design) -> {
-        if (design.hasHull()) {
-            buffer.writeVarInt(HULL_STREAM_MARKER);
-            HULL_STREAM_CODEC.encode(buffer, design);
-        } else {
-            STREAM_CODEC.encode(buffer, design);
-        }
-    }, buffer -> {
-        int start = buffer.readerIndex();
-        if (buffer.readVarInt() == HULL_STREAM_MARKER) {
-            return HULL_STREAM_CODEC.decode(buffer);
-        }
-        buffer.readerIndex(start);
-        return STREAM_CODEC.decode(buffer);
-    });
+    // NBT charges heap overhead as well as wire bytes. Even one END byte can represent an empty compound in a list.
+    private static final long LAYOUT_NBT_QUOTA = 64L * MAX_FLIGHT_LAYOUT_BYTES;
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> BLUEPRINT_STREAM_CODEC = layoutStreamCodec(
+            STREAM_CODEC, ByteBufCodecs.fromCodecWithRegistries(CODEC, () -> NbtAccounter.create(LAYOUT_NBT_QUOTA)));
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> FLIGHT_STREAM_CODEC = layoutStreamCodec(
+            streamCodec(MAX_MERGED_PARTS, MAX_MERGED_PART_LINKS, MAX_MERGED_STAGES),
+            ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC, () -> NbtAccounter.create(LAYOUT_NBT_QUOTA)));
 
-    private static StreamCodec<RegistryFriendlyByteBuf, ShipDesign> streamCodec(int parts, int links) {
-        return StreamCodec.composite(
+    private static StreamCodec<RegistryFriendlyByteBuf, ShipDesign> layoutStreamCodec(
+            StreamCodec<RegistryFriendlyByteBuf, ShipDesign> parts, StreamCodec<RegistryFriendlyByteBuf, ShipDesign> hull) {
+        return StreamCodec.of((buffer, design) -> {
+            if (design.hasHull()) {
+                buffer.writeVarInt(HULL_STREAM_MARKER);
+                hull.encode(buffer, design);
+            } else {
+                parts.encode(buffer, design);
+            }
+        }, buffer -> {
+            int start = buffer.readerIndex();
+            if (buffer.readVarInt() == HULL_STREAM_MARKER) {
+                return hull.decode(buffer);
+            }
+            buffer.readerIndex(start);
+            return parts.decode(buffer);
+        });
+    }
+
+    private static StreamCodec<RegistryFriendlyByteBuf, ShipDesign> streamCodec(int parts, int links, int stages) {
+        StreamCodec<RegistryFriendlyByteBuf, ShipDesign> codec = StreamCodec.composite(
                 Node.STREAM_CODEC.apply(ByteBufCodecs.list(parts)), ShipDesign::nodes,
                 Link.STREAM_CODEC.apply(ByteBufCodecs.list(links)), ShipDesign::links,
                 ByteBufCodecs.VAR_INT, ShipDesign::stageCount, ShipDesign::new);
+        return StreamCodec.of(codec::encode, buffer -> {
+            var design = codec.decode(buffer);
+            if (design.stageCount < 1 || design.stageCount > stages || design.links.stream().anyMatch(link ->
+                    !design.hasNode(link.first().node()) || !design.hasNode(link.second().node()))) {
+                throw new DecoderException("Ship layout stage count or link endpoints out of range");
+            }
+            return design;
+        });
     }
 
     public ShipDesign {
         nodes = List.copyOf(nodes);
         links = List.copyOf(links);
+    }
+
+    int flightLayoutBytes(RegistryAccess registries) {
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), registries, ConnectionType.NEOFORGE);
+        try {
+            FLIGHT_STREAM_CODEC.encode(buffer, this);
+            return buffer.readableBytes();
+        } finally {
+            buffer.release();
+        }
     }
 
     public double fullMass() {
@@ -100,8 +142,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         private static final Codec<Node> CODEC = RecordCodecBuilder.<Node>create(instance -> instance.group(
                 BakedPart.CODEC.optionalFieldOf("part").forGetter(node -> Optional.ofNullable(node.part())),
                 PartPose.CODEC.fieldOf("pose").forGetter(Node::pose),
-                STAGE.optionalFieldOf("engine_stage", -1).forGetter(Node::engineStage),
-                STAGE.optionalFieldOf("parachute_stage", -1).forGetter(Node::parachuteStage),
+                FLIGHT_STAGE.optionalFieldOf("engine_stage", -1).forGetter(Node::engineStage),
+                FLIGHT_STAGE.optionalFieldOf("parachute_stage", -1).forGetter(Node::parachuteStage),
                 HullRegion.CODEC.optionalFieldOf("hull").forGetter(node -> Optional.ofNullable(node.hull()))
         ).apply(instance, (part, pose, engine, parachute, hull) ->
                 new Node(part.orElse(null), pose, engine, parachute, hull.orElse(null))))
@@ -177,7 +219,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     /** Marker -1 denotes a face of the simplified collider. Anchor is in the unscaled baked model. */
     public record Endpoint(int node, int marker, Direction normal, Vec3 anchor) {
         private static final Codec<Endpoint> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-                Codec.intRange(0, MAX_NODES - 1).fieldOf("node").forGetter(Endpoint::node),
+                Codec.intRange(0, MAX_MERGED_NODES - 1).fieldOf("node").forGetter(Endpoint::node),
                 Codec.INT.fieldOf("marker").forGetter(Endpoint::marker),
                 Direction.CODEC.fieldOf("normal").forGetter(Endpoint::normal),
                 Vec3.CODEC.fieldOf("anchor").forGetter(Endpoint::anchor)
@@ -195,13 +237,15 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     public record Link(Endpoint first, Endpoint second, boolean surface, boolean separable, int separationStage) {
-        static final Codec<Link> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+        private static final Codec<Link> FLIGHT_CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Endpoint.CODEC.fieldOf("first").forGetter(Link::first),
                 Endpoint.CODEC.fieldOf("second").forGetter(Link::second),
                 Codec.BOOL.optionalFieldOf("surface", false).forGetter(Link::surface),
                 Codec.BOOL.optionalFieldOf("separable", false).forGetter(Link::separable),
-                STAGE.optionalFieldOf("separation_stage", -1).forGetter(Link::separationStage)
+                ShipDesign.FLIGHT_STAGE.optionalFieldOf("separation_stage", -1).forGetter(Link::separationStage)
         ).apply(instance, Link::new));
+        static final Codec<Link> CODEC = FLIGHT_CODEC.validate(link -> link.separationStage() < MAX_STAGES
+                ? DataResult.success(link) : DataResult.error(() -> "Invalid assembly separation stage"));
         private static final StreamCodec<FriendlyByteBuf, Link> STREAM_CODEC = StreamCodec.composite(
                 Endpoint.STREAM_CODEC, Link::first, Endpoint.STREAM_CODEC, Link::second,
                 ByteBufCodecs.BOOL, Link::surface, ByteBufCodecs.BOOL, Link::separable,
@@ -281,7 +325,19 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     }
 
     public boolean isValid() {
-        return hasBlueprintRoot() && isValidLayout();
+        return withinAssemblyLimits() && hasBlueprintRoot() && isValidLayout();
+    }
+
+    private boolean withinAssemblyLimits() {
+        int parts = partCount();
+        int hulls = nodes.size() - parts;
+        return parts <= MAX_PARTS && hulls <= MAX_HULL_NODES && stageCount <= MAX_STAGES
+                && links.size() <= (hulls == 0 ? MAX_LINKS : MAX_ASSEMBLY_NODE_LINKS)
+                && (hulls != 0 || nodes.stream().allMatch(node -> node.pose().valid()));
+    }
+
+    int maxFlightLinks() {
+        return hasHull() ? MAX_MERGED_NODE_LINKS : MAX_MERGED_PART_LINKS;
     }
 
     private boolean hasBlueprintRoot() {
@@ -296,9 +352,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     boolean isValidLayout() {
         int parts = partCount();
         int hulls = nodes.size() - parts;
-        if (nodes.isEmpty() || parts > MAX_PARTS || hulls > MAX_HULL_NODES
-                || links.size() > (hulls == 0 ? MAX_LINKS : MAX_NODE_LINKS) || stageCount < 1
-                || stageCount > MAX_STAGES) {
+        if (nodes.isEmpty() || parts > MAX_MERGED_PARTS || hulls > MAX_MERGED_HULL_NODES
+                || links.size() > maxFlightLinks() || stageCount < 1 || stageCount > MAX_MERGED_STAGES) {
             return false;
         }
         Map<BlockPos, Node> hullCells = new HashMap<>();
@@ -325,7 +380,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
             if (node.hull() != null) {
                 continue;
             }
-            if (!(hulls == 0 ? node.pose().valid() : node.pose().validRotation())
+            if (!node.pose().validRotation()
                     || !validStage(node.engineStage(), node.part().types().contains(PartType.ENGINE))
                     || !validStage(node.parachuteStage(), node.part().types().contains(PartType.PARACHUTE))) {
                 return false;
@@ -345,8 +400,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         }
         Set<Endpoint> usedMarkers = new HashSet<>();
         for (Link link : links) {
-            if (link.first().node() < 0 || link.first().node() >= nodes.size() || link.second().node() < 0
-                    || link.second().node() >= nodes.size() || link.first().node() == link.second().node()
+            if (!hasNode(link.first().node()) || !hasNode(link.second().node()) || link.first().node() == link.second().node()
                     || (!link.docking() && !validStage(link.separationStage(), link.separable()))
                     || !validLink(link, hullCells)
                     || (link.first().marker() >= 0 && !usedMarkers.add(link.first()))
@@ -384,6 +438,10 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
 
     private boolean validStage(int stage, boolean hasAction) {
         return hasAction ? stage >= 0 && stage < stageCount : stage == -1;
+    }
+
+    private boolean hasNode(int index) {
+        return index >= 0 && index < nodes.size();
     }
 
     ShipDesign remove(int node) {

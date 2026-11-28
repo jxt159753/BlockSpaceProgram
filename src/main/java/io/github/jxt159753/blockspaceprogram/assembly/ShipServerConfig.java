@@ -23,6 +23,9 @@ public final class ShipServerConfig {
     static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
     static final ModConfigSpec.DoubleValue DOCK_ANGLE;
     static final ModConfigSpec.DoubleValue DOCK_SPEED;
+    static final ModConfigSpec.IntValue MAX_MERGED_PARTS;
+    static final ModConfigSpec.IntValue MAX_MERGED_HULL_NODES;
+    static final ModConfigSpec.IntValue MAX_MERGED_STAGES;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_EXIT_DISTANCE;
     private static final ModConfigSpec.DoubleValue ORBIT_ENTRY_SPEED;
@@ -67,6 +70,12 @@ public final class ShipServerConfig {
                 .defineInRange("captureAngle", 8.0, 0.1, 45.0);
         DOCK_SPEED = builder.comment("Maximum relative speed of the docking port centers in metres per second.")
                 .defineInRange("captureSpeed", 0.5, 0.01, 5.0);
+        MAX_MERGED_PARTS = builder.comment("Maximum number of baked parts after docking.")
+                .defineInRange("maxMergedParts", 72, ShipDesign.MAX_PARTS, ShipDesign.MAX_MERGED_PARTS);
+        MAX_MERGED_HULL_NODES = builder.comment("Maximum number of hull nodes after docking.")
+                .defineInRange("maxMergedHullNodes", 54, ShipDesign.MAX_HULL_NODES, ShipDesign.MAX_MERGED_HULL_NODES);
+        MAX_MERGED_STAGES = builder.comment("Maximum number of stages after docking.")
+                .defineInRange("maxMergedStages", 144, ShipDesign.MAX_STAGES, ShipDesign.MAX_MERGED_STAGES);
         builder.pop();
         builder.push("orbitalPhysics");
         ORBIT_ENTRY_DISTANCE = builder.comment("Distance in metres for entering local physics or merging orbital regions.")

@@ -5,6 +5,7 @@ import dev.ryanhcode.sable.mixinterface.clip_overwrite.ClipContextExtension;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,28 +26,25 @@ final class ShipLandingGear {
     private static final double SETTLE_SPEED = 0.4;
 
     private final List<Leg> legs = new ArrayList<>();
-    private final long legParts;
+    private final BitSet legParts = new BitSet();
 
     ShipLandingGear(ShipDesign design) {
-        long parts = 0;
         for (int i = 0; i < design.nodes().size(); i++) {
             var node = design.nodes().get(i);
             if (node.part() != null && node.part().types().contains(PartType.LANDING_LEG)) {
                 var size = node.part().geometry().size();
                 var foot = node.point(new Vec3(size.x / 2, 0, size.z / 2));
                 var up = node.pose().rotation().rotate(Direction.UP).getNormal();
-                long bit = 1L << i;
-                legs.add(new Leg(bit, JOMLConversion.toJOML(foot), new Vector3d(up.getX(), up.getY(), up.getZ()),
+                legs.add(new Leg(i, JOMLConversion.toJOML(foot), new Vector3d(up.getX(), up.getY(), up.getZ()),
                         TRAVEL * node.part().scale()));
-                parts |= bit;
+                legParts.set(i);
             }
         }
-        legParts = parts;
     }
 
-    void addImpulse(ShipCollisionBody body, long damagedParts, Vector3dc center, Vector3dc linearVelocity,
+    void addImpulse(ShipCollisionBody body, BitSet damagedParts, Vector3dc center, Vector3dc linearVelocity,
             double gravity, double seconds, Vector3d impulse, Vector3d moment) {
-        long working = legParts & ~damagedParts;
+        int working = ShipNodeBits.workingCount(legParts, damagedParts);
         if (working == 0) {
             return;
         }
@@ -61,10 +59,10 @@ final class ShipLandingGear {
         var level = subLevel.getLevel();
         var massData = subLevel.getMassTracker();
         double mass = massData.getMass();
-        double massPerLeg = mass / Long.bitCount(working);
+        double massPerLeg = mass / working;
         Matrix3d inverseInertia = null;
         for (Leg leg : legs) {
-            if ((working & leg.part) == 0) {
+            if (damagedParts.get(leg.part)) {
                 continue;
             }
             var lever = new Vector3d(leg.foot).sub(center);
@@ -111,5 +109,5 @@ final class ShipLandingGear {
         }
     }
 
-    private record Leg(long part, Vector3dc foot, Vector3dc up, double travel) {}
+    private record Leg(int part, Vector3dc foot, Vector3dc up, double travel) {}
 }

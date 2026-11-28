@@ -5,6 +5,7 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Link;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Node;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -37,11 +38,11 @@ final class ShipDocking {
         }
     }
 
-    static List<Port> openPorts(ShipDesign design, long damage, Set<PortKey> released) {
+    static List<Port> openPorts(ShipDesign design, BitSet damage, Set<PortKey> released) {
         var ports = new ArrayList<Port>();
         for (int index = 0; index < design.nodes().size(); index++) {
             var node = design.nodes().get(index);
-            if (node.part() == null || (damage & 1L << index) != 0) {
+            if (node.part() == null || damage.get(index)) {
                 continue;
             }
             var connectors = node.part().connectors();
@@ -124,16 +125,17 @@ final class ShipDocking {
         return new Endpoint(index, endpoint.marker(), rotation.rotate(endpoint.normal()), PartPose.rotate(rotation, endpoint.anchor()));
     }
 
-    static ShipDesign closeAlignedPorts(ShipDesign design, long damage, Set<PortKey> released) {
+    static ShipDesign closeAlignedPorts(ShipDesign design, BitSet damage, Set<PortKey> released) {
         var ports = openPorts(design, damage, released);
         var links = new ArrayList<>(design.links());
+        int maxLinks = design.maxFlightLinks();
         var used = new HashSet<PortKey>();
         for (int i = 0; i < ports.size(); i++) {
             var first = ports.get(i);
             if (used.contains(first.key())) {
                 continue;
             }
-            for (int j = i + 1; j < ports.size() && links.size() < ShipDesign.MAX_LINKS; j++) {
+            for (int j = i + 1; j < ports.size() && links.size() < maxLinks; j++) {
                 var second = ports.get(j);
                 if (first.endpoint().node() != second.endpoint().node() && first.size() == second.size()
                         && first.center().distanceToSqr(second.center()) == 0 && first.normal() == second.normal().getOpposite()

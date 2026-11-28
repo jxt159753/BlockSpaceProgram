@@ -17,8 +17,10 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.Port;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.PortKey;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -78,6 +80,7 @@ public final class SableShipFlight implements ShipFlightControl {
     private final AssembledShipEntity ship;
     private final ShipCollisionBody body;
     private ShipFlightState state;
+    @Nullable private ShipDesign overBudgetClosure;
     private final ShipFlightControls controls;
     private final ShipLandingGear landingGear;
     private final Flights flights;
@@ -169,7 +172,7 @@ public final class SableShipFlight implements ShipFlightControl {
         if (design.nodes().stream().noneMatch(node -> node.dryMass() > 0)) {
             throw new IllegalArgumentException("A flying ship needs positive dry mass");
         }
-        var state = new ShipFlightState(design, ShipPropellantData.EMPTY, 0, ShipFlightState.initialStage(design));
+        var state = new ShipFlightState(design, ShipPropellantData.EMPTY, new BitSet(), ShipFlightState.initialStage(design));
         var origin = new Vector3d(ship.getX(), ship.getY(), ship.getZ());
         var rotation = new Quaterniond(PartPose.orientation(ship.launchRotation())).normalize();
         var flight = spawn(ship, level, design, state, origin, rotation);
@@ -696,7 +699,7 @@ public final class SableShipFlight implements ShipFlightControl {
         return state.isDebris();
     }
 
-    long damagedParts() {
+    BitSet damagedParts() {
         return state.damagedParts();
     }
 
@@ -917,6 +920,11 @@ public final class SableShipFlight implements ShipFlightControl {
                 }
             }
         }
+        if (!flights.rejectedDocking.isEmpty()) {
+            var byFlight = new IdentityHashMap<SableShipFlight, DockingShip>();
+            candidates.forEach(candidate -> byFlight.put(candidate.flight, candidate));
+            flights.rejectedDocking.keySet().removeIf(contact -> !contact.isAligned(byFlight, limits));
+        }
         candidates.sort(Comparator.comparing((DockingShip candidate) -> candidate.flight.ship.getUUID()));
         for (int i = 0; i < candidates.size(); i++) {
             var first = candidates.get(i);
@@ -941,28 +949,28 @@ public final class SableShipFlight implements ShipFlightControl {
         ShipDesign design = ship.design();
         var released = ship.dockingState().released();
         ShipDesign closed = ShipDocking.closeAlignedPorts(design, state.damagedParts(), released);
-        if (closed != design) {
-            updateGraph(closed, state.stage(), ship.dockingState());
+        if (closed != design && !closed.equals(overBudgetClosure)) {
+            if (closed.flightLayoutBytes(ship.registryAccess()) <= ShipDesign.MAX_FLIGHT_LAYOUT_BYTES) {
+                updateGraph(closed, state.stage(), ship.dockingState());
+                design = closed;
+            } else {
+                overBudgetClosure = closed;
+            }
         }
-        var ports = ShipDocking.openPorts(closed, state.damagedParts(), released);
+        var ports = ShipDocking.openPorts(design, state.damagedParts(), released);
         if (ports.isEmpty()) {
             return null;
         }
         var motion = motion();
-        return new DockingShip(this, closed, motion, worldBounds(), ports.stream().map(port -> {
+        return new DockingShip(this, design, motion, worldBounds(), ports.stream().map(port -> {
             Vec3 position = worldPoint(port.center());
             return new WorldPort(port, position, motion.velocity().add(motion.angularVelocity().cross(position.subtract(motion.center()))));
         }).toList());
     }
 
     private boolean tryDock(DockingShip primary, DockingShip incoming, CaptureLimits limits) {
-        int nodes = primary.layout.nodes().size() + incoming.layout.nodes().size();
-        int parts = primary.layout.partCount() + incoming.layout.partCount();
-        if (parts > ShipDesign.MAX_PARTS || nodes - parts > ShipDesign.MAX_HULL_NODES || nodes > ShipDesign.MAX_NODES
-                || primary.layout.stageCount() + incoming.layout.stageCount() > ShipDesign.MAX_STAGES) {
-            return false;
-        }
-        var relative = primary.motion.orientation().conjugate(new Quaterniond()).mul(incoming.motion.orientation());
+        var rejection = dockingCountLimit(primary.layout, incoming.layout);
+        var relative = primary.relativeOrientation(incoming);
         for (var first : primary.ports) {
             for (var second : incoming.ports) {
                 var frame = ShipDocking.capture(first.port, second.port, relative, second.position.subtract(first.position),
@@ -970,8 +978,13 @@ public final class SableShipFlight implements ShipFlightControl {
                 if (frame == null) {
                     continue;
                 }
+                var contact = DockingContact.of(this, first.port.key(), incoming.flight, second.port.key());
+                if (rejection != null) {
+                    rejectDocking(primary, incoming, contact, rejection, null);
+                    continue;
+                }
                 try {
-                    if (dock(primary, incoming, frame, first.port, second.port)) {
+                    if (dock(primary, incoming, frame, first.port, second.port, contact)) {
                         return true;
                     }
                 } catch (RuntimeException error) {
@@ -983,19 +996,62 @@ public final class SableShipFlight implements ShipFlightControl {
         return false;
     }
 
-    private boolean dock(DockingShip primary, DockingShip incoming, PartPose frame, Port first, Port second) {
+    @Nullable
+    private static Component dockingCountLimit(ShipDesign primary, ShipDesign incoming) {
+        int parts = primary.partCount() + incoming.partCount();
+        int maxParts = ShipServerConfig.MAX_MERGED_PARTS.get();
+        if (parts > maxParts) {
+            return Component.translatable("docking.blockspaceprogram.parts_limit", parts, maxParts);
+        }
+        int hulls = primary.nodes().size() + incoming.nodes().size() - parts;
+        int maxHulls = ShipServerConfig.MAX_MERGED_HULL_NODES.get();
+        if (hulls > maxHulls) {
+            return Component.translatable("docking.blockspaceprogram.hulls_limit", hulls, maxHulls);
+        }
+        int stages = primary.stageCount() + incoming.stageCount();
+        int maxStages = ShipServerConfig.MAX_MERGED_STAGES.get();
+        return stages > maxStages ? Component.translatable("docking.blockspaceprogram.stages_limit", stages, maxStages) : null;
+    }
+
+    private void rejectDocking(DockingShip primary, DockingShip incoming, DockingContact contact, Component message,
+            @Nullable DockingLayoutKey layout) {
+        boolean alreadyWarned = flights.rejectedDocking.containsKey(contact);
+        flights.rejectedDocking.put(contact, layout);
+        if (!alreadyWarned) {
+            for (var candidate : List.of(primary, incoming)) {
+                candidate.flight.riders().forEach(rider -> rider.player().displayClientMessage(message, true));
+                candidate.flight.hullRiders(candidate.layout).forEach(rider -> rider.player().displayClientMessage(message, true));
+            }
+        }
+    }
+
+    private boolean dock(DockingShip primary, DockingShip incoming, PartPose frame, Port first, Port second,
+            DockingContact contact) {
         var other = incoming.flight;
         var level = body.subLevel().getLevel();
+        var ownDocking = ship.dockingState();
+        var peerDocking = other.ship.dockingState();
+        var damage = state.dockedDamage(other.state);
+        var key = new DockingLayoutKey(primary.layout, incoming.layout, frame, damage, ownDocking.released(), peerDocking.released());
+        if (key.equals(flights.rejectedDocking.get(contact))) {
+            return false;
+        }
         int offset = primary.layout.nodes().size();
         var layout = ShipDocking.merge(primary.layout, incoming.layout, frame, first, second);
         if (layout == null || !layout.isValidLayout() || !fitsDockedLayout(layout, offset, other)) {
             return false;
         }
-        var ownState = ship.dockingState().snapshot(primary.layout, state.stage(), ship.dockingIdentity());
-        var peerState = other.ship.dockingState().snapshot(incoming.layout, other.state.stage(), other.ship.dockingIdentity());
+        var ownState = ownDocking.snapshot(primary.layout, state.stage(), ship.dockingIdentity());
+        var peerState = peerDocking.snapshot(incoming.layout, other.state.stage(), other.ship.dockingIdentity());
         var docking = ownState.merge(peerState, offset);
-        layout = ShipDocking.closeAlignedPorts(layout, state.damagedParts() | other.state.damagedParts() << offset, docking.released());
-        var next = spawn(ship, level, layout, state.docked(layout, other.state), vector(worldPoint(Vec3.ZERO)),
+        layout = ShipDocking.closeAlignedPorts(layout, damage, docking.released());
+        int bytes = layout.flightLayoutBytes(level.registryAccess());
+        if (bytes > ShipDesign.MAX_FLIGHT_LAYOUT_BYTES) {
+            rejectDocking(primary, incoming, contact, Component.translatable("docking.blockspaceprogram.layout_limit",
+                    bytes, ShipDesign.MAX_FLIGHT_LAYOUT_BYTES), key);
+            return false;
+        }
+        var next = spawn(ship, level, layout, state.docked(layout, other.state, damage), vector(worldPoint(Vec3.ZERO)),
                 primary.motion.orientation());
         try {
             var subLevel = next.body.subLevel();
@@ -1158,7 +1214,7 @@ public final class SableShipFlight implements ShipFlightControl {
                 var layout = design.subset(members, cuts, frame, projection.stageCount(), projection::mapStage);
                 var orientation = new Quaterniond(previous.orientation())
                         .mul(new Quaterniond(PartPose.orientation(frame.rotation()))).normalize();
-                var next = spawn(owner, level, layout, state.fragment(layout, members, projection.stage()),
+                var next = spawn(owner, level, layout, state.fragment(layout, members, indices, projection.stage()),
                         vector(worldPoint(frame.position())), orientation);
                 next.airborne = airborne;
                 fragments.add(new Fragment(next, layout, indices, projection.state(), frame));
@@ -1465,9 +1521,40 @@ public final class SableShipFlight implements ShipFlightControl {
 
     private record Fragment(SableShipFlight flight, ShipDesign layout, int[] indices, ShipDockingState docking, PartPose frame) {}
 
-    private record DockingShip(SableShipFlight flight, ShipDesign layout, Motion motion, AABB bounds, List<WorldPort> ports) {}
+    private record DockingShip(SableShipFlight flight, ShipDesign layout, Motion motion, AABB bounds, List<WorldPort> ports) {
+        Quaterniond relativeOrientation(DockingShip other) {
+            return motion.orientation().conjugate(new Quaterniond()).mul(other.motion.orientation());
+        }
+
+        @Nullable WorldPort port(PortKey key) {
+            return ports.stream().filter(port -> port.port.key().equals(key)).findFirst().orElse(null);
+        }
+    }
 
     private record WorldPort(Port port, Vec3 position, Vec3 velocity) {}
+
+    private record DockingContact(SableShipFlight first, PortKey firstPort, SableShipFlight second, PortKey secondPort) {
+        static DockingContact of(SableShipFlight first, PortKey firstPort, SableShipFlight second, PortKey secondPort) {
+            return first.ship.getUUID().compareTo(second.ship.getUUID()) < 0
+                    ? new DockingContact(first, firstPort, second, secondPort)
+                    : new DockingContact(second, secondPort, first, firstPort);
+        }
+
+        boolean isAligned(Map<SableShipFlight, DockingShip> candidates, CaptureLimits limits) {
+            var a = candidates.get(first);
+            var b = candidates.get(second);
+            if (a == null || b == null) {
+                return false;
+            }
+            var start = a.port(firstPort);
+            var end = b.port(secondPort);
+            return start != null && end != null && ShipDocking.capture(start.port, end.port, a.relativeOrientation(b),
+                    end.position.subtract(start.position), Vec3.ZERO, limits) != null;
+        }
+    }
+
+    private record DockingLayoutKey(ShipDesign primary, ShipDesign incoming, PartPose frame, BitSet damage,
+                                    Set<PortKey> primaryReleased, Set<PortKey> incomingReleased) {}
 
     private static Vec3 vec(Vector3dc value) {
         return new Vec3(value.x(), value.y(), value.z());
@@ -1488,6 +1575,7 @@ public final class SableShipFlight implements ShipFlightControl {
     private static final class Flights {
         final Vector3dc baseGravity;
         final Map<ServerSubLevel, SableShipFlight> active = new IdentityHashMap<>();
+        final Map<DockingContact, DockingLayoutKey> rejectedDocking = new HashMap<>();
         boolean frozenForWarp;
         boolean pausedBeforeWarp;
 

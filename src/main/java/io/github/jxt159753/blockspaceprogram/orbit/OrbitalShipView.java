@@ -14,7 +14,7 @@ import net.minecraft.network.codec.StreamCodec;
 
 /** Map data shared with clients. Ship construction and tank NBT stay on the server. */
 public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Optional<VacuumPropulsion> propulsion) {
-    // Legacy payloads used a plain group count and one scalar thrust per group.
+    // Keep the scalar and vector marker ranges used by the original 36-group format.
     private static final int VECTOR_GROUP_OFFSET = ShipDesign.MAX_PARTS + 1;
     private static final int ELECTRIC_GROUP_OFFSET = 2 * VECTOR_GROUP_OFFSET;
     private static final StreamCodec<ByteBuf, VacuumPropulsion.Drive> DRIVE_CODEC = StreamCodec.of((buffer, drive) -> {
@@ -26,7 +26,7 @@ public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Opti
             buffer.readDouble()));
     private static final StreamCodec<ByteBuf, VacuumPropulsion> PROPULSION_CODEC = StreamCodec.of((buffer, propulsion) -> {
         int count = propulsion.groups().size();
-        if (count > ShipDesign.MAX_PARTS) {
+        if (count > ShipDesign.MAX_MERGED_PARTS) {
             throw new EncoderException("Too many orbital fuel groups: " + count);
         }
         buffer.writeDouble(propulsion.wetMass());
@@ -44,12 +44,12 @@ public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Opti
         double wetMass = buffer.readDouble();
         double fuel = buffer.readDouble();
         int header = ByteBufCodecs.VAR_INT.decode(buffer);
-        if (header < 0 || header > ELECTRIC_GROUP_OFFSET + ShipDesign.MAX_PARTS) {
+        if (header < 0 || header > ELECTRIC_GROUP_OFFSET + ShipDesign.MAX_MERGED_PARTS) {
             throw new DecoderException("Invalid orbital fuel group header: " + header);
         }
         boolean vectors = header >= VECTOR_GROUP_OFFSET;
         boolean electrical = header >= ELECTRIC_GROUP_OFFSET;
-        int count = header % VECTOR_GROUP_OFFSET;
+        int count = electrical ? header - ELECTRIC_GROUP_OFFSET : header % VECTOR_GROUP_OFFSET;
         double electric = electrical ? buffer.readDouble() : 0;
         var groups = new ArrayList<VacuumPropulsion.Group>(count);
         for (int i = 0; i < count; i++) {
