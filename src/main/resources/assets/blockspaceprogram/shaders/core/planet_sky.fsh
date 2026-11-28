@@ -18,13 +18,22 @@ uniform float Horizon;
 // Outer radius and scale height, divided by distance to the body, followed by density at the top.
 uniform vec3 BodyAtmosphere;
 uniform vec2 CloudRotation;
+uniform sampler2D SurfaceMap;
+uniform float SurfaceMapWeight;
+uniform vec3 AmbientExtinction;
+uniform float LunarHaloStrength;
+uniform vec3 HighlandColor;
+uniform vec3 MareColor;
+uniform vec3 LimbDayColor;
+uniform vec3 LimbTwilightColor;
+uniform float CloudOpacity;
+uniform float WaterGlintStrength;
+uniform float SurfaceDetailStrength;
 
 in vec2 screenPosition;
 out vec4 fragColor;
 
-const vec3 AIR_EXTINCTION = vec3(0.047, 0.085, 0.145);
-const vec3 LIMB_DAY = vec3(0.15, 0.46, 0.86);
-const vec3 LIMB_TWILIGHT = vec3(0.86, 0.34, 0.11);
+const vec3 SHELL_EXTINCTION = vec3(0.047, 0.085, 0.145);
 const vec3 CLOUD_COLOR = vec3(0.92, 0.94, 0.97);
 const vec2 CLOUD_THRESHOLDS = vec2(0.47, 0.66);
 const vec3 WATER_GLINT = vec3(1.0, 0.91, 0.75);
@@ -49,7 +58,7 @@ vec3 transmittance(vec3 ray) {
     // A curved atmosphere has a finite path length even along the horizon.
     float zenithCosine = max(0.0, ray.y);
     float airMass = inversesqrt(0.009 + 0.991 * zenithCosine * zenithCosine);
-    vec3 extinction = AIR_EXTINCTION + 1.45 * Weather;
+    vec3 extinction = AmbientExtinction + 1.45 * Weather;
     return exp(-Density * airMass * extinction);
 }
 
@@ -82,15 +91,22 @@ Air traceAtmosphere(vec3 ray, float alongRay, float shellDiscriminant, float sur
     float falloffLength = rise / (sqrt(radialOffset * radialOffset + rise) + radialOffset);
     vec2 span = vec2(closest - near, far - closest) / falloffLength;
     float column = density * (falloffLength / scaleHeight) * (2.0 - exp(-span.x) - exp(-span.y));
-    vec3 transmission = exp(-column * AIR_EXTINCTION);
+    vec3 transmission = exp(-column * SHELL_EXTINCTION);
 
     float sun = dot(position, LightDirection) / radius;
     float illumination = smoothstep(-0.012, 0.12, sun);
-    vec3 tint = mix(LIMB_TWILIGHT, LIMB_DAY, smoothstep(0.12, 0.40, sun));
+    vec3 tint = mix(LimbTwilightColor, LimbDayColor, smoothstep(0.12, 0.40, sun));
     return Air(tint * (illumination * (1.0 - transmission.b)), transmission);
 }
 
 const float TWO_PI = 6.28318530718;
+
+vec4 mappedSurface(vec3 normal) {
+    // The third body-fixed component points west, and grid rows run north to south.
+    float longitude = normal.x == 0.0 && normal.z == 0.0 ? 0.0 : atan(-normal.z, normal.x);
+    float latitude = asin(clamp(normal.y, -1.0, 1.0));
+    return texture(SurfaceMap, vec2(0.5 + longitude / TWO_PI, 0.5 - 2.0 * latitude / TWO_PI));
+}
 
 // Basin centers and chord radii. Overlapping basins form the larger maria.
 const vec4 MARIA[9] = vec4[9](
@@ -171,27 +187,32 @@ float craterRelief(vec3 normal, vec4 crater, float footprint, uint craterIndex) 
 }
 
 vec3 lunarSurface(vec3 normal, float footprint) {
+    vec3 mapped = SurfaceMapWeight > 0.0 ? mappedSurface(normal).rgb : vec3(0.0);
     // Rotate the basins and craters around the body-fixed prime meridian.
     float angle = float(uint(SurfaceSeed) & 65535u) * (TWO_PI / 65536.0);
     float c = cos(angle);
     float s = sin(angle);
     normal.yz = mat2(c, s, -s, c) * normal.yz;
 
-    float shore = -1.0;
-    for (int i = 0; i < MARIA.length(); i++) {
-        vec4 basin = MARIA[i];
-        float distanceSquared = 2.0 * (1.0 - dot(normal, basin.xyz));
-        shore = max(shore, basin.w * basin.w - distanceSquared);
-    }
     float terrain = filteredSurfaceNoise(normal, 6.0, footprint);
-    float shoreWidth = max(0.025, 0.48 * footprint);
-    float mare = smoothstep(-shoreWidth, shoreWidth, shore + 0.25 * terrain);
+    vec3 ground = mapped;
+    if (SurfaceMapWeight < 1.0) {
+        float shore = -1.0;
+        for (int i = 0; i < MARIA.length(); i++) {
+            vec4 basin = MARIA[i];
+            float distanceSquared = 2.0 * (1.0 - dot(normal, basin.xyz));
+            shore = max(shore, basin.w * basin.w - distanceSquared);
+        }
+        float shoreWidth = max(0.025, 0.48 * footprint);
+        float mare = smoothstep(-shoreWidth, shoreWidth, shore + 0.25 * terrain);
+        ground = mix(mix(HighlandColor, MareColor, mare), mapped, SurfaceMapWeight);
+    }
     float relief = 0.22 * terrain + 0.17 * filteredSurfaceNoise(normal, 24.0, footprint)
-                 + 0.23 * surfaceDetail(normal, footprint);
+                 + (0.23 * SurfaceDetailStrength) * surfaceDetail(normal, footprint);
     for (int i = 0; i < CRATERS.length(); i++) {
         relief += craterRelief(normal, CRATERS[i], footprint, uint(i));
     }
-    return mix(vec3(0.97, 0.96, 0.944), vec3(0.56, 0.546, 0.524), mare) + relief;
+    return ground + relief;
 }
 
 float cloudOpacity(vec3 point, float footprint) {
@@ -202,10 +223,10 @@ float cloudOpacity(vec3 point, float footprint) {
                   + 0.52 * filteredSurfaceNoise(point, 21.0, footprint)
                   + 0.28 * filteredSurfaceNoise(point, 52.0, footprint)
                   + 0.15 * filteredSurfaceNoise(point, 185.0, footprint);
-    return 0.90 * smoothstep(CLOUD_THRESHOLDS.x, CLOUD_THRESHOLDS.y, pattern);
+    return CloudOpacity * smoothstep(CLOUD_THRESHOLDS.x, CLOUD_THRESHOLDS.y, pattern);
 }
 
-vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, float footprint) {
+vec4 proceduralSurface(vec3 normal) {
     float relief = sin(6.0 * normal.x + sin(8.0 * normal.z)) * sin(7.0 * normal.z - 4.0 * normal.y);
     relief += 0.34 * sin(19.0 * normal.x - 17.0 * normal.y) * cos(23.0 * normal.z);
     relief += 0.12 * cos(47.0 * normal.y + 41.0 * normal.z) * sin(43.0 * normal.x);
@@ -214,15 +235,22 @@ vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, fl
     float landFraction = smoothstep(0.08, 0.16, relief);
     float ice = smoothstep(0.83, 0.94, abs(normal.y) + 0.06 * relief);
     vec3 ground = mix(mix(water, land, landFraction), vec3(0.79, 0.85, 0.87), ice);
-    ground *= 1.0 + surfaceDetail(normal, footprint);
+    float waterFraction = (1.0 - landFraction) * (1.0 - ice);
+    return vec4(ground, waterFraction);
+}
 
+vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, float footprint) {
+    vec4 surface = SurfaceMapWeight < 1.0 ? proceduralSurface(normal) : vec4(0.0);
+    if (SurfaceMapWeight > 0.0) {
+        surface = mix(surface, mappedSurface(normal), SurfaceMapWeight);
+    }
+    vec3 ground = surface.rgb * (1.0 + SurfaceDetailStrength * surfaceDetail(normal, footprint));
     float clouds = cloudOpacity(normal, footprint);
     float daylight = pow(light, 0.65);
     vec3 color = mix(ground * (0.035 + 0.965 * daylight), CLOUD_COLOR * daylight, clouds);
-    float waterFraction = (1.0 - landFraction) * (1.0 - ice);
     float reflection = max(0.0, dot(reflect(-LightDirection, worldNormal), -ray));
     float glint = pow(reflection, 84.0) * smoothstep(0.0, 0.08, light);
-    return color + WATER_GLINT * (glint * waterFraction * (1.0 - clouds));
+    return color + WATER_GLINT * (glint * surface.a * (1.0 - clouds) * WaterGlintStrength);
 }
 
 void main() {
@@ -267,7 +295,7 @@ void main() {
         float radial = sqrt(distanceSquared) / Radius;
         if (lunarHalo) {
             float falloff = 1.0 - smoothstep(1.0, HaloRadius, radial);
-            halo = transmission * (0.058 * Density * StarBrightness * litFraction * falloff);
+            halo = transmission * (LunarHaloStrength * Density * StarBrightness * litFraction * falloff);
         } else if (coverage < 1.0) {
             float fromEdge = max(0.0, radial - 1.0);
             float falloff = dot(SOLAR_HALO_STRENGTH, exp(-fromEdge * vec2(1.4, 0.42)));

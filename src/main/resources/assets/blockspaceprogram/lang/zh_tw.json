@@ -280,5 +280,10 @@
   "benchmark.blockspaceprogram.result": "%s 中位數 %s ms · P95 %s ms · %s",
   "benchmark.blockspaceprogram.no_samples": "%s 的樣本數為 0。%s",
   "benchmark.blockspaceprogram.write_failed": "無法寫入%s報告。",
-  "benchmark.blockspaceprogram.failed": "基準執行失敗。詳情見伺服器日誌。"
+  "benchmark.blockspaceprogram.failed": "基準執行失敗。詳情見伺服器日誌。",
+  "surface_map.blockspaceprogram.regenerate": "已排程重新產生 %s 個天體的色彩圖。",
+  "surface_map.blockspaceprogram.no_regeneration": "目前沒有可重新產生的色彩圖。詳情見伺服器日誌。",
+  "surface_map.blockspaceprogram.unknown_body": "天體系統中沒有維度 %s。",
+  "surface_map.blockspaceprogram.unavailable": "維度 %s 暫無可用色彩圖。",
+  "surface_map.blockspaceprogram.cell": "色彩圖中 %s, %s 處的生態域為 %s"
 }

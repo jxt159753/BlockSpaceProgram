@@ -8,6 +8,8 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties.Appearance;
+import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties.Color;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSystem;
 import io.github.jxt159753.blockspaceprogram.orbit.PlanetFrame;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking.OrbitalView;
@@ -48,6 +50,7 @@ public final class PlanetSkyClient {
     private static final double CLOUD_REVOLUTION_SECONDS = 72_000;
     private static final double SKY_GRADIENT_FADE_DENSITY = 0.5;
     private static final Vec3 NADIR = new Vec3(0, -1, 0);
+    private static Map<ResourceLocation, Appearance> appearances = Map.of();
     private static ClientLevel orbitalLevel;
     private static OrbitalView orbitalView;
     private static ShaderInstance shader;
@@ -65,6 +68,10 @@ public final class PlanetSkyClient {
         PlanetFlightProperties.setClientProperties(received);
     }
 
+    public static void receiveAppearances(Map<ResourceLocation, Appearance> received) {
+        appearances = Map.copyOf(received);
+    }
+
     public static void receiveOrbitalView(OrbitalView received) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level != null && level.dimension().location().equals(received.dimension())) {
@@ -76,6 +83,7 @@ public final class PlanetSkyClient {
     @SubscribeEvent
     public static void disconnect(ClientPlayerNetworkEvent.LoggingOut event) {
         PlanetFlightProperties.setClientProperties(Map.of());
+        appearances = Map.of();
         orbitalView = null;
         orbitalLevel = null;
     }
@@ -234,8 +242,12 @@ public final class PlanetSkyClient {
         shader.safeGetUniform("Horizon").set(horizon);
         shader.safeGetUniform("LightDirection").set(sun.toVector3f());
         shader.safeGetUniform("BodyPole").set(pole.toVector3f());
+        var air = appearances.getOrDefault(dimension, Appearance.DEFAULT).atmosphere();
+        setColor("AmbientExtinction", air.extinction());
+        shader.safeGetUniform("LunarHaloStrength").set(air.halo());
         double cloudAngle = (seconds % CLOUD_REVOLUTION_SECONDS) * (2 * Math.PI / CLOUD_REVOLUTION_SECONDS);
         shader.safeGetUniform("CloudRotation").set((float) Math.cos(cloudAngle), (float) Math.sin(cloudAngle));
+        shader.setSampler("SurfaceMap", null);
         if (afterShaderPack) {
             // Shader packs can replace sky colors during composition. The main target still has world depth.
             RenderSystem.enableDepthTest();
@@ -254,10 +266,14 @@ public final class PlanetSkyClient {
             RenderSystem.blendFunc(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
             draw(STAR, sun, SUN_RADIUS, Vec3.ZERO, 0);
             if (observer != null) {
-                renderBodies(system, observer, seconds, region == null ? dimension : null, showGlobe);
+                // The projection keeps the apparent sky at sea level underground.
+                // The map blend uses the physical camera position even there.
+                Vec3 eye = region == null && altitude < 0
+                        ? observer.position().add(observer.up().scale(altitude)) : observer.position();
+                renderBodies(system, observer, eye, seconds, region == null ? dimension : null, showGlobe);
             } else if (showGlobe) {
-                drawBody(new Disc(planet.hasAtmosphere() ? LOCAL_ATMOSPHERIC_GLOBE : ROCKY_BODY, NADIR, ratio,
-                        new Vec3(0, 1, 0), distance, PlanetSkyProjection.surfaceSeed(dimension.toString()), planet));
+                drawBody(new Disc(planet.hasAtmosphere() ? LOCAL_ATMOSPHERIC_GLOBE : ROCKY_BODY, NADIR,
+                        new Vec3(0, 1, 0), radius, distance, altitude, dimension, planet), false);
             }
         } finally {
             RenderSystem.disableBlend();
@@ -270,7 +286,7 @@ public final class PlanetSkyClient {
         return true;
     }
 
-    private static void renderBodies(OrbitalSystem system, PlanetSkyProjection.Observer observer, double seconds,
+    private static void renderBodies(OrbitalSystem system, PlanetSkyProjection.Observer observer, Vec3 eye, double seconds,
                                      @Nullable ResourceLocation localDimension, boolean showGlobe) {
         var visible = new ArrayList<Disc>();
         for (var body : system.bodies()) {
@@ -278,29 +294,35 @@ public final class PlanetSkyClient {
             if (local && !showGlobe) {
                 continue;
             }
-            Vec3 displacement = system.bodyState(body.id(), seconds).position().subtract(observer.position());
+            Vec3 center = system.bodyState(body.id(), seconds).position();
+            Vec3 displacement = center.subtract(observer.position());
             double distance = displacement.length();
             if (distance > body.radius()) {
                 var properties = PlanetFlightProperties.clientIn(body.id());
                 boolean atmospheric = properties == null ? body.id().equals(OrbitalSystem.MOTHER_PLANET) : properties.hasAtmosphere();
                 int mode = atmospheric ? (local ? LOCAL_ATMOSPHERIC_GLOBE : ATMOSPHERIC_BODY) : ROCKY_BODY;
-                int seed = PlanetSkyProjection.surfaceSeed(body.id().toString());
                 Vec3 direction = observer.toLocal(displacement.scale(1 / distance));
                 Vec3 primeMeridian = observer.toLocal(PlanetFrame.primeMeridian(system, body, seconds));
-                visible.add(new Disc(mode, direction, body.radius() / distance, primeMeridian, distance, seed, properties));
+                double altitude = (eye == observer.position() ? distance : eye.distanceTo(center)) - body.radius();
+                visible.add(new Disc(mode, direction, primeMeridian, body.radius(), distance, altitude, body.id(), properties));
             }
         }
         visible.sort(Comparator.comparingDouble(Disc::distance).reversed());
         for (var disc : visible) {
-            drawBody(disc);
+            drawBody(disc, true);
         }
     }
 
-    private record Disc(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian, double distance,
-                        int seed, @Nullable PlanetFlightProperties properties) {}
+    private record Disc(int mode, Vec3 direction, Vec3 primeMeridian, double radius, double distance, double altitude,
+                        ResourceLocation dimension, @Nullable PlanetFlightProperties properties) {}
 
-    private static void drawBody(Disc disc) {
-        if (disc.mode() != ROCKY_BODY) {
+    private static void drawBody(Disc disc, boolean hasBodyFrame) {
+        var appearance = appearances.getOrDefault(disc.dimension(), Appearance.DEFAULT);
+        double relativeRadius = disc.radius() / disc.distance();
+        if (disc.mode() == ROCKY_BODY) {
+            setColor("HighlandColor", appearance.moonSurface().highlandColor());
+            setColor("MareColor", appearance.moonSurface().mareColor());
+        } else {
             var properties = disc.properties();
             float height = 0;
             float scale = 0;
@@ -310,9 +332,25 @@ public final class PlanetSkyClient {
                 scale = (float) (properties.scaleHeight() / disc.distance());
                 edgeDensity = (float) Math.exp(-properties.atmosphereTop() / properties.scaleHeight());
             }
-            shader.safeGetUniform("BodyAtmosphere").set((float) disc.relativeRadius() + height, scale, edgeDensity);
+            shader.safeGetUniform("BodyAtmosphere").set((float) relativeRadius + height, scale, edgeDensity);
+            setColor("LimbDayColor", appearance.atmosphere().limbDayColor());
+            setColor("LimbTwilightColor", appearance.atmosphere().limbTwilightColor());
+            shader.safeGetUniform("CloudOpacity").set(appearance.cloudOpacity());
+            shader.safeGetUniform("WaterGlintStrength").set(appearance.waterGlintStrength());
         }
-        draw(disc.mode(), disc.direction(), disc.relativeRadius(), disc.primeMeridian(), disc.seed());
+        shader.safeGetUniform("SurfaceDetailStrength").set(appearance.surfaceDetailStrength());
+        var map = appearance.surfaceMap();
+        var texture = hasBodyFrame && map.enabled() ? SurfaceMapClient.texture(disc.dimension()) : null;
+        float weight = texture == null ? 0 : 1 - SurfaceMapBlend.proceduralWeight(
+                disc.altitude(), map.blendStart(), map.blendEnd());
+        shader.safeGetUniform("SurfaceMapWeight").set(weight);
+        shader.setSampler("SurfaceMap", weight > 0 ? texture : null);
+        draw(disc.mode(), disc.direction(), relativeRadius, disc.primeMeridian(),
+                PlanetSkyProjection.surfaceSeed(disc.dimension().toString()));
+    }
+
+    private static void setColor(String name, Color color) {
+        shader.safeGetUniform(name).set(color.red(), color.green(), color.blue());
     }
 
     private static void draw(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian, int seed) {

@@ -280,5 +280,10 @@
   "benchmark.blockspaceprogram.result": "%s median %s ms · P95 %s ms · %s",
   "benchmark.blockspaceprogram.no_samples": "%s recorded zero samples. %s",
   "benchmark.blockspaceprogram.write_failed": "Could not write the report for %s.",
-  "benchmark.blockspaceprogram.failed": "The benchmark failed. See the server log."
+  "benchmark.blockspaceprogram.failed": "The benchmark failed. See the server log.",
+  "surface_map.blockspaceprogram.regenerate": "Queued surface map regeneration for %s celestial bodies.",
+  "surface_map.blockspaceprogram.no_regeneration": "No surface maps are eligible for regeneration. See the server log.",
+  "surface_map.blockspaceprogram.unknown_body": "No celestial body has the dimension ID %s.",
+  "surface_map.blockspaceprogram.unavailable": "No surface map is available for %s.",
+  "surface_map.blockspaceprogram.cell": "Surface map biome at %s, %s: %s"
 }

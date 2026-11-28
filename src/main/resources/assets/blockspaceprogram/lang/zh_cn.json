@@ -280,5 +280,10 @@
   "benchmark.blockspaceprogram.result": "%s 中位数 %s ms · P95 %s ms · %s",
   "benchmark.blockspaceprogram.no_samples": "%s 的样本数为 0。%s",
   "benchmark.blockspaceprogram.write_failed": "无法写入%s报告。",
-  "benchmark.blockspaceprogram.failed": "基准运行失败。详情见服务端日志。"
+  "benchmark.blockspaceprogram.failed": "基准运行失败。详情见服务端日志。",
+  "surface_map.blockspaceprogram.regenerate": "已安排重新生成 %s 个天体的颜色图。",
+  "surface_map.blockspaceprogram.no_regeneration": "当前没有可重新生成的颜色图。详情见服务端日志。",
+  "surface_map.blockspaceprogram.unknown_body": "天体系统中没有维度 %s。",
+  "surface_map.blockspaceprogram.unavailable": "维度 %s 暂无可用颜色图。",
+  "surface_map.blockspaceprogram.cell": "颜色图中 %s, %s 处的生物群系为 %s"
 }
