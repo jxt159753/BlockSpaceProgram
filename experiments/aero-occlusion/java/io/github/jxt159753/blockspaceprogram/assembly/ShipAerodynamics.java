@@ -9,8 +9,16 @@ import net.minecraft.world.phys.Vec3;
 record ShipAerodynamics(AeroProjection projection, long buildNanos) {
     static ShipAerodynamics compute(ShipDesign design) {
         long start = System.nanoTime();
+        var projection = project(design, 0);
+        return new ShipAerodynamics(projection, System.nanoTime() - start);
+    }
+
+    static AeroProjection project(ShipDesign design, long ignoredNodes) {
         var grid = new Grid();
         for (int index = 0; index < design.nodes().size(); index++) {
+            if ((ignoredNodes & (1L << index)) != 0) {
+                continue;
+            }
             var node = design.nodes().get(index);
             if (node.hull() != null) {
                 addHull(grid, node, index);
@@ -27,8 +35,7 @@ record ShipAerodynamics(AeroProjection projection, long buildNanos) {
                         width, index, BlockPartProperties.get(block.state()).dragCoefficient());
             }
         }
-        var projection = grid.summarize(design.nodes().size());
-        return new ShipAerodynamics(projection, System.nanoTime() - start);
+        return grid.summarize(design.nodes().size());
     }
 
     static BlockPos shipQuarter(ShipDesign.Node node, BlockPos modelPoint) {

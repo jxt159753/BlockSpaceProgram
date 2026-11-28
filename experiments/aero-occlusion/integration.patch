@@ -25,9 +25,9 @@
              NON_NEGATIVE.optionalFieldOf("electric_power", 0.0).forGetter(BlockPartProperties::electricPower),
 --- a/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
 +++ b/io/github/jxt159753/blockspaceprogram/part/BakedPart.java
-@@ -175,7 +175,9 @@
-                 vacuumFlow += contribution.thrust() / contribution.vacuumSpecificImpulse();
-                 seaLevelFlow += contribution.thrust() / contribution.seaLevelSpecificImpulse();
+@@ -236,7 +236,9 @@
+                 blockRatings.add(new EnginePerformance(contribution.thrust(), contribution.vacuumSpecificImpulse(),
+                         contribution.seaLevelSpecificImpulse()));
              }
 -            drag += contribution.dragCoefficient();
 +            if (BlockPartProperties.AERO_BASELINE) {

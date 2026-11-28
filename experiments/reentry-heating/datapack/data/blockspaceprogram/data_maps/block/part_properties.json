@@ -1,0 +1,16 @@
+{
+  "values": {
+    "#minecraft:planks": { "mass": 40, "heat_resistance": 460 },
+    "minecraft:iron_block": { "mass": 200, "heat_resistance": 800 },
+    "minecraft:cauldron": {
+      "mass": 50,
+      "fuel_capacity": { "blockspaceprogram:fuel": 100 },
+      "heat_resistance": 800
+    },
+    "blockspaceprogram:combustion_chamber": { "mass": 40, "heat_resistance": 900 },
+    "blockspaceprogram:nozzle_segment": { "mass": 10, "heat_resistance": 1000 },
+    "minecraft:raw_iron_block": { "mass": 350, "heat_resistance": 800 },
+    "minecraft:iron_ore": { "mass": 50, "heat_resistance": 800 },
+    "minecraft:obsidian": { "mass": 350, "heat_resistance": 1600 }
+  }
+}
