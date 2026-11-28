@@ -18,16 +18,36 @@ def generateShader = tasks.register('generateSurfaceColorMapShader') {
         def program = new JsonSlurper().parse(programFile)
         program.fragment = 'bsp_surface_color_map:surface_map'
         program.samplers.add([name: 'SurfaceMap'])
-        program.uniforms.add([name: 'HasSurfaceMap', type: 'int', count: 1, values: [0]])
+        program.uniforms.add([name: 'SurfaceMapBlend', type: 'float', count: 1, values: [0.0]])
         new File(shaderDir, 'surface_map.json').setText(JsonOutput.toJson(program), 'UTF-8')
+
         def original = fragmentFile.getText('UTF-8')
-        def entry = 'vec3 surfaceColor(vec3 normal) {'
-        if (!original.contains(entry)) {
-            throw new GradleException('Planet sky shader no longer provides the surfaceColor hook')
+        def entry = 'vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, float footprint) {'
+        def detail = '    ground *= 1.0 + surfaceDetail(normal, footprint);'
+        def mask = '    float waterFraction = (1.0 - landFraction) * (1.0 - ice);'
+        int start = original.indexOf(entry)
+        int end = original.indexOf(detail, start)
+        if (start < 0 || end < 0 || original.indexOf(mask, end) < 0) {
+            throw new GradleException('Planet sky shader no longer provides the atmospheric surface hooks')
         }
-        def sampledColor = '    if (HasSurfaceMap != 0) { return mappedSurfaceColor(normal); }'
-        new File(shaderDir, 'surface_map.fsh').setText(
-                original.replace(entry, shaderExtension.getText('UTF-8') + "\n${entry}\n${sampledColor}"), 'UTF-8')
+        def procedural = original.substring(start + entry.length(), end)
+        def blend = '''
+    vec4 surface;
+    if (SurfaceMapBlend >= 1.0) {
+        surface = mappedSurface(normal, footprint);
+    } else {
+        surface = proceduralSurface(normal);
+        if (SurfaceMapBlend > 0.0) {
+            surface = mix(surface, mappedSurface(normal, footprint), SurfaceMapBlend);
+        }
+    }
+    vec3 ground = surface.rgb;
+    float waterFraction = surface.a;
+'''
+        def shader = original.substring(0, start) + shaderExtension.getText('UTF-8') + '\n' +
+                "vec4 proceduralSurface(vec3 normal) {${procedural}${mask}\n    return vec4(ground, waterFraction);\n}\n\n" +
+                entry + blend + original.substring(end).replace(mask, '')
+        new File(shaderDir, 'surface_map.fsh').setText(shader, 'UTF-8')
     }
 }
 

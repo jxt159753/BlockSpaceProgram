@@ -26,6 +26,8 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BiomeTags;
+import net.minecraft.world.level.levelgen.Noises;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -91,12 +93,40 @@ final class SurfaceColorMapServer {
                         sample.totalNanos() / 1e6, sample.grid().palette().size(), sample.caves(),
                         sample.encoded().rawBytes(), sample.encoded().compressed().length, sample.encoded().hash());
                 server.execute(() -> publish(sampler.dimension(), sample.grid(), sample.encoded()));
+                if (sampler.dimension().equals(OrbitalSystem.MOTHER_PLANET)) {
+                    reportContinents(sample.grid());
+                }
             } catch (CancellationException ignored) {
                 return;
             } catch (IOException | RuntimeException e) {
                 LOGGER.error("Surface map sampling failed for {}", sampler.dimension(), e);
             }
         }
+    }
+
+    private void reportContinents(BiomeGrid grid) {
+        var biomes = server.registryAccess().registryOrThrow(Registries.BIOME);
+        var noise = server.registryAccess().registryOrThrow(Registries.NOISE).getOrThrow(Noises.CONTINENTALNESS);
+        byte[] terrain = new byte[grid.palette().size()];
+        for (int i = 0; i < terrain.length; i++) {
+            var id = ResourceLocation.parse(grid.palette().get(i));
+            var biome = biomes.getHolderOrThrow(ResourceKey.create(Registries.BIOME, id));
+            if (biome.is(BiomeTags.IS_DEEP_OCEAN)) {
+                terrain[i] = SurfaceMapStatistics.DEEP_OCEAN;
+            } else if (biome.is(BiomeTags.IS_OCEAN)) {
+                terrain[i] = SurfaceMapStatistics.OCEAN;
+            }
+        }
+        int width = grid.width();
+        byte[] cells = new byte[width * grid.height()];
+        for (int y = 0; y < grid.height(); y++) {
+            for (int x = 0; x < width; x++) {
+                cells[y * width + x] = terrain[grid.index(x, y)];
+            }
+        }
+        LOGGER.info("Surface comparison: seed={} firstOctave={} cells={} biome={} procedural={}", server.overworld().getSeed(),
+                noise.firstOctave(), cells.length, SurfaceMapStatistics.summarize(cells, width),
+                SurfaceMapStatistics.summarize(SurfaceMapStatistics.proceduralGrid(width), width));
     }
 
     private void publish(ResourceLocation dimension, BiomeGrid grid, BiomeGrid.Encoded encoded) {
