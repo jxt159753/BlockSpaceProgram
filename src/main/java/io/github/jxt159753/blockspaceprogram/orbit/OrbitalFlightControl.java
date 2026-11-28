@@ -7,7 +7,6 @@ import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.AttitudeMode;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.ThrottleMode;
-import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
 import java.util.Optional;
 import java.util.UUID;
@@ -129,7 +128,7 @@ public final class OrbitalFlightControl {
                 state.velocity(), radius - body.radius(), ShipFlightControl.Attitude.fromOrientation(orientation),
                 ship.angularVelocity(), propulsion == null ? 0 : propulsion.wetMass(),
                 propulsion == null ? 0 : propulsion.fuel(), 0,
-                propulsion == null ? 0 : propulsion.groups().stream().mapToDouble(VacuumPropulsion.Group::thrust).sum(),
+                propulsion == null ? 0 : propulsion.netThrust(),
                 body.gravitationalParameter() / (radius * radius), 0, 0, snapshot == null ? -1 : snapshot.stage(),
                 controls == null ? AttitudeMode.MANUAL : controls.attitudeMode(),
                 controls == null ? ThrottleMode.MANUAL : controls.throttleMode(), Vec3.ZERO, false,

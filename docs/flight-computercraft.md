@@ -30,7 +30,7 @@
 | `altitude`、`verticalSpeed` | 相对海平面的海拔（m）、垂直速度（m/s）。无天体配置的维度以 Y=0 为海平面 |
 | `attitude`、`angularVelocity` | 姿态表含 `pitch`、`yaw`、`roll`，单位为度。角速度是世界坐标系下的 `x`、`y`、`z`，单位为 rad/s |
 | `mass`、`fuel` | 湿质量、全船剩余燃料质量，单位为 kg |
-| `thrust`、`availableThrust` | 实际合推力、当前级有油可用时的最大合推力，单位为 N |
+| `thrust`、`availableThrust` | 实际合推力、已点火且完好有油的发动机在满节流时的合推力，单位为 N。均取船体坐标中推力矢量和的大小 |
 | `gravity`、`thrustToWeight` | 当地重力加速度（m/s²）、实际推重比。重力为零时推重比返回 0 |
 | `throttle`、`axes` | 仲裁后的节流与姿态输入。姿态表键为 `pitch`、`yaw`、`roll` |
 | `stage`、`attitudeMode`、`throttleMode`、`landed` | 当前级（从 1 开始，待分级为 0）、模式 ID、着陆状态。节流模式 ID 为 `manual`、`direct`、`vertical_speed`、`thrust_to_weight` |
@@ -69,7 +69,7 @@ Java 调用方可在服务端从 `AssembledShipEntity.flightControl()` 获取飞
 | `deleteManeuverNode()` | 删除草稿或取消已排队的节点。删除成功时返回 `true`，没有节点时返回 `false` |
 | `warpTo(seconds)` | 在未开放联机的单人存档里，安排轨道时钟快进到指定时刻。目标向上取整到轨道刻。遇到点火、下降或并入物理区前恢复 1 倍。专用服与开放联机的存档会抛出 Lua 错误 |
 
-机动节点用于 `orbit.onRails` 为 `true` 的飞船。每艘船有一个节点位置。草稿保留到执行、删除、离开轨道数据或关闭存档。Lua 和地图的已排队节点共用同一位置。可在母星低轨运行 [轨道机动脚本](examples/orbital-maneuver.lua)，比较点火前后的远点和燃料。
+机动节点用于 `orbit.onRails` 为 `true` 的飞船。每艘船有一个节点位置。草稿保留到执行、删除、离开轨道数据或关闭存档。Lua 和地图的已排队节点共用同一位置。发动机推力抵消时，提交机动节点会抛出 Lua 错误，已排队的节点也会在执行时取消。可在母星低轨运行轨道机动脚本，比较点火前后的远点和燃料。 [轨道机动脚本](examples/orbital-maneuver.lua)
 
 飞船进入轨道并滑行后，地面终端即可请求快进。`warpTo` 返回后，脚本可通过 `getTelemetry().orbit.seconds` 读取时钟。命令 `/bsp_warp stop` 可手动恢复常速。 [时间加速规则](orbit.md#时间加速)
 

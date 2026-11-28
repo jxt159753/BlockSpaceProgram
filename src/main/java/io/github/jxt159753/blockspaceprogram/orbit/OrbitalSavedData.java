@@ -168,7 +168,14 @@ public final class OrbitalSavedData extends SavedData {
         }
         var snapshot = OrbitalShipPropulsion.read(registries, ship.shipData());
         double deltaV = node.deltaV().length();
-        if (snapshot == null || !snapshot.propulsion().estimate(deltaV).supplies(deltaV)) {
+        if (snapshot == null) {
+            return ManeuverResult.INSUFFICIENT_FUEL;
+        }
+        var propulsion = snapshot.propulsion();
+        if (propulsion.thrustCancels()) {
+            return ManeuverResult.NO_THRUST;
+        }
+        if (!propulsion.estimate(deltaV).supplies(deltaV)) {
             return ManeuverResult.INSUFFICIENT_FUEL;
         }
         try {
@@ -234,7 +241,7 @@ public final class OrbitalSavedData extends SavedData {
     private OrbitingShip ignite(OrbitingShip ship, ManeuverNode node, double seconds, HolderLookup.Provider registries) {
         var snapshot = OrbitalShipPropulsion.read(registries, ship.shipData());
         double deltaV = node.deltaV().length();
-        if (snapshot != null) {
+        if (snapshot != null && !snapshot.propulsion().thrustCancels()) {
             var burn = snapshot.propulsion().estimate(deltaV);
             if (burn.supplies(deltaV)) {
                 try {
@@ -298,6 +305,6 @@ public final class OrbitalSavedData extends SavedData {
 
     public enum ManeuverResult {
         QUEUED, CANCELED, FORBIDDEN, MISSING_SHIP, NO_NODE, ALREADY_QUEUED, INVALID_NODE, INSUFFICIENT_FUEL,
-        PLANNED // Server-side draft result. The map protocol only uses the previous values.
+        PLANNED, NO_THRUST
     }
 }

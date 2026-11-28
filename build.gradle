@@ -138,10 +138,6 @@ if (providers.gradleProperty('propellantElectric').isPresent()) {
     apply from: 'experiments/propellant-electric/propellant-electric.gradle'
 }
 
-if (providers.gradleProperty('parallelStaging').isPresent()) {
-    apply from: 'experiments/parallel-staging/parallel-staging.gradle'
-}
-
 if (providers.gradleProperty('candidateDimensions').isPresent()) {
     apply from: 'experiments/candidate-dimensions/candidate-dimensions.gradle'
 }
