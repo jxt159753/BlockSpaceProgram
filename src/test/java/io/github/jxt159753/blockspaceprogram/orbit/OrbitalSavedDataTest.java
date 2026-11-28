@@ -106,13 +106,14 @@ public class OrbitalSavedDataTest {
 
         var loaded = openStorage().computeIfAbsent(OrbitalSavedData.FACTORY, OrbitalSavedData.STORAGE_ID);
         assertEquals(req, loaded.ship(id).maneuver());
-        var step = OrbitalTimeWarp.stepBefore(loaded.orbitTicks(), 100_000, loaded.nextManeuverSeconds());
-        loaded.advanceTicks(REGISTRIES, step);
+        loaded.advanceTicks(REGISTRIES, 241);
         assertEquals(12.05, loaded.orbitSeconds(), 0);
         assertEquals(req, loaded.ship(id).maneuver());
-        loaded.advanceTicks(REGISTRIES, 1);
+        var result = loaded.advanceTicks(REGISTRIES, 1);
         assertTrue(loaded.ship(id).maneuver().isEmpty());
         assertEquals(orbit, loaded.ship(id).orbit());
+        assertEquals(List.of(new OrbitalSavedData.ManeuverFailure(id, null,
+                OrbitalSavedData.ManeuverResult.INSUFFICIENT_FUEL, 0)), result.failures());
     }
 
     @Test
@@ -126,7 +127,7 @@ public class OrbitalSavedDataTest {
                 345_000, 0, Math.PI, 0, 0, -0.5, 0));
         data.put(new OrbitingShip(id, approach, new Quaterniond(), Vec3.ZERO, shipData));
 
-        var crossings = data.advanceTicks(REGISTRIES, 1_000 * OrbitalSavedData.TICKS_PER_SECOND);
+        var crossings = data.advanceTicks(REGISTRIES, 1_000 * OrbitalSavedData.TICKS_PER_SECOND).crossings();
         assertEquals(2, crossings.size());
         for (var crossing : crossings) {
             assertEquals(ShipOrbitEvent.Kind.SOI_CHANGED, crossing.kind());
@@ -141,7 +142,7 @@ public class OrbitalSavedDataTest {
         assertEquals(OrbitalSystem.MOTHER_PLANET, departure.orbit().center());
         assertTrue(arrival.orbit().elements().epochSeconds() < departure.orbit().elements().epochSeconds());
         assertEquals(departure.orbit(), data.ship(id).orbit());
-        assertTrue(data.advanceTicks(REGISTRIES, 1).isEmpty());
+        assertTrue(data.advanceTicks(REGISTRIES, 1).crossings().isEmpty());
     }
 
     private DimensionDataStorage openStorage() {

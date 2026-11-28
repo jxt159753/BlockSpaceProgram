@@ -43,32 +43,63 @@ public record VacuumPropulsion(double wetMass, double fuel, double electric, Lis
         return estimate(requestedDeltaV, null, electric);
     }
 
+    public BurnSimulation startBurn() {
+        return new BurnSimulation(electric);
+    }
+
     Burn burnStage(boolean[] separatingGroups) {
         return estimate(Double.POSITIVE_INFINITY, separatingGroups, electric);
     }
 
     /** Integrate the rocket equation as fuel groups or the common battery run dry. */
     private Burn estimate(double requestedDeltaV, boolean[] separatingGroups, double charge) {
-        var supply = new PropellantFlow(groups.size());
-        supply.reset(charge);
-        for (int i = 0; i < groups.size(); i++) {
-            var group = groups.get(i);
-            supply.addFuel(i, group.fuel());
-            supply.addEngine(i, group.chemical().flow(), 0);
-            supply.addEngine(i, group.electric().flow(), group.electricPower());
+        var simulation = new BurnSimulation(charge);
+        boolean burnToSeparation = feedingSeparatingGroup(separatingGroups, simulation.supply);
+        while (simulation.delivered < requestedDeltaV) {
+            var segment = simulation.nextSegment(requestedDeltaV - simulation.delivered, Double.POSITIVE_INFINITY);
+            if (segment.seconds() == 0) {
+                break;
+            }
+            simulation.consume(segment);
+            if (burnToSeparation && !feedingSeparatingGroup(separatingGroups, simulation.supply)) {
+                break;
+            }
         }
-        boolean burnToSeparation = feedingSeparatingGroup(separatingGroups, supply);
-        double delivered = 0;
-        double elapsed = 0;
-        double consumed = 0;
-        var thrust = new Vector3d();
-        while (delivered < requestedDeltaV) {
+        return simulation.result();
+    }
+
+    public record Segment(double seconds, double deltaV) {
+        private static final Segment STOPPED = new Segment(0, 0);
+    }
+
+    /** Tracks a burn across time limits and propellant cutoffs without rebuilding the engine groups. */
+    public final class BurnSimulation {
+        private final PropellantFlow supply = new PropellantFlow(groups.size());
+        private final Vector3d thrust = new Vector3d();
+        private final double initialCharge;
+        private double elapsed;
+        private double consumed;
+        private double delivered;
+
+        private BurnSimulation(double charge) {
+            initialCharge = charge;
+            supply.reset(charge);
+            for (int i = 0; i < groups.size(); i++) {
+                var group = groups.get(i);
+                supply.addFuel(i, group.fuel());
+                supply.addEngine(i, group.chemical().flow(), 0);
+                supply.addEngine(i, group.electric().flow(), group.electricPower());
+            }
+        }
+
+        /** Solve the next segment with a constant set of powered engines. */
+        public Segment nextSegment(double requestedDeltaV, double maxSeconds) {
             double mass = wetMass - consumed;
-            double seconds = supply.nextSegment(Double.POSITIVE_INFINITY);
+            double seconds = supply.nextSegment(maxSeconds);
             double flow = supply.flowRate();
             if (!(seconds > 0) || !Double.isFinite(seconds) || !(flow > 0) || !Double.isFinite(flow)
                     || !(mass > 0) || !Double.isFinite(mass)) {
-                break;
+                return Segment.STOPPED;
             }
             thrust.zero();
             for (int i = 0; i < groups.size(); i++) {
@@ -79,26 +110,50 @@ public record VacuumPropulsion(double wetMass, double fuel, double electric, Lis
             double exhaust = thrust.length() / flow;
             double used = seconds * flow;
             double deltaV = exhaust == 0 ? 0 : exhaust * Math.log1p(used / Math.max(0, mass - used));
-            double required = requestedDeltaV - delivered;
-            boolean reached = Double.isFinite(requestedDeltaV) && required <= deltaV;
-            if (reached && required < deltaV) {
-                seconds = Math.min(seconds, -mass * Math.expm1(-required / exhaust) / flow);
+            if (Double.isFinite(requestedDeltaV) && requestedDeltaV < deltaV) {
+                seconds = Math.min(seconds, -mass * Math.expm1(-requestedDeltaV / exhaust) / flow);
+                deltaV = requestedDeltaV;
             }
-            supply.consume(seconds);
-            elapsed += seconds;
-            consumed += seconds * flow;
-            delivered = reached ? requestedDeltaV : delivered + deltaV;
-            if (burnToSeparation && !feedingSeparatingGroup(separatingGroups, supply)) {
-                break;
+            return new Segment(seconds, deltaV);
+        }
+
+        /** Settle the segment returned by the most recent call to nextSegment. */
+        public void consume(Segment segment) {
+            consumed += segment.seconds() * supply.flowRate();
+            supply.consume(segment.seconds());
+            elapsed += segment.seconds();
+            delivered += segment.deltaV();
+        }
+
+        public double remainingFuel() {
+            return Math.max(0, fuel - consumed);
+        }
+
+        public double remainingElectric() {
+            return supply.electric();
+        }
+
+        /** Whether an engine still has fuel but has run out of power. */
+        public boolean outOfElectricity() {
+            if (supply.electric() == 0) {
+                for (int i = 0; i < groups.size(); i++) {
+                    if (supply.fuel(i) > 0 && groups.get(i).electricPower() > 0) {
+                        return true;
+                    }
+                }
             }
+            return false;
         }
-        var remaining = new HashMap<Integer, Double>();
-        for (int i = 0; i < groups.size(); i++) {
-            var group = groups.get(i);
-            remaining.put(group.index(), supply.fuel(i) / group.fuel());
+
+        public Burn result() {
+            var remaining = new HashMap<Integer, Double>();
+            for (int i = 0; i < groups.size(); i++) {
+                var group = groups.get(i);
+                remaining.put(group.index(), supply.fuel(i) / group.fuel());
+            }
+            double usedElectric = Double.isFinite(initialCharge) ? initialCharge - supply.electric() : 0;
+            return new Burn(delivered, elapsed, consumed, usedElectric, supply.electric(), remaining);
         }
-        double usedElectric = Double.isFinite(charge) ? charge - supply.electric() : 0;
-        return new Burn(delivered, elapsed, consumed, usedElectric, supply.electric(), remaining);
     }
 
     private boolean feedingSeparatingGroup(boolean[] separatingGroups, PropellantFlow supply) {

@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.orbit;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.Codec;
 import io.github.jxt159753.blockspaceprogram.assembly.OrbitalShipPropulsion;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.Propellant;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControls;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -192,42 +193,25 @@ public final class OrbitalSavedData extends SavedData {
         return ManeuverResult.PLANNED;
     }
 
-    double nextManeuverSeconds() {
-        double next = Double.POSITIVE_INFINITY;
-        for (UUID id : activeShips) {
-            var node = ships.get(id).maneuver().orElse(null);
-            if (node != null) {
-                next = Math.min(next, node.seconds());
-            }
-        }
-        return next;
-    }
-
-    List<ShipOrbitEvent> advanceTicks(HolderLookup.Provider registries, int ticks) {
+    AdvanceResult advanceTicks(HolderLookup.Provider registries, int ticks) {
+        long fromTick = orbitTicks;
         double from = orbitSeconds();
         orbitTicks += ticks;
         double to = orbitSeconds();
         var crossings = new ArrayList<ShipOrbitEvent>();
+        var failures = new ArrayList<ManeuverFailure>();
         var candidates = activeShips.iterator();
         while (candidates.hasNext()) {
             UUID id = candidates.next();
             OrbitingShip ship = ships.get(id);
             ManeuverNode node = ship.maneuver().orElse(null);
-            OrbitingShip advanced = ship;
-            double start = from;
-            BiConsumer<Orbit, Orbit> onCrossing = (before, after) ->
-                    crossings.add(ShipOrbitEvent.soiChanged(ship, registries, before, after));
-            if (node != null && node.seconds() <= to) {
-                // Fit the impulse at its exact epoch, even when it falls between ticks.
-                start = Math.max(from, node.seconds());
-                Orbit before = system.advance(ship.orbit(), from, start, onCrossing);
-                advanced = ignite(ship.withOrbit(before), node, start, registries);
-                var afterBurn = advanced;
-                onCrossing = (previous, after) -> crossings.add(ShipOrbitEvent.soiChanged(afterBurn, registries, previous, after));
-            }
-            Orbit next = system.advance(advanced.orbit(), start, to, onCrossing);
-            if (next != advanced.orbit()) {
-                advanced = advanced.withOrbit(next);
+            OrbitingShip advanced;
+            if (node != null && node.seconds() < to) {
+                advanced = advanceManeuver(ship, node, registries, fromTick, crossings, failures);
+            } else {
+                Orbit next = system.advance(ship.orbit(), from, to, (before, after) ->
+                        crossings.add(ShipOrbitEvent.soiChanged(ship, registries, before, after)));
+                advanced = next == ship.orbit() ? ship : ship.withOrbit(next);
             }
             if (advanced != ship) {
                 ships.put(id, advanced);
@@ -238,25 +222,32 @@ public final class OrbitalSavedData extends SavedData {
             }
         }
         setDirty();
-        return crossings;
+        return new AdvanceResult(crossings, failures);
     }
 
-    private OrbitingShip ignite(OrbitingShip ship, ManeuverNode node, double seconds, HolderLookup.Provider registries) {
-        var snapshot = OrbitalShipPropulsion.read(registries, ship.shipData());
-        double deltaV = node.deltaV().length();
-        if (snapshot != null && !snapshot.propulsion().thrustCancels()) {
-            var burn = snapshot.propulsion().estimate(deltaV);
-            if (burn.supplies(deltaV)) {
-                try {
-                    Orbit next = new ManeuverNode(seconds, node.deltaV()).apply(system, ship.orbit());
-                    return new OrbitingShip(ship.id(), next, ship.orientation(), ship.angularVelocity(),
-                            snapshot.afterBurn(burn));
-                } catch (IllegalArgumentException exception) {
-                    LOGGER.warn("Could not apply maneuver on orbiting ship {}", ship.id(), exception);
-                }
+    private OrbitingShip advanceManeuver(OrbitingShip ship, ManeuverNode node, HolderLookup.Provider registries,
+            long fromTick, List<ShipOrbitEvent> crossings, List<ManeuverFailure> failures) {
+        var shipData = ship.shipData();
+        var snapshot = OrbitalShipPropulsion.read(registries, shipData);
+        var burn = snapshot == null ? null : snapshot.propulsion().startBurn();
+        BiConsumer<Orbit, Orbit> onCrossing = (before, after) -> {
+            var remaining = burn == null ? new Propellant(0, 0) : new Propellant(burn.remainingFuel(), burn.remainingElectric());
+            crossings.add(ShipOrbitEvent.soiChanged(ship.id(), ship.ownerId(), before, after, remaining));
+        };
+        var outcome = ManeuverBurn.advance(system, ship, node, burn, fromTick, orbitTicks,
+                (orbit, start, end) -> system.advance(orbit, start, end, onCrossing));
+        if (outcome.failure() != null) {
+            double delivered = outcome.progress().deltaV();
+            LOGGER.info("Orbiting ship {} stopped its burn after delivering {} m/s: {}", ship.id(), delivered, outcome.failure());
+            failures.add(new ManeuverFailure(ship.id(), ship.ownerId(), outcome.failure(), delivered));
+        }
+        if (burn != null) {
+            var consumed = burn.result();
+            if (consumed.seconds() > 0) {
+                shipData = snapshot.afterBurn(consumed);
             }
         }
-        return ship.withManeuver(Optional.empty());
+        return ship.afterBurn(outcome, shipData);
     }
 
     Set<UUID> takeChanges() {
@@ -310,4 +301,8 @@ public final class OrbitalSavedData extends SavedData {
         QUEUED, CANCELED, FORBIDDEN, MISSING_SHIP, NO_NODE, ALREADY_QUEUED, INVALID_NODE, INSUFFICIENT_FUEL,
         PLANNED, NO_THRUST, INSUFFICIENT_ELECTRICITY
     }
+
+    record AdvanceResult(List<ShipOrbitEvent> crossings, List<ManeuverFailure> failures) {}
+
+    record ManeuverFailure(UUID ship, @Nullable UUID owner, ManeuverResult reason, double deltaV) {}
 }
