@@ -52,6 +52,7 @@ import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 
 import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
@@ -95,6 +96,7 @@ public final class SableShipFlight implements ShipFlightControl {
     private long supportAt = Long.MIN_VALUE;
     private boolean airborne;
     private boolean landed;
+    private final Vector3f reentryWindward = new Vector3f();
 
     private SableShipFlight(AssembledShipEntity ship, ShipCollisionBody body, ShipFlightState state, ShipDesign design) {
         this.ship = ship;
@@ -140,7 +142,7 @@ public final class SableShipFlight implements ShipFlightControl {
             var flights = LEVELS.get(event.getPhysicsSystem().getLevel());
             if (flights != null) {
                 for (SableShipFlight flight : flights.active.values()) {
-                    if (!flight.body.subLevel().isRemoved() && flight.state.applyImpactDamage(flight.body)) {
+                    if (!flight.body.subLevel().isRemoved() && flight.state.applyDamage(flight.body)) {
                         flight.ship.setDamagedParts(flight.state.damagedParts());
                     }
                 }
@@ -765,6 +767,9 @@ public final class SableShipFlight implements ShipFlightControl {
     void syncStatus() {
         ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage(), rcsEnabled);
         ship.setParachuteStates(state.parachutes().snapshot());
+        if (ship.level().getGameTime() % 4 == 0 || ship.reentryHeatRatio() == 0) {
+            ship.setReentryStatus(state.reentryHeatRatio(), reentryWindward);
+        }
     }
 
     @Override
@@ -1291,7 +1296,8 @@ public final class SableShipFlight implements ShipFlightControl {
         var pose = subLevel.logicalPose();
         var orientation = pose.orientation();
         checkRemoteControl();
-        var planet = PlanetFlightProperties.in(subLevel.getLevel());
+        var profile = PlanetFlightProperties.profile(subLevel.getLevel().dimension().location());
+        var planet = profile == null ? null : profile.flight();
         double pressure = relativeDensity(subLevel.getLevel(), planet, pose.position());
         double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
         var gravityVector = gravityAt(planet, pose.position());
@@ -1301,12 +1307,19 @@ public final class SableShipFlight implements ShipFlightControl {
         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var drag = new Vector3d();
         Vector3d windward = null;
+        double speed = 0;
         if (density > 0 && linearVelocity.lengthSquared() > 0) {
             windward = orientation.transformInverse(linearVelocity, new Vector3d());
-            double speed = windward.length();
+            speed = windward.length();
             windward.div(speed);
             double force = state.aerodynamics().dragForce(windward, density, speed, mass * speed / seconds);
             drag.set(windward).mul(-force);
+        }
+        double heatMultiplier = profile == null ? ReentryTemperature.DEFAULT_MULTIPLIER : profile.reentryHeatMultiplier();
+        if (state.updateHeating(windward, density, speed, heatMultiplier, seconds)) {
+            reentryWindward.set(windward);
+        } else {
+            reentryWindward.zero();
         }
         var parachuteForce = new Vector3d();
         var parachuteMoment = new Vector3d();

@@ -2,8 +2,11 @@ import javax.inject.Inject
 import org.gradle.process.ExecOperations
 
 abstract class PrepareAeroOcclusionSources extends DefaultTask {
-    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
-    abstract DirectoryProperty getBaseSources()
+    @Input
+    abstract Property<String> getBaselineCommit()
+
+    @Internal
+    abstract DirectoryProperty getRepository()
 
     @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
     abstract ConfigurableFileCollection getIntegrationPatches()
@@ -17,17 +20,26 @@ abstract class PrepareAeroOcclusionSources extends DefaultTask {
     @Inject
     abstract ExecOperations getProcesses()
 
+    @Inject
+    abstract ArchiveOperations getArchives()
+
     @TaskAction
     void prepare() {
+        // These overlays reproduce the prototypes against their last pre-release implementation.
+        File archive = new File(temporaryDir, 'baseline.zip')
+        processes.exec {
+            workingDir repository
+            commandLine 'git', 'archive', '--format=zip', "--output=${archive}", baselineCommit.get(), 'src'
+        }
         files.sync {
-            from baseSources
+            from archives.zipTree(archive)
             into patchedSources
         }
         File output = patchedSources.get().asFile
         integrationPatches.each { file ->
             String patch = file.getText('UTF-8').replace('\r\n', '\n')
             processes.exec {
-                workingDir output
+                workingDir new File(output, 'src/main/java')
                 environment 'GIT_CEILING_DIRECTORIES', output.parent
                 standardInput = new ByteArrayInputStream(patch.getBytes('UTF-8'))
                 commandLine 'git', 'apply', '--whitespace=nowarn', '-'
@@ -44,12 +56,17 @@ def joinAddress = providers.gradleProperty('aeroOcclusionJoin')
 def serverDir = file("runs/aeroOcclusion/${run}/server")
 
 def prepare = tasks.register('prepareAeroOcclusionSources', PrepareAeroOcclusionSources) {
-    baseSources = layout.projectDirectory.dir('src/main/java')
+    baselineCommit = '9a90935ad548c5033f6254beca65ae9f7092d460'
+    repository = layout.projectDirectory
     integrationPatches.from(layout.projectDirectory.file("${experiment}/integration.patch"))
     patchedSources = layout.buildDirectory.dir('generated/aeroOcclusionSources')
 }
 sourceSets.main.java.setSrcDirs(["${experiment}/java"])
-sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources })
+sourceSets.main.java.srcDir(prepare.flatMap { it.patchedSources.dir('src/main/java') })
+sourceSets.main.resources.setSrcDirs([tasks.named('generateModMetadata'),
+                                     prepare.flatMap { it.patchedSources.dir('src/main/resources') }])
+sourceSets.test.java.setSrcDirs([prepare.flatMap { it.patchedSources.dir('src/test/java') }])
+sourceSets.test.resources.setSrcDirs([prepare.flatMap { it.patchedSources.dir('src/test/resources') }])
 
 neoForge.runs.register('aeroOcclusionServer') {
     server()

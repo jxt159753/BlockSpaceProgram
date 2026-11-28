@@ -19,6 +19,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
 import org.joml.Vector3fc;
@@ -40,6 +41,7 @@ final class ShipFlightState {
     private final Map<BlockPos, SolidBlock> hull;
     private final Vec3 seat;
     private final AeroProjection aerodynamics;
+    private final ReentryHeating reentry;
     private final double weakestPart;
     private final long commandPods;
     private int stage;
@@ -49,7 +51,7 @@ final class ShipFlightState {
     private ShipRcs.Command rcsCommand;
 
     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
-        aerodynamics = ShipAerodynamics.project(design, 0);
+        aerodynamics = ShipAerodynamics.project(design, index -> false);
         int count = design.nodes().size();
         parachutes = new ShipParachutes(design);
         fuel = new double[count];
@@ -79,7 +81,6 @@ final class ShipFlightState {
                 BlockPos origin = node.hullOrigin();
                 node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
                         new SolidBlock(material.state(), material.mass())));
-                damagedParts &= ~(1L << index);
                 continue;
             }
             var part = node.part();
@@ -120,6 +121,7 @@ final class ShipFlightState {
         seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
         weakestPart = weakest;
         commandPods = pods;
+        reentry = new ReentryHeating(design, aerodynamics, ShipServerConfig.DEFAULT_HEAT_RESISTANCE.get(), this::isDamaged);
     }
 
     static int initialStage(ShipDesign design) {
@@ -219,6 +221,7 @@ final class ShipFlightState {
         var updated = new ShipFlightState(design, savePropellant(), damagedParts, stage);
         for (int index = 0; index < fuel.length; index++) {
             updated.parachutes.copyNode(parachutes, index, index);
+            updated.reentry.copyNode(reentry, index, index);
         }
         return updated;
     }
@@ -237,6 +240,7 @@ final class ShipFlightState {
         var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
         for (int index = 0; index < members.size(); index++) {
             fragment.parachutes.copyNode(parachutes, members.get(index), index);
+            fragment.reentry.copyNode(reentry, members.get(index), index);
         }
         return fragment;
     }
@@ -249,9 +253,11 @@ final class ShipFlightState {
         var docked = new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
         for (int index = 0; index < fuel.length; index++) {
             docked.parachutes.copyNode(parachutes, index, index);
+            docked.reentry.copyNode(reentry, index, index);
         }
         for (int index = 0; index < incoming.fuel.length; index++) {
             docked.parachutes.copyNode(incoming.parachutes, index, fuel.length + index);
+            docked.reentry.copyNode(incoming.reentry, index, fuel.length + index);
         }
         return docked;
     }
@@ -301,13 +307,27 @@ final class ShipFlightState {
         pendingDamage |= hits;
     }
 
-    boolean applyImpactDamage(ShipCollisionBody body) {
+    boolean updateHeating(@Nullable Vector3dc windward, double density, double speed, double multiplier, double seconds) {
+        var overheated = reentry.step(windward, density, speed, multiplier, seconds, fuel);
+        // Map to the flight state's damage flags here so heat projection and storage stay indexed by node.
+        for (int index = overheated.nextSetBit(0); index >= 0; index = overheated.nextSetBit(index + 1)) {
+            pendingDamage |= 1L << index;
+        }
+        return reentry.hotWindwardSurface();
+    }
+
+    float reentryHeatRatio() {
+        return reentry.heatRatio();
+    }
+
+    boolean applyDamage(ShipCollisionBody body) {
         long damage = pendingDamage & ~damagedParts;
         pendingDamage = 0;
         if (damage == 0) {
             return false;
         }
         damagedParts |= damage;
+        reentry.updateProjection(this::isDamaged);
         for (int part = 0; part < electric.length; part++) {
             if ((damage & (1L << part)) != 0) {
                 electric[part] = 0;

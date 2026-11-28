@@ -11,6 +11,7 @@
     "blockspaceprogram:nozzle_segment",
     "blockspaceprogram:parachute",
     "blockspaceprogram:fairing_panel",
+    "blockspaceprogram:heat_shield",
     "blockspaceprogram:rcs_thruster"
   ]
 }

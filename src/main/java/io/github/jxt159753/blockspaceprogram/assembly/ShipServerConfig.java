@@ -19,6 +19,7 @@ public final class ShipServerConfig {
     public static final ModConfigSpec.DoubleValue COMMAND_POD_WHEEL_TORQUE;
     static final ModConfigSpec.IntValue MAX_HULL_BLOCKS;
     static final ModConfigSpec.DoubleValue AERO_TORQUE_MULTIPLIER;
+    static final ModConfigSpec.DoubleValue DEFAULT_HEAT_RESISTANCE;
     static final ModConfigSpec.DoubleValue DOCK_DISTANCE;
     static final ModConfigSpec.DoubleValue DOCK_ANGLE;
     static final ModConfigSpec.DoubleValue DOCK_SPEED;
@@ -54,6 +55,10 @@ public final class ShipServerConfig {
         builder.push("aerodynamics");
         AERO_TORQUE_MULTIPLIER = builder.comment("Scale drag torque from the center of pressure.")
                 .defineInRange("torque_multiplier", 1.0, 0.0, 1.0);
+        builder.pop();
+        builder.push("reentry");
+        DEFAULT_HEAT_RESISTANCE = builder.comment("Heat resistance in kelvins for nodes without a configured value.")
+                .defineInRange("default_heat_resistance", 650.0, 1.0, Double.MAX_VALUE);
         builder.pop();
         builder.push("docking");
         DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")

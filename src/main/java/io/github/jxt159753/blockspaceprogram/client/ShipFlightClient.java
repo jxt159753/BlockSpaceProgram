@@ -134,6 +134,13 @@ public final class ShipFlightClient {
                                 ? "flight.blockspaceprogram.rcs_on" : "flight.blockspaceprogram.rcs_off"));
                         graphics.drawCenteredString(game.font, modes, graphics.guiWidth() / 2, graphics.guiHeight() - 97, 0xFFFFFF);
                         int row = graphics.guiHeight() - 109;
+                        float heat = ship.reentryHeatRatio();
+                        if (heat > 0) {
+                            var heatStatus = Component.translatable("flight.blockspaceprogram.reentry_heat", Math.round(100 * heat))
+                                    .withStyle(heat > 1 ? ChatFormatting.RED : ChatFormatting.GOLD);
+                            graphics.drawCenteredString(game.font, heatStatus, graphics.guiWidth() / 2, row, 0xFFFFFF);
+                            row -= 12;
+                        }
                         byte[] parachutes = ship.parachuteStates();
                         if (parachutes.length > 0) {
                             graphics.drawCenteredString(game.font, parachuteStatus(parachutes), graphics.guiWidth() / 2, row, 0xFFFFFF);

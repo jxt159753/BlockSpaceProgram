@@ -162,6 +162,9 @@ public final class PartRenderingClient {
                         AssemblyViewport.renderPart(node, poses, buffers, light);
                     }
                 }
+                if (entity.isFlyingShip()) {
+                    ReentryFlameRenderer.render(entity, design.bounds(), partialTick, poses, buffers);
+                }
                 if (entity.level().dimension().equals(BlockSpaceProgram.ORBITAL_SPACE)) {
                     OrbitalRegionClient.shipRendered(entity.getUUID());
                 }

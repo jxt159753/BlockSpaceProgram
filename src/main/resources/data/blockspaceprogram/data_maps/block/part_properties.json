@@ -1,26 +1,57 @@
 {
   "values": {
     "#minecraft:planks": {
-      "mass": 40.0
+      "mass": 40.0,
+      "heat_resistance": 450.0
     },
     "minecraft:iron_block": {
-      "mass": 200.0
+      "mass": 200.0,
+      "heat_resistance": 800.0
+    },
+    "minecraft:raw_iron_block": {
+      "heat_resistance": 800.0
+    },
+    "minecraft:iron_ore": {
+      "heat_resistance": 800.0
     },
     "minecraft:cauldron": {
       "mass": 50.0,
       "fuel_capacity": {
         "blockspaceprogram:fuel": 100.0
-      }
+      },
+      "heat_resistance": 800.0
+    },
+    "blockspaceprogram:stack_interface": {
+      "heat_resistance": 800.0
+    },
+    "blockspaceprogram:separation_interface": {
+      "heat_resistance": 800.0
+    },
+    "blockspaceprogram:docking_interface": {
+      "heat_resistance": 800.0
+    },
+    "blockspaceprogram:attachment_face": {
+      "heat_resistance": 800.0
     },
     "blockspaceprogram:combustion_chamber": {
-      "mass": 40.0
+      "mass": 40.0,
+      "heat_resistance": 900.0
     },
     "blockspaceprogram:nozzle_segment": {
-      "mass": 10.0
+      "mass": 10.0,
+      "heat_resistance": 1000.0
+    },
+    "blockspaceprogram:parachute": {
+      "heat_resistance": 650.0
     },
     "blockspaceprogram:fairing_panel": {
       "mass": 10.0,
-      "drag_coefficient": 0.3
+      "drag_coefficient": 0.3,
+      "heat_resistance": 800.0
+    },
+    "blockspaceprogram:heat_shield": {
+      "mass": 350.0,
+      "heat_resistance": 1600.0
     }
   }
 }
