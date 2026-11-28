@@ -36,13 +36,15 @@ import io.github.jxt159753.blockspaceprogram.sky.SurfaceColor;
 import java.util.function.BooleanSupplier;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -53,7 +55,6 @@ import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -77,6 +78,8 @@ public final class BlockSpaceProgram {
 
     private static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MOD_ID);
     private static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MOD_ID);
+    private static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
+            DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MOD_ID);
     private static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(Registries.ENTITY_TYPE, MOD_ID);
     private static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
             DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, MOD_ID);
@@ -141,6 +144,22 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(ASSEMBLY_TABLE);
         ITEMS.registerSimpleBlockItem(LAUNCH_PAD);
         ITEMS.registerSimpleBlockItem(FLIGHT_TERMINAL);
+        CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
+                .title(Component.translatable("itemGroup.blockspaceprogram.main"))
+                .icon(() -> new ItemStack(LAUNCH_PAD.get()))
+                .displayItems((parameters, output) -> {
+                    output.accept(BAKING_TABLE);
+                    output.accept(STACK_INTERFACE);
+                    output.accept(SEPARATION_INTERFACE);
+                    output.accept(DOCKING_INTERFACE);
+                    output.accept(ATTACHMENT_FACE);
+                    output.accept(ASSEMBLY_TABLE);
+                    output.accept(SHIP_BLUEPRINT);
+                    output.accept(SHIP_ASSEMBLER);
+                    output.accept(LAUNCH_PAD);
+                    output.accept(FLIGHT_TERMINAL);
+                })
+                .build());
     }
 
     public BlockSpaceProgram(IEventBus modBus, ModContainer container) {
@@ -150,6 +169,7 @@ public final class BlockSpaceProgram {
         NeoForge.EVENT_BUS.addListener(FacilityCommands::register);
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
+        CREATIVE_TABS.register(modBus);
         ENTITIES.register(modBus);
         BLOCK_ENTITIES.register(modBus);
         MENUS.register(modBus);
@@ -169,7 +189,6 @@ public final class BlockSpaceProgram {
             irisShaderPackInUse = IrisCompat::isShaderPackInUse;
         }
         SkyNetworking.register(modBus);
-        modBus.addListener(this::addCreativeTabItems);
         LogUtils.getLogger().info("BlockSpaceProgram loaded");
     }
 
@@ -179,23 +198,6 @@ public final class BlockSpaceProgram {
 
     public static boolean isIrisShaderPackInUse() {
         return irisShaderPackInUse.getAsBoolean();
-    }
-
-    private void addCreativeTabItems(BuildCreativeModeTabContentsEvent event) {
-        if (event.getTabKey().equals(CreativeModeTabs.FUNCTIONAL_BLOCKS)) {
-            event.accept(BAKING_TABLE);
-            event.accept(ASSEMBLY_TABLE);
-            event.accept(LAUNCH_PAD);
-            event.accept(FLIGHT_TERMINAL);
-            event.accept(STACK_INTERFACE);
-            event.accept(SEPARATION_INTERFACE);
-            event.accept(DOCKING_INTERFACE);
-            event.accept(ATTACHMENT_FACE);
-            event.accept(SHIP_BLUEPRINT);
-        }
-        if (event.getTabKey().equals(CreativeModeTabs.TOOLS_AND_UTILITIES)) {
-            event.accept(SHIP_ASSEMBLER);
-        }
     }
 
     private static DeferredBlock<PartConnectorBlock> registerConnector(String name, PartConnector.Kind kind) {

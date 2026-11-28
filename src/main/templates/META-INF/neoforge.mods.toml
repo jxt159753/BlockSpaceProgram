@@ -8,6 +8,7 @@ modId = "${mod_id}"
 version = "${mod_version}"
 displayName = "${mod_name}"
 displayURL = "https://github.com/jxt159753/BlockSpaceProgram"
+logoFile = "blockspaceprogram.png"
 authors = "jxt159753"
 description = "A Minecraft mod about building spacecraft from blocks and flying them into orbit. 用方块搭建飞船并飞向轨道的 Minecraft 模组。"
 

@@ -1,12 +1,12 @@
 {
   "parent": "minecraft:block/cube",
   "textures": {
-    "particle": "minecraft:block/smooth_stone",
-    "north": "minecraft:block/target_top",
-    "east": "minecraft:block/smooth_stone",
-    "south": "minecraft:block/smooth_stone",
-    "west": "minecraft:block/smooth_stone",
-    "up": "minecraft:block/smooth_stone",
-    "down": "minecraft:block/smooth_stone"
+    "particle": "blockspaceprogram:block/attachment_face_side",
+    "north": "blockspaceprogram:block/attachment_face_front",
+    "east": "blockspaceprogram:block/attachment_face_side",
+    "south": "blockspaceprogram:block/attachment_face_side",
+    "west": "blockspaceprogram:block/attachment_face_side",
+    "up": "blockspaceprogram:block/attachment_face_side",
+    "down": "blockspaceprogram:block/attachment_face_side"
   }
 }
