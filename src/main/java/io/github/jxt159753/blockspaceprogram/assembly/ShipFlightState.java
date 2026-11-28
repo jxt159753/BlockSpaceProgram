@@ -4,7 +4,7 @@ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody.SolidBlock;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
-import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
+import io.github.jxt159753.blockspaceprogram.part.PartEngine;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,7 +17,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3d;
@@ -90,8 +89,12 @@ final class ShipFlightState {
                 tanks.add(new Tank(index, group, partCells));
             }
             if (hasEngine(node)) {
-                var geometry = engineGeometry(node);
-                engines.add(new Engine(index, group, node.engineStage(), properties, geometry.direction(), geometry.moment()));
+                for (PartEngine engine : part.engines()) {
+                    Vec3 direction = thrustDirection(node, engine);
+                    Vec3 point = node.point(engine.outlet().point());
+                    engines.add(new Engine(index, group, node.engineStage(), engine,
+                            direction.toVector3f(), point.cross(direction).toVector3f()));
+                }
             }
             if (node.isCommandPod()) {
                 pods |= 1L << index;
@@ -127,47 +130,16 @@ final class ShipFlightState {
     }
 
     static boolean hasEngine(ShipDesign.Node node) {
-        if (node.engineStage() < 0 || node.part() == null) {
-            return false;
-        }
-        var props = node.part().properties();
-        return props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
+        return node.engineStage() >= 0 && node.part() != null && !node.part().engines().isEmpty();
     }
 
     static boolean hasIgnited(int engineStage, int stage) {
         return engineStage >= 0 && engineStage <= stage;
     }
 
-    static Vector3d vacuumThrust(ShipDesign.Node node) {
-        return new Vector3d(engineGeometry(node).direction()).mul(node.part().properties().thrust());
-    }
-
-    private static EngineGeometry engineGeometry(ShipDesign.Node node) {
-        Vec3 direction = Vec3.ZERO;
-        Vec3 moment = Vec3.ZERO;
-        int nozzleCount = 0;
-        for (var block : node.part().blocks()) {
-            var state = block.state();
-            if (state.is(PartType.ENGINE_NOZZLES)) {
-                Direction exhaust = state.getOptionalValue(BlockStateProperties.FACING)
-                        .or(() -> state.getOptionalValue(BlockStateProperties.HORIZONTAL_FACING)).orElse(Direction.DOWN);
-                Direction thrustSide = node.pose().rotation().rotate(exhaust.getOpposite());
-                Vec3 thrust = Vec3.atLowerCornerOf(thrustSide.getNormal());
-                Vec3 point = node.point(Vec3.atCenterOf(block.pos()).relative(exhaust, 0.5));
-                direction = direction.add(thrust);
-                moment = moment.add(point.cross(thrust));
-                nozzleCount++;
-            }
-        }
-        if (nozzleCount == 0) {
-            // Old parts keep their engine role if the original tags are unavailable.
-            var bounds = node.part().geometry().size();
-            direction = Vec3.atLowerCornerOf(node.pose().rotation().rotate(Direction.UP).getNormal());
-            moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
-            nozzleCount = 1;
-        }
-        return new EngineGeometry(direction.scale(1.0 / nozzleCount).toVector3f(),
-                moment.scale(1.0 / nozzleCount).toVector3f());
+    static Vec3 thrustDirection(ShipDesign.Node node, PartEngine engine) {
+        Direction thrustSide = node.pose().rotation().rotate(engine.outlet().exhaust().getOpposite());
+        return Vec3.atLowerCornerOf(thrustSide.getNormal());
     }
 
     static Vec3 seat(ShipDesign design, int pod) {
@@ -346,8 +318,8 @@ final class ShipFlightState {
         collectGroupFuel();
         boolean powered = remainingElectric() > 0;
         for (Engine engine : engines) {
-            if (ignited(engine) && groupFuel[engine.group] > 0 && (powered || engine.properties.electricPower() == 0)) {
-                thrust.fma(engine.properties.thrust(), engine.direction);
+            if (ignited(engine) && groupFuel[engine.group] > 0 && (powered || engine.spec.electricPower() == 0)) {
+                thrust.fma(engine.spec.performance().thrust(), engine.direction);
             }
         }
         return thrust;
@@ -372,12 +344,12 @@ final class ShipFlightState {
             if (!ignited(engine)) {
                 continue;
             }
-            var props = engine.properties;
-            double vacuum = props.vacuumSpecificImpulse();
-            double seaLevel = props.seaLevelSpecificImpulse() > 0 ? props.seaLevelSpecificImpulse() : vacuum;
+            var rating = engine.spec.performance();
+            double vacuum = rating.vacuumSpecificImpulse();
+            double seaLevel = rating.seaLevelSpecificImpulse() > 0 ? rating.seaLevelSpecificImpulse() : vacuum;
             double isp = Mth.lerp(pressure, vacuum, seaLevel);
-            supply.addEngine(engine.group, StagePerformance.fuelFlow(props.thrust(), isp) * throttle,
-                    props.electricPower() * throttle);
+            supply.addEngine(engine.group, StagePerformance.fuelFlow(rating.thrust(), isp) * throttle,
+                    engine.spec.electricPower() * throttle);
         }
         boolean fuelDepleted = false;
         while (seconds > 0) {
@@ -387,8 +359,8 @@ final class ShipFlightState {
             }
             boolean powered = supply.electric() > 0;
             for (Engine engine : engines) {
-                if (ignited(engine) && supply.feeding(engine.group) && (powered || engine.properties.electricPower() == 0)) {
-                    double magnitude = engine.properties.thrust() * throttle * duration;
+                if (ignited(engine) && supply.feeding(engine.group) && (powered || engine.spec.electricPower() == 0)) {
+                    double magnitude = engine.spec.performance().thrust() * throttle * duration;
                     impulse.fma(magnitude, engine.direction);
                     momentAboutOrigin.fma(magnitude, engine.moment);
                 }
@@ -430,9 +402,7 @@ final class ShipFlightState {
 
     private record Tank(int part, int group, Map<BlockPos, Cell> cells) {}
 
-    private record EngineGeometry(Vector3fc direction, Vector3fc moment) {}
-
-    private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
+    private record Engine(int part, int group, int stage, PartEngine spec, Vector3fc direction, Vector3fc moment) {}
 
     record Depletion(boolean fuel, boolean electric) {
         private static final Depletion NONE = new Depletion(false, false);

@@ -16,16 +16,16 @@ public record VacuumPropulsion(double wetMass, double fuel, double electric, Lis
         groups = List.copyOf(groups);
     }
 
-    double thrustToWeight() {
-        return wetMass > 0 ? netThrust() / (wetMass * STANDARD_GRAVITY) : 0;
+    public double netThrust() {
+        return thrustVector().length();
     }
 
-    public double netThrust() {
+    Vector3d thrustVector() {
         var thrust = new Vector3d();
         for (Group group : groups) {
             addThrust(thrust, group, electric > 0);
         }
-        return thrust.length();
+        return thrust;
     }
 
     public boolean thrustCancels() {

@@ -6,6 +6,8 @@
     "blockspaceprogram:stack_interface",
     "blockspaceprogram:separation_interface",
     "blockspaceprogram:docking_interface",
-    "blockspaceprogram:attachment_face"
+    "blockspaceprogram:attachment_face",
+    "blockspaceprogram:combustion_chamber",
+    "blockspaceprogram:nozzle_segment"
   ]
 }

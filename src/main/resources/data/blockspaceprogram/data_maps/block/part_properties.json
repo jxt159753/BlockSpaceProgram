@@ -11,6 +11,12 @@
       "fuel_capacity": {
         "blockspaceprogram:fuel": 100.0
       }
+    },
+    "blockspaceprogram:combustion_chamber": {
+      "mass": 40.0
+    },
+    "blockspaceprogram:nozzle_segment": {
+      "mass": 10.0
     }
   }
 }

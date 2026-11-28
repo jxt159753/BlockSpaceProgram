@@ -58,6 +58,16 @@ public final class BakedPartItem extends Item {
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.mass", part.properties().mass()));
         tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.impact_resistance", part.properties().impactResistance()));
         part.types().stream().sorted().forEach(type -> tooltip.add(Component.translatable("part_type.blockspaceprogram." + type.getSerializedName())));
+        if (!part.engines().isEmpty()) {
+            var properties = part.properties();
+            tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.thrust", properties.thrust()));
+            tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.specific_impulse",
+                    properties.vacuumSpecificImpulse(), properties.seaLevelSpecificImpulse() > 0
+                            ? properties.seaLevelSpecificImpulse() : properties.vacuumSpecificImpulse()));
+            if (properties.electricPower() > 0) {
+                tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.electric_power", properties.electricPower()));
+            }
+        }
         for (PartConnector connector : part.connectors()) {
             var center = part.modelToLocal(connector.center());
             tooltip.add(Component.translatable("item.blockspaceprogram.baked_part.connector",

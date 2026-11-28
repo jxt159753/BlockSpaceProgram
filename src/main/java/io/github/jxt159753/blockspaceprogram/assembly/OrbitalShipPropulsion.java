@@ -40,10 +40,8 @@ public final class OrbitalShipPropulsion {
                     StagePerformance.electricCapacity(node), damaged);
             groupFuel[group] += partFuel[index];
             dryMass += node.dryMass();
-            if (!damaged && ShipFlightState.hasIgnited(node.engineStage(), stage) && ShipFlightState.hasEngine(node)) {
-                var properties = node.part().properties();
-                engines.addEngine(group, ShipFlightState.vacuumThrust(node),
-                        StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse()), properties.electricPower());
+            if (!damaged && ShipFlightState.hasIgnited(node.engineStage(), stage)) {
+                StagePerformance.addVacuumEngines(engines, group, node);
             }
         }
         propulsion = engines.build(ShipFlightState.flightDryMass(dryMass) + Arrays.stream(partFuel).sum(),

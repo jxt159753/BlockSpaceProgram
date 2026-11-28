@@ -1,0 +1,308 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "facing": "down"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment"
+      }
+    },
+    {
+      "when": {
+        "facing": "down",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north"
+      }
+    },
+    {
+      "when": {
+        "facing": "down",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east"
+      }
+    },
+    {
+      "when": {
+        "facing": "down",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south"
+      }
+    },
+    {
+      "when": {
+        "facing": "down",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west"
+      }
+    },
+    {
+      "when": {
+        "facing": "up"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment",
+        "x": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "up",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north",
+        "x": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "up",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east",
+        "x": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "up",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south",
+        "x": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "up",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west",
+        "x": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "north"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "north",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "east"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment",
+        "x": 270,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north",
+        "x": 270,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east",
+        "x": 270,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south",
+        "x": 270,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "east",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west",
+        "x": 270,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "facing": "south"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment",
+        "x": 270,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north",
+        "x": 270,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east",
+        "x": 270,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south",
+        "x": 270,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "south",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west",
+        "x": 270,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "facing": "west"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment",
+        "x": 270,
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "north": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_north",
+        "x": 270,
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_east",
+        "x": 270,
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_south",
+        "x": 270,
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "facing": "west",
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim_west",
+        "x": 270,
+        "y": 270
+      }
+    }
+  ]
+}

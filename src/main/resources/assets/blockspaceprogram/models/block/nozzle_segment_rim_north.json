@@ -1,0 +1,47 @@
+{
+  "parent": "minecraft:block/block",
+  "ambientocclusion": false,
+  "textures": {"particle":"blockspaceprogram:block/nozzle_segment","body":"blockspaceprogram:block/nozzle_segment"},
+  "elements": [
+    {
+      "name": "Flange edge",
+      "from": [0,12,0],
+      "to": [16,16,3],
+      "faces": {
+        "north": {"uv":[0,0,16,4],"texture":"#body"}
+      }
+    },
+    {
+      "name": "Shoulder",
+      "from": [0,8,3],
+      "to": [16,12,7],
+      "faces": {
+        "north": {"uv":[0,0,16,4],"texture":"#body"},
+        "south": {"uv":[0,8,16,12],"texture":"#body"},
+        "down": {"uv":[0,8,16,12],"texture":"#body"}
+      }
+    },
+    {
+      "name": "Bell wall",
+      "from": [0,3,1],
+      "to": [16,8,5],
+      "faces": {
+        "north": {"uv":[0,4,16,8],"texture":"#body"},
+        "south": {"uv":[0,8,16,12],"texture":"#body"},
+        "up": {"uv":[0,0,16,4],"texture":"#body"},
+        "down": {"uv":[0,8,16,12],"texture":"#body"}
+      }
+    },
+    {
+      "name": "Exhaust lip",
+      "from": [0,0,0],
+      "to": [16,3,4],
+      "faces": {
+        "north": {"uv":[0,12,16,16],"texture":"#body"},
+        "south": {"uv":[0,8,16,12],"texture":"#body"},
+        "up": {"uv":[0,15,16,16],"texture":"#body"},
+        "down": {"uv":[0,15,16,16],"texture":"#body"}
+      }
+    }
+  ]
+}

@@ -4,7 +4,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 近地飞行使用 Sable 解算整船刚体。玩家可从发射台登船，手动驾驶或切换内置飞控。安装 CC:Tweaked 后，地面电脑可以通过飞控终端驾驶无人飞船。飞船与机械动力（Create）机构共用 Sable 的碰撞层，原型中的活塞平台曾将测试刚体托高 8 格。 [飞船驾驶](docs/flight.md) · [CC:Tweaked 飞控外设](docs/flight-computercraft.md) · [飞行物理决策记录](experiments/physics-drop/README.md)
 
-方块的零件属性、喷管和座椅可通过数据包配置，修改后执行 `/reload` 生效。 [零件属性数据包](docs/part-properties.md)
+用燃烧室和喷管段拼装发动机。同一个烘焙零件可以容纳多台发动机，每台在自己的喷口位置施力。发动机档位、方块的零件属性和座椅标签都可通过数据包配置。 [拼装发动机](docs/engines.md) · [零件属性数据包](docs/part-properties.md)
 
 整合包可以用 KubeJS 订阅入轨、着陆、分级分离和影响球变更事件。 [KubeJS 飞行事件](docs/flight-kubejs.md)
 

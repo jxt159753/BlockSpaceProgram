@@ -1,0 +1,24 @@
+{
+  "values": {
+    "blockspaceprogram:combustion_chamber": {
+      "thrust": 6000,
+      "tiers": [
+        {
+          "segments": 1,
+          "vacuum_specific_impulse": 260,
+          "sea_level_specific_impulse": 235
+        },
+        {
+          "segments": 4,
+          "vacuum_specific_impulse": 330,
+          "sea_level_specific_impulse": 200
+        },
+        {
+          "segments": 9,
+          "vacuum_specific_impulse": 400,
+          "sea_level_specific_impulse": 160
+        }
+      ]
+    }
+  }
+}

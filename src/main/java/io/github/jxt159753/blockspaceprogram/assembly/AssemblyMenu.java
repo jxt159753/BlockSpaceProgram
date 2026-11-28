@@ -1,6 +1,7 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -203,9 +204,18 @@ public final class AssemblyMenu extends AbstractContainerMenu {
             sync(player, result.error(), 0);
             return;
         }
+        boolean blocked = ExhaustWarning.blocked(result.design(), design.nodes().size());
         design = result.design();
         revision++;
-        sync(player, result.skippedMirrors() == 0 ? "" : "mirrors_skipped", result.skippedMirrors());
+        if (blocked) {
+            var warning = Component.translatable("assembly.blockspaceprogram." + ExhaustWarning.MESSAGE);
+            if (result.skippedMirrors() > 0) {
+                warning.append(" ").append(Component.translatable("assembly.blockspaceprogram.mirrors_skipped", result.skippedMirrors()));
+            }
+            sync(player, warning.withStyle(ChatFormatting.GOLD));
+        } else {
+            sync(player, result.skippedMirrors() == 0 ? "" : "mirrors_skipped", result.skippedMirrors());
+        }
     }
 
     void edit(ServerPlayer player, AssemblyNetworking.Edit payload) {
