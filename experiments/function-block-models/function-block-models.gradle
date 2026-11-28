@@ -1,0 +1,39 @@
+def experiment = 'experiments/function-block-models'
+def run = providers.gradleProperty('functionBlockModelsRun').getOrElse('plain')
+
+sourceSets {
+    functionBlockModels {
+        java.srcDirs = ["${experiment}/java"]
+        resources.srcDirs = ["${experiment}/resources"]
+    }
+}
+
+tasks.named('processFunctionBlockModelsResources') {
+    from("${experiment}/models/nozzle.obj") {
+        into 'assets/bsp_function_block_models/models/block'
+    }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.functionBlockModels)
+neoForge.mods.register('bsp_function_block_models') {
+    sourceSet(sourceSets.functionBlockModels)
+}
+
+neoForge.runs.register('functionBlockModelsServer') {
+    server()
+    gameDirectory = file("runs/functionBlockModels/${run}/server")
+    programArgument '--nogui'
+}
+
+neoForge.runs.register('functionBlockModelsClient') {
+    client()
+    gameDirectory = file("runs/functionBlockModels/${run}/client")
+    programArguments.addAll('--username', 'NozzleTest')
+    if (providers.gradleProperty('functionBlockModelsJoin').isPresent()) {
+        programArguments.addAll('--quickPlayMultiplayer', providers.gradleProperty('functionBlockModelsJoin').get())
+    }
+}
+
+tasks.named('runFunctionBlockModelsServer', JavaExec) {
+    standardInput = System.in
+}
