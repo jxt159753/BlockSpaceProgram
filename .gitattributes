@@ -2,3 +2,4 @@
 gradlew text eol=lf
 gradlew.bat text eol=crlf
 src/generated/**/*.json text eol=lf
+experiments/parallel-staging/parallel-staging.patch text eol=lf whitespace=-blank-at-eol

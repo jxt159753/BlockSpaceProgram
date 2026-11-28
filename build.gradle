@@ -134,6 +134,10 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
     apply from: 'experiments/ship-rigidbody/ship-rigidbody.gradle'
 }
 
+if (providers.gradleProperty('parallelStaging').isPresent()) {
+    apply from: 'experiments/parallel-staging/parallel-staging.gradle'
+}
+
 if (providers.gradleProperty('candidateDimensions').isPresent()) {
     apply from: 'experiments/candidate-dimensions/candidate-dimensions.gradle'
 }

@@ -1,0 +1,410 @@
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java b/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java
+index 046d136..8e60c41 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java
+@@ -1,5 +1,6 @@
+ package io.github.jxt159753.blockspaceprogram.assembly;
+ 
++import java.util.Arrays;
+ import java.util.Set;
+ import net.minecraft.core.HolderLookup;
+ import net.minecraft.nbt.CompoundTag;
+@@ -8,6 +9,7 @@ import net.minecraft.nbt.ListTag;
+ import net.minecraft.nbt.Tag;
+ import net.minecraft.world.item.ItemStack;
+ import org.jetbrains.annotations.Nullable;
++import org.joml.Vector3d;
+ 
+ /** Reads and writes the same per-part fuel saved by the local flight entity. */
+ public final class OrbitalShipPropulsion {
+@@ -27,7 +29,8 @@ public final class OrbitalShipPropulsion {
+         groups = StagePerformance.tankGroups(design);
+         groupFuel = new double[count];
+         flow = new double[count];
+-        double[] thrust = new double[count];
++        var thrust = new Vector3d[count];
++        Arrays.setAll(thrust, index -> new Vector3d());
+         double dryMass = 0;
+         double fuel = 0;
+         for (ShipDesign.Branch branch : design.tree(Set.of())) {
+@@ -39,9 +42,9 @@ public final class OrbitalShipPropulsion {
+             groupFuel[group] += partFuel[index];
+             fuel += partFuel[index];
+             dryMass += node.dryMass();
+-            if (!damaged && node.engineStage() == stage && ShipFlightState.hasEngine(node)) {
++            if (!damaged && ShipFlightState.hasIgnited(node.engineStage(), stage) && ShipFlightState.hasEngine(node)) {
+                 var properties = node.part().properties();
+-                thrust[group] += properties.thrust();
++                thrust[group].add(ShipFlightState.vacuumThrust(node));
+                 flow[group] += StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
+             }
+         }
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+index 9daa9bb..225b540 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+@@ -88,7 +88,8 @@ final class ShipFlightState {
+                 tanks.add(new Tank(index, group, partCells));
+             }
+             if (hasEngine(node)) {
+-                engines.add(engine(node, index, group));
++                var geometry = engineGeometry(node);
++                engines.add(new Engine(index, group, node.engineStage(), properties, geometry.direction(), geometry.moment()));
+             }
+             if (node.isCommandPod()) {
+                 pods |= 1L << index;
+@@ -136,7 +137,15 @@ final class ShipFlightState {
+         return props.thrust() > 0 && props.vacuumSpecificImpulse() > 0;
+     }
+ 
+-    private static Engine engine(ShipDesign.Node node, int part, int group) {
++    static boolean hasIgnited(int engineStage, int stage) {
++        return engineStage >= 0 && engineStage <= stage;
++    }
++
++    static Vector3d vacuumThrust(ShipDesign.Node node) {
++        return new Vector3d(engineGeometry(node).direction()).mul(node.part().properties().thrust());
++    }
++
++    private static EngineGeometry engineGeometry(ShipDesign.Node node) {
+         Vec3 direction = Vec3.ZERO;
+         Vec3 moment = Vec3.ZERO;
+         int nozzleCount = 0;
+@@ -160,7 +169,7 @@ final class ShipFlightState {
+             moment = node.point(new Vec3(bounds.x / 2, 0, bounds.z / 2)).cross(direction);
+             nozzleCount = 1;
+         }
+-        return new Engine(part, group, node.engineStage(), node.part().properties(), direction.scale(1.0 / nozzleCount).toVector3f(),
++        return new EngineGeometry(direction.scale(1.0 / nozzleCount).toVector3f(),
+                 moment.scale(1.0 / nozzleCount).toVector3f());
+     }
+ 
+@@ -330,7 +339,7 @@ final class ShipFlightState {
+         var thrust = new Vector3d();
+         collectGroupFuel();
+         for (Engine engine : engines) {
+-            if (engine.stage == stage && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
++            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
+                 thrust.fma(engine.properties.thrust(), engine.direction);
+             }
+         }
+@@ -345,7 +354,7 @@ final class ShipFlightState {
+         collectGroupFuel();
+         Arrays.fill(demand, 0);
+         for (Engine engine : engines) {
+-            if (engine.stage != stage || isDamaged(engine.part)) {
++            if (!hasIgnited(engine.stage, stage) || isDamaged(engine.part)) {
+                 continue;
+             }
+             var props = engine.properties;
+@@ -371,7 +380,7 @@ final class ShipFlightState {
+             body.subLevel().updateMergedMassData(0);
+         }
+         for (Engine engine : engines) {
+-            if (engine.stage == stage && !isDamaged(engine.part)) {
++            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part)) {
+                 double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
+                 impulse.fma(magnitude, engine.direction);
+                 momentAboutOrigin.fma(magnitude, engine.moment);
+@@ -394,5 +403,7 @@ final class ShipFlightState {
+ 
+     private record Tank(int part, int group, Map<BlockPos, Cell> cells) {}
+ 
++    private record EngineGeometry(Vector3fc direction, Vector3fc moment) {}
++
+     private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
+ }
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/ShipPlacement.java b/io/github/jxt159753/blockspaceprogram/assembly/ShipPlacement.java
+index 1869b12..1117f97 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipPlacement.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipPlacement.java
+@@ -31,12 +31,14 @@ public final class ShipPlacement {
+         List<Source> sources = new ArrayList<>();
+         for (int i = 0; i < part.connectors().size(); i++) {
+             var connector = part.connectors().get(i);
+-            if (connector.kind().isStack() == stack) {
++            if (stack ? connector.kind().isStack() : surfaceConnector(connector)) {
+                 sources.add(new Source(i, connector.normal()));
+             }
+         }
+-        return !stack && sources.isEmpty()
+-                ? Arrays.stream(Direction.values()).map(normal -> new Source(-1, normal)).toList() : sources;
++        if (!stack && part.connectors().stream().allMatch(connector -> connector.kind().isStack())) {
++            Arrays.stream(Direction.values()).map(normal -> new Source(-1, normal)).forEach(sources::add);
++        }
++        return sources;
+     }
+ 
+     public static Result place(ShipDesign design, BakedPart part, Request request) {
+@@ -171,12 +173,13 @@ public final class ShipPlacement {
+         Direction targetNormal = target.pose().localDirection(outward);
+         Vec3 touch = placed.point(source.center());
+         Vec3 targetAnchor;
+-        boolean separable = false;
++        boolean separable;
+         if (targetMarker == -1) {
+             if (!contains(boxFace(target.bounds(), outward), placed.transform(source.bounds()))) {
+                 return null;
+             }
+             targetAnchor = target.pose().localPoint(touch).scale(1.0 / target.part().scale());
++            separable = surfaceSeparator(marker(placed.part(), partMarker));
+         } else {
+             PartConnector connector = marker(target.part(), targetMarker);
+             PartConnector incoming = marker(placed.part(), partMarker);
+@@ -208,7 +211,8 @@ public final class ShipPlacement {
+             return false;
+         }
+         if (link.surface()) {
+-            return first.marker() == -1 && !link.separable()
++            return first.marker() == -1 && !link.docking()
++                    && link.separable() == surfaceSeparator(marker(placed.part(), second.marker()))
+                     && contains(boxFace(target.bounds(), outward), placed.transform(source.bounds()));
+         }
+         PartConnector targetConnector = marker(target.part(), first.marker());
+@@ -231,12 +235,20 @@ public final class ShipPlacement {
+             return new Face(normal, bounds.getCenter(), bounds);
+         }
+         PartConnector connector = marker(part, index);
+-        if (connector == null || connector.kind().isStack() == surface) {
++        if (connector == null || !(surface ? surfaceConnector(connector) : connector.kind().isStack())) {
+             return null;
+         }
+         return new Face(connector.normal(), connector.center(), connector.modelFace());
+     }
+ 
++    private static boolean surfaceConnector(PartConnector connector) {
++        return !connector.kind().isStack() || surfaceSeparator(connector);
++    }
++
++    private static boolean surfaceSeparator(@Nullable PartConnector connector) {
++        return connector != null && connector.kind() == PartConnector.Kind.SEPARATION;
++    }
++
+     static Direction turn(Direction tangent, Direction axis, int turns) {
+         for (int i = 0; i < turns; i++) {
+             tangent = axis.getAxisDirection() == Direction.AxisDirection.POSITIVE
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/StagePerformance.java b/io/github/jxt159753/blockspaceprogram/assembly/StagePerformance.java
+index 236e94c..77cf136 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/StagePerformance.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/StagePerformance.java
+@@ -5,58 +5,83 @@ import java.util.Arrays;
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Set;
++import org.joml.Vector3d;
+ 
+ /** Vacuum estimates with full tanks at launch and no fuel flow across a separable link. */
+ public record StagePerformance(double deltaV, double thrustToWeight, double burnTime) {
+     public static List<StagePerformance> calculate(ShipDesign design) {
+         int count = design.nodes().size();
+         double[] fuel = new double[count];
++        var engineThrust = new Vector3d[count];
+         for (int i = 0; i < count; i++) {
+-            fuel[i] = fuelCapacity(design.nodes().get(i));
++            var node = design.nodes().get(i);
++            fuel[i] = fuelCapacity(node);
++            if (ShipFlightState.hasEngine(node)) {
++                engineThrust[i] = ShipFlightState.vacuumThrust(node);
++            }
+         }
+ 
+         Set<Integer> detached = new HashSet<>();
+         int[] group = tankGroups(design);
+         List<StagePerformance> performance = new ArrayList<>(design.stageCount());
++        var attached = afterSeparation(design, detached, 0);
+         for (int stage = 0; stage < design.stageCount(); stage++) {
+-            for (int i = 0; i < design.links().size(); i++) {
+-                if (design.links().get(i).separationStage() == stage) {
+-                    detached.add(i);
+-                }
+-            }
+-
+             double[] capacity = new double[count];
+-            double[] thrust = new double[count];
++            var thrust = new Vector3d[count];
++            Arrays.setAll(thrust, index -> new Vector3d());
+             double[] flow = new double[count];
+             double wetMass = 0;
+-            boolean[] attached = new boolean[count];
+-            for (ShipDesign.Branch branch : design.tree(detached)) {
++            for (ShipDesign.Branch branch : attached) {
+                 int index = branch.node();
+                 var node = design.nodes().get(index);
+                 int tankGroup = group[index];
+-                attached[index] = true;
+                 capacity[tankGroup] += fuel[index];
+                 wetMass += node.dryMass() + fuel[index];
+-                if (node.engineStage() == stage && ShipFlightState.hasEngine(node)) {
++                if (engineThrust[index] != null && ShipFlightState.hasIgnited(node.engineStage(), stage)) {
+                     var properties = node.part().properties();
+-                    thrust[tankGroup] += properties.thrust();
++                    thrust[tankGroup].add(engineThrust[index]);
+                     flow[tankGroup] += fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
+                 }
+             }
+ 
++            var next = afterSeparation(design, detached, stage + 1);
++            boolean[] retained = new boolean[count];
++            for (var branch : next) {
++                retained[branch.node()] = true;
++            }
++            double lastBoosterDepletion = 0;
++            for (var branch : attached) {
++                int tankGroup = group[branch.node()];
++                if (!retained[branch.node()] && flow[tankGroup] > 0) {
++                    lastBoosterDepletion = Math.max(lastBoosterDepletion, capacity[tankGroup] / flow[tankGroup]);
++                }
++            }
++            // Predict separation once the last fueled group being dropped runs dry.
++            double timeLimit = lastBoosterDepletion > 0 ? lastBoosterDepletion : Double.POSITIVE_INFINITY;
+             var propulsion = VacuumPropulsion.fromGroups(wetMass, Arrays.stream(capacity).sum(), capacity, thrust, flow);
+-            var burn = propulsion.estimate(Double.POSITIVE_INFINITY);
++            var burn = propulsion.estimate(Double.POSITIVE_INFINITY, timeLimit);
+             performance.add(new StagePerformance(burn.deltaV(), propulsion.thrustToWeight(), burn.seconds()));
+-            for (int i = 0; i < count; i++) {
++            for (var branch : next) {
++                int i = branch.node();
+                 int tankGroup = group[i];
+-                if (attached[i] && capacity[tankGroup] > 0) {
++                if (capacity[tankGroup] > 0) {
+                     fuel[i] *= VacuumPropulsion.fractionRemaining(capacity[tankGroup], flow[tankGroup], burn.seconds());
+                 }
+             }
++            attached = next;
+         }
+         return List.copyOf(performance);
+     }
+ 
++    private static List<ShipDesign.Branch> afterSeparation(ShipDesign design, Set<Integer> detached, int stage) {
++        for (int i = 0; i < design.links().size(); i++) {
++            if (design.links().get(i).separationStage() == stage) {
++                detached.add(i);
++            }
++        }
++        return design.tree(detached);
++    }
++
+     static int[] tankGroups(ShipDesign design) {
+         var separators = new HashSet<Integer>();
+         for (int i = 0; i < design.links().size(); i++) {
+diff --git a/io/github/jxt159753/blockspaceprogram/assembly/VacuumPropulsion.java b/io/github/jxt159753/blockspaceprogram/assembly/VacuumPropulsion.java
+index 58a0de3..e1ef177 100644
+--- a/io/github/jxt159753/blockspaceprogram/assembly/VacuumPropulsion.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/VacuumPropulsion.java
+@@ -5,6 +5,7 @@ import java.util.ArrayList;
+ import java.util.List;
+ import net.minecraft.network.codec.ByteBufCodecs;
+ import net.minecraft.network.codec.StreamCodec;
++import org.joml.Vector3d;
+ 
+ /** Wet mass, total fuel and the independently fed engine groups of one active stage. */
+ public record VacuumPropulsion(double wetMass, double fuel, List<Group> groups) {
+@@ -19,44 +20,57 @@ public record VacuumPropulsion(double wetMass, double fuel, List<Group> groups)
+         groups = List.copyOf(groups);
+     }
+ 
+-    static VacuumPropulsion fromGroups(double wetMass, double fuel, double[] capacity, double[] thrust, double[] flow) {
++    static VacuumPropulsion fromGroups(double wetMass, double fuel, double[] capacity, Vector3d[] thrust, double[] flow) {
+         var groups = new ArrayList<Group>();
+         for (int i = 0; i < capacity.length; i++) {
+             if (capacity[i] > 0 && flow[i] > 0 && Double.isFinite(capacity[i] / flow[i])) {
+-                groups.add(new Group(capacity[i], thrust[i], flow[i]));
++                groups.add(new Group(capacity[i], thrust[i].x, thrust[i].y, thrust[i].z, flow[i]));
+             }
+         }
+         return new VacuumPropulsion(wetMass, fuel, groups);
+     }
+ 
+     double thrustToWeight() {
+-        return wetMass > 0 ? groups.stream().mapToDouble(Group::thrust).sum() / (wetMass * STANDARD_GRAVITY) : 0;
++        return wetMass > 0 ? netThrust() / (wetMass * STANDARD_GRAVITY) : 0;
++    }
++
++    public double netThrust() {
++        var thrust = new Vector3d();
++        for (Group group : groups) {
++            thrust.add(group.thrustX(), group.thrustY(), group.thrustZ());
++        }
++        return thrust.length();
+     }
+ 
+     /** Integrate the rocket equation piecewise as fuel groups run dry. */
+     public Burn estimate(double requestedDeltaV) {
++        return estimate(requestedDeltaV, Double.POSITIVE_INFINITY);
++    }
++
++    Burn estimate(double requestedDeltaV, double timeLimit) {
+         double delivered = 0;
+         double elapsed = 0;
+         double consumed = 0;
+-        while (delivered < requestedDeltaV) {
++        var thrust = new Vector3d();
++        while (delivered < requestedDeltaV && elapsed < timeLimit) {
+             double mass = wetMass - consumed;
+-            double end = Double.POSITIVE_INFINITY;
+-            double thrust = 0;
++            double end = timeLimit;
++            thrust.zero();
+             double flow = 0;
+             for (Group group : groups) {
+                 double depletion = group.fuel() / group.flow();
+                 if (depletion > elapsed) {
+                     end = Math.min(end, depletion);
+-                    thrust += group.thrust();
++                    thrust.add(group.thrustX(), group.thrustY(), group.thrustZ());
+                     flow += group.flow();
+                 }
+             }
+-            if (!Double.isFinite(end) || !Double.isFinite(flow) || !(mass > 0) || !Double.isFinite(mass)) {
++            if (!Double.isFinite(end) || !(flow > 0) || !Double.isFinite(flow) || !(mass > 0) || !Double.isFinite(mass)) {
+                 break;
+             }
+-            double exhaust = thrust / flow;
++            double exhaust = thrust.length() / flow;
+             double used = (end - elapsed) * flow;
+-            double deltaV = exhaust * Math.log1p(used / Math.max(0, mass - used));
++            double deltaV = exhaust == 0 ? 0 : exhaust * Math.log1p(used / Math.max(0, mass - used));
+             double required = requestedDeltaV - delivered;
+             if (Double.isFinite(requestedDeltaV) && required <= deltaV) {
+                 double amount = Math.min(used, -mass * Math.expm1(-required / exhaust));
+@@ -79,9 +93,18 @@ public record VacuumPropulsion(double wetMass, double fuel, List<Group> groups)
+         }
+     }
+ 
+-    public record Group(double fuel, double thrust, double flow) {
++    public record Group(double fuel, double thrustX, double thrustY, double thrustZ, double flow) {
++        // Preserve the scalar preview wire format while the server-side vector calculation is evaluated.
+         private static final StreamCodec<ByteBuf, Group> STREAM_CODEC = StreamCodec.composite(
+                 ByteBufCodecs.DOUBLE, Group::fuel, ByteBufCodecs.DOUBLE, Group::thrust,
+                 ByteBufCodecs.DOUBLE, Group::flow, Group::new);
++
++        public Group(double fuel, double thrust, double flow) {
++            this(fuel, thrust, 0, 0, flow);
++        }
++
++        public double thrust() {
++            return Math.sqrt(thrustX * thrustX + thrustY * thrustY + thrustZ * thrustZ);
++        }
+     }
+ }
+diff --git a/io/github/jxt159753/blockspaceprogram/orbit/OrbitalFlightControl.java b/io/github/jxt159753/blockspaceprogram/orbit/OrbitalFlightControl.java
+index acbf79b..d99644c 100644
+--- a/io/github/jxt159753/blockspaceprogram/orbit/OrbitalFlightControl.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/OrbitalFlightControl.java
+@@ -7,7 +7,6 @@ import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.AttitudeMode;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.ThrottleMode;
+-import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion;
+ import io.github.jxt159753.blockspaceprogram.orbit.OrbitalSavedData.ManeuverResult;
+ import java.util.Optional;
+ import java.util.UUID;
+@@ -129,7 +128,7 @@ public final class OrbitalFlightControl {
+                 state.velocity(), radius - body.radius(), ShipFlightControl.Attitude.fromOrientation(orientation),
+                 ship.angularVelocity(), propulsion == null ? 0 : propulsion.wetMass(),
+                 propulsion == null ? 0 : propulsion.fuel(), 0,
+-                propulsion == null ? 0 : propulsion.groups().stream().mapToDouble(VacuumPropulsion.Group::thrust).sum(),
++                propulsion == null ? 0 : propulsion.netThrust(),
+                 body.gravitationalParameter() / (radius * radius), 0, 0, snapshot == null ? -1 : snapshot.stage(),
+                 controls == null ? AttitudeMode.MANUAL : controls.attitudeMode(),
+                 controls == null ? ThrottleMode.MANUAL : controls.throttleMode(), Vec3.ZERO, false,

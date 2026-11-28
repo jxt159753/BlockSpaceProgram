@@ -38,6 +38,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 
 天体地表颜色图的采样、传输和画面对照见原型记录。 [天体地表颜色图原型](experiments/surface-color-map/README.md)
 
+并联点火、侧挂分离和推力矢量的专用服实测见原型记录。 [并联分级原型](experiments/parallel-staging/README.md)
+
 用 `/bsp_bench` 复测零件渲染和飞船压力场景。 [性能基准命令](docs/benchmark.md)
 
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。

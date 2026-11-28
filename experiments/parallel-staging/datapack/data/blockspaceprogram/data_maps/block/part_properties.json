@@ -1,0 +1,21 @@
+{
+  "values": {
+    "minecraft:oak_planks": {
+      "mass": 150
+    },
+    "minecraft:observer": {
+      "mass": 50,
+      "fuel_capacity": {"blockspaceprogram:liquid_fuel": 40},
+      "thrust": 8000,
+      "vacuum_specific_impulse": 101.97162129779284,
+      "sea_level_specific_impulse": 101.97162129779284
+    },
+    "minecraft:iron_block": {
+      "mass": 0,
+      "fuel_capacity": {"blockspaceprogram:liquid_fuel": 260}
+    },
+    "blockspaceprogram:separation_interface": {
+      "mass": 0
+    }
+  }
+}
