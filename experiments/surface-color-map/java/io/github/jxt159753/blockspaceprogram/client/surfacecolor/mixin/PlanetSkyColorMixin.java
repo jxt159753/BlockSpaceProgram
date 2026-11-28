@@ -26,7 +26,7 @@ abstract class PlanetSkyColorMixin {
 
     // Each disc retains its own local prime meridian vector through the distance sort.
     @Unique
-    private static final Map<Vec3, ResourceLocation> bsp$bodyByMeridian = new IdentityHashMap<>();
+    private static final Map<Vec3, CelestialBody> bsp$bodyByMeridian = new IdentityHashMap<>();
 
     @ModifyArg(method = "registerShader", index = 1, at = @At(value = "INVOKE", target =
             "Lnet/minecraft/client/renderer/ShaderInstance;<init>(Lnet/minecraft/server/packs/resources/ResourceProvider;"
@@ -39,15 +39,17 @@ abstract class PlanetSkyColorMixin {
             "Lio/github/jxt159753/blockspaceprogram/client/PlanetSkyProjection$Observer;toLocal"
                     + "(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;"))
     private static Vec3 bsp$identifyDisc(Vec3 primeMeridian, @Local CelestialBody body) {
-        bsp$bodyByMeridian.put(primeMeridian, body.id());
+        bsp$bodyByMeridian.put(primeMeridian, body);
         return primeMeridian;
     }
 
     @Inject(method = "draw", at = @At("HEAD"))
     private static void bsp$bindSurfaceMap(int mode, Vec3 direction, double relativeRadius, Vec3 primeMeridian,
-                                           CallbackInfo ci) {
-        var texture = SurfaceColorMapClient.texture(bsp$bodyByMeridian.remove(primeMeridian));
-        shader.safeGetUniform("HasSurfaceMap").set(texture == null ? 0 : 1);
-        shader.setSampler("SurfaceMap", texture);
+                                           int seed, CallbackInfo ci) {
+        var body = bsp$bodyByMeridian.remove(primeMeridian);
+        var texture = body == null ? null : SurfaceColorMapClient.texture(body.id());
+        float blend = texture == null ? 0 : SurfaceColorMapClient.mapBlend(body.radius() * (1 / relativeRadius - 1));
+        shader.safeGetUniform("SurfaceMapBlend").set(blend);
+        shader.setSampler("SurfaceMap", blend == 0 ? null : texture);
     }
 }

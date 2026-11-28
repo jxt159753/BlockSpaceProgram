@@ -2,6 +2,7 @@ package io.github.jxt159753.blockspaceprogram.client.surfacecolor;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.platform.TextureUtil;
 import com.mojang.logging.LogUtils;
 import io.github.jxt159753.blockspaceprogram.sky.surfacecolor.BiomeGrid;
 import io.github.jxt159753.blockspaceprogram.sky.surfacecolor.SurfaceColorMapExperiment;
@@ -12,20 +13,20 @@ import io.github.jxt159753.blockspaceprogram.sky.surfacecolor.SurfaceColorMapNet
 import io.github.jxt159753.blockspaceprogram.sky.surfacecolor.SurfaceColorMapNetworking.Request;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.FogRenderer;
-import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.core.Holder;
+import net.minecraft.commands.Commands;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.tags.BiomeTags;
-import net.minecraft.world.level.biome.Biome;
+import net.minecraft.util.Mth;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.opengl.GL11;
@@ -38,10 +39,38 @@ public final class SurfaceColorMapClient {
     public static final int COMPARISON_DISTANCE = 4096;
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<ResourceLocation, Entry> REQUESTED = new HashMap<>();
-    private static final Map<ResourceLocation, DynamicTexture> TEXTURES = new HashMap<>();
+    private static final Map<ResourceLocation, Integer> TEXTURES = new HashMap<>();
+    private static SurfaceMode mode = SurfaceMode.MAP;
     private static long loginNanos;
 
     private SurfaceColorMapClient() {}
+
+    private enum SurfaceMode {
+        BASELINE, MAP, BLEND
+    }
+
+    @SubscribeEvent
+    public static void commands(RegisterClientCommandsEvent event) {
+        var root = Commands.literal("bsp_surface_comparison");
+        for (var choice : SurfaceMode.values()) {
+            root.then(Commands.literal(choice.name().toLowerCase(Locale.ROOT)).executes(context -> {
+                mode = choice;
+                return 1;
+            }));
+        }
+        event.getDispatcher().register(root);
+    }
+
+    public static float mapBlend(double altitude) {
+        return switch (mode) {
+            case BASELINE -> 0;
+            case MAP -> 1;
+            case BLEND -> {
+                double fraction = Mth.clamp((altitude - 50_000) / 150_000, 0, 1);
+                yield (float) (1 - fraction * fraction * (3 - 2 * fraction));
+            }
+        };
+    }
 
     @SubscribeEvent
     public static void login(ClientPlayerNetworkEvent.LoggingIn event) {
@@ -50,7 +79,7 @@ public final class SurfaceColorMapClient {
 
     @SubscribeEvent
     public static void logout(ClientPlayerNetworkEvent.LoggingOut event) {
-        TEXTURES.values().forEach(DynamicTexture::close);
+        TEXTURES.values().forEach(TextureUtil::releaseTextureId);
         TEXTURES.clear();
         REQUESTED.clear();
     }
@@ -98,11 +127,11 @@ public final class SurfaceColorMapClient {
                 (System.nanoTime() - loginNanos) / 1e6, uploaded);
     }
 
-    public static DynamicTexture texture(ResourceLocation id) {
+    public static Integer texture(ResourceLocation id) {
         return TEXTURES.get(id);
     }
 
-    private static DynamicTexture upload(BiomeGrid grid) throws IOException {
+    private static int upload(BiomeGrid grid) throws IOException {
         var registry = Minecraft.getInstance().level.registryAccess().registryOrThrow(Registries.BIOME);
         int[] colors = new int[grid.palette().size()];
         for (int i = 0; i < colors.length; i++) {
@@ -113,32 +142,45 @@ public final class SurfaceColorMapClient {
             }
             var biome = registry.getHolder(ResourceKey.create(Registries.BIOME, biomeId))
                     .orElseThrow(() -> new IOException("Biome missing from client registry: " + id));
-            int rgb = colorOf(biome);
-            // NativeImage expects ABGR.
-            colors[i] = 0xff000000 | (rgb & 0xff) << 16 | (rgb & 0xff00) | (rgb >>> 16 & 0xff);
+            colors[i] = SurfaceMapPalette.abgr(biome);
         }
-        var image = new NativeImage(grid.width(), grid.height(), false);
-        for (int y = 0; y < grid.height(); y++) {
-            for (int x = 0; x < grid.width(); x++) {
-                image.setPixelRGBA(x, y, colors[grid.index(x, y)]);
+        int width = grid.width();
+        int height = grid.height();
+        int[] pixels = new int[width * height];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                pixels[y * width + x] = colors[grid.index(x, y)];
             }
         }
-        var texture = new DynamicTexture(image);
-        texture.bind();
-        texture.setFilter(false, false);
-        GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
-        GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
-        return texture;
-    }
+        var levels = SurfaceMapMipmaps.build(width, height, pixels);
 
-    private static int colorOf(Holder<Biome> biome) {
-        var value = biome.value();
-        if (biome.is(BiomeTags.IS_OCEAN) || biome.is(BiomeTags.IS_RIVER)) {
-            return value.getWaterColor();
+        int target = GL11.GL_TEXTURE_2D;
+        int texture = TextureUtil.generateTextureId();
+        try {
+            GlStateManager._bindTexture(texture);
+            for (int level = 0; level < levels.length; level++) {
+                GlStateManager._texImage2D(target, level, GL11.GL_RGBA8, width, height, 0,
+                        GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, null);
+                try (var image = new NativeImage(width, height, false)) {
+                    for (int y = 0; y < height; y++) {
+                        for (int x = 0; x < width; x++) {
+                            image.setPixelRGBA(x, y, levels[level][y * width + x]);
+                        }
+                    }
+                    image.upload(level, 0, 0, false);
+                }
+                width = Math.max(1, width / 2);
+                height = Math.max(1, height / 2);
+            }
+            GlStateManager._texParameter(target, GL12.GL_TEXTURE_MAX_LEVEL, levels.length - 1);
+            GlStateManager._texParameter(target, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GlStateManager._texParameter(target, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+            GlStateManager._texParameter(target, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
+            GlStateManager._texParameter(target, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            return texture;
+        } catch (RuntimeException e) {
+            TextureUtil.releaseTextureId(texture);
+            throw e;
         }
-        if (value.hasPrecipitation() && value.getBaseTemperature() < 0.15F) {
-            return 0xf2f7fa;
-        }
-        return value.getGrassColor(0, 0);
     }
 }
