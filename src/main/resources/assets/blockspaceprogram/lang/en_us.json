@@ -19,6 +19,7 @@
   "block.blockspaceprogram.separation_interface": "Separation Interface",
   "block.blockspaceprogram.docking_interface": "Docking Interface",
   "block.blockspaceprogram.attachment_face": "Attachment Face",
+  "itemGroup.blockspaceprogram.main": "BlockSpaceProgram",
   "item.blockspaceprogram.ship_blueprint": "Ship Blueprint",
   "item.blockspaceprogram.ship_blueprint.blank": "Blank · save at the assembly table or use on an assembled ship",
   "item.blockspaceprogram.ship_blueprint.summary": "%s parts · %s stages · use on a launch pad",

@@ -19,6 +19,7 @@
   "block.blockspaceprogram.separation_interface": "分离接口方块",
   "block.blockspaceprogram.docking_interface": "对接接口方块",
   "block.blockspaceprogram.attachment_face": "附着面方块",
+  "itemGroup.blockspaceprogram.main": "方块太空计划",
   "item.blockspaceprogram.ship_blueprint": "飞船蓝图",
   "item.blockspaceprogram.ship_blueprint.blank": "空白 · 在装配台保存，或对已组装的飞船使用",
   "item.blockspaceprogram.ship_blueprint.summary": "%s 个零件 · %s 级 · 对发射台使用",

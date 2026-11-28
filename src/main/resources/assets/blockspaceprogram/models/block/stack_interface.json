@@ -1,12 +1,12 @@
 {
   "parent": "minecraft:block/cube",
   "textures": {
-    "particle": "minecraft:block/polished_andesite",
-    "north": "minecraft:block/lodestone_top",
-    "east": "minecraft:block/polished_andesite",
-    "south": "minecraft:block/polished_andesite",
-    "west": "minecraft:block/polished_andesite",
-    "up": "minecraft:block/polished_andesite",
-    "down": "minecraft:block/polished_andesite"
+    "particle": "blockspaceprogram:block/stack_interface_side",
+    "north": "blockspaceprogram:block/stack_interface_front",
+    "east": "blockspaceprogram:block/stack_interface_side",
+    "south": "blockspaceprogram:block/stack_interface_side",
+    "west": "blockspaceprogram:block/stack_interface_side",
+    "up": "blockspaceprogram:block/stack_interface_side",
+    "down": "blockspaceprogram:block/stack_interface_side"
   }
 }
