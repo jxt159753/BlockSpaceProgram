@@ -90,7 +90,7 @@ public final class WorldAssembly extends SavedData {
     void saveStages(ServerLevel level, Snapshot snapshot, ShipDesign design) {
         var members = new ArrayList<Member>();
         for (int i = 0; i < snapshot.parts().size(); i++) {
-            members.add(new Member(snapshot.parts().get(i).getUUID(), design.nodes().get(i).engineStage()));
+            members.add(Member.from(snapshot.parts().get(i), design.nodes().get(i)));
         }
         replace(level, snapshot.group(), List.of(new Group(members, design.links(), design.stageCount())));
     }
@@ -222,7 +222,7 @@ public final class WorldAssembly extends SavedData {
                     inverse.rotate(part.rotation().rotate(Direction.UP)), inverse.rotate(part.rotation().rotate(Direction.EAST)));
             indices[oldIndex] = order;
             orderedParts.add(part);
-            nodes.add(new ShipDesign.Node(part.part(), new PartPose(quarters, rotation), group.members().get(oldIndex).engineStage()));
+            nodes.add(group.members().get(oldIndex).node(part, new PartPose(quarters, rotation)));
         }
         var design = new ShipDesign(nodes, ShipDesign.remapLinks(group.links(), indices, Set.of()), group.stageCount());
         return design.isValid()
@@ -238,14 +238,23 @@ public final class WorldAssembly extends SavedData {
         }
     }
 
-    record Member(UUID id, int engineStage) {
+    record Member(UUID id, int engineStage, int parachuteStage) {
         static final Codec<Member> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 UUIDUtil.CODEC.fieldOf("entity").forGetter(Member::id),
-                ShipDesign.STAGE.fieldOf("engine_stage").forGetter(Member::engineStage)
+                ShipDesign.STAGE.fieldOf("engine_stage").forGetter(Member::engineStage),
+                ShipDesign.STAGE.optionalFieldOf("parachute_stage", -1).forGetter(Member::parachuteStage)
         ).apply(instance, Member::new));
 
         static Member placed(PlacedPartEntity part) {
-            return new Member(part.getUUID(), ShipDesign.Node.placed(part.part(), PartPose.ROOT).engineStage());
+            return from(part, ShipDesign.Node.placed(part.part(), PartPose.ROOT));
+        }
+
+        static Member from(PlacedPartEntity part, ShipDesign.Node node) {
+            return new Member(part.getUUID(), node.engineStage(), node.parachuteStage());
+        }
+
+        ShipDesign.Node node(PlacedPartEntity part, PartPose pose) {
+            return new ShipDesign.Node(part.part(), pose, engineStage, parachuteStage);
         }
     }
 

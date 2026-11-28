@@ -3,6 +3,7 @@ package io.github.jxt159753.blockspaceprogram.assembly;
 import com.mojang.logging.LogUtils;
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -65,6 +66,8 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> THROTTLE_MODE = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<CompoundTag> PARACHUTES = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
 
     private final ShipFlightControls flightControls = new ShipFlightControls();
     @Nullable
@@ -97,6 +100,7 @@ public final class AssembledShipEntity extends Entity {
         builder.define(ACTIVE_STAGE, -1);
         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
         builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
+        builder.define(PARACHUTES, new CompoundTag());
     }
 
     @Nullable
@@ -373,6 +377,18 @@ public final class AssembledShipEntity extends Entity {
 
     void setDamagedParts(long damage) {
         entityData.set(DAMAGED_PARTS, damage);
+    }
+
+    public byte[] parachuteStates() {
+        return entityData.get(PARACHUTES).getByteArray("states");
+    }
+
+    void setParachuteStates(byte[] states) {
+        if (!Arrays.equals(parachuteStates(), states)) {
+            var tag = new CompoundTag();
+            tag.putByteArray("states", states);
+            entityData.set(PARACHUTES, tag);
+        }
     }
 
     public ShipFlightControl.AttitudeMode attitudeMode() {

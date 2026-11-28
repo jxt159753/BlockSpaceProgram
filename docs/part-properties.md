@@ -47,6 +47,21 @@
 
 零件烘焙时取组成方块中最低的耐冲击速度。旧零件和蓝图中的零件使用 8 m/s 的默认耐冲击速度。 [着陆和撞击损坏](flight.md#着陆)
 
+## 降落伞性能
+
+`data/blockspaceprogram/data_maps/block/parachute_performance.json` 以方块为键。每个匹配的方块提供一顶伞，挂点位于该方块中心。内置条目适用于 `blockspaceprogram:parachute`。
+
+| 字段 | 内置值 | 含义 |
+| --- | ---: | --- |
+| `semi_drag_area` | 20 | 半开的阻力面积，单位 m² |
+| `drag_area` | 400 | 全开的阻力面积，单位 m²，至少等于半开值 |
+| `min_relative_density` | 0.02 | 半开所需的最低相对大气密度 |
+| `max_deploy_speed` | 250 | 允许半开的最大空速，单位 m/s |
+| `full_deploy_height` | 500 | 全开所需的最大离地高度，单位 m |
+| `opening_time` | 2 | 每段展开时长，单位 s。阻力面积在这段时间内线性增加 |
+
+烘焙时，挂点和六个参数随零件写入 `part_data`。挂点随零件缩放和旋转，阻力面积沿用烘焙时的数值。 [飞行中的开伞条件](flight.md#降落伞)
+
 ## 零件类型
 
 将喷管和座椅方块的 ID 分别加入下面两个方块标签。两个标签的内置内容均为空。例如可在 `engine_nozzles.json` 写入 `{"values":["minecraft:cut_copper"]}`，让上例的切制铜块充当测试用喷管。
@@ -54,7 +69,8 @@
 - 没有燃烧室时，`data/blockspaceprogram/tags/block/engine_nozzles.json` 中的方块可充当喷口。有汇总推力和真空比冲时，每个喷口算一台发动机，结构具备 `ENGINE` 类型。有燃烧室的零件按相连的喷管段识别发动机。
 - `data/blockspaceprogram/tags/block/command_seats.json` 中的方块使结构具备指令舱类型 `COMMAND_POD`。
 - `data/blockspaceprogram/tags/block/landing_legs.json` 中的方块使结构具备着陆腿类型 `LANDING_LEG`，内置标记为避雷针。
+- 有 `parachute_performance` 条目的方块使结构具备降落伞类型 `PARACHUTE`。同一零件可以同时具备 `ENGINE` 和 `PARACHUTE`。
 - 有任意一种正容量燃料的方块使结构具备燃料舱类型 `FUEL_TANK`。
 - 一个结构可以同时具备多种功能类型。无功能类型的结构归为 `STRUCTURAL`。
 
-执行 `/reload` 后，新烘焙的零件使用更新后的属性和标签。已烘焙的零件保留当时的属性和发动机列表。 [烘焙与拆解](part-baking.md)
+执行 `/reload` 后，新烘焙的零件使用更新后的属性和标签。已烘焙的零件保留当时的属性、发动机和降落伞列表。 [烘焙与拆解](part-baking.md)

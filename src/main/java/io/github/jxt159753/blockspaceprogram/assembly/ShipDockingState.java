@@ -86,6 +86,18 @@ record ShipDockingState(List<StageBlock> stages, Set<PortKey> released) {
         return next;
     }
 
+    /** A docked node also retains stages already executed aboard its original ship. */
+    int actionStage(int node, int current) {
+        int start = 0;
+        for (var block : stages) {
+            if ((block.parts() & 1L << node) != 0) {
+                return Math.max(current, start + block.progress());
+            }
+            start += block.count();
+        }
+        return current;
+    }
+
     @Nullable StageBlock rootIn(List<Integer> members) {
         return stages.stream().filter(block -> members.contains(block.root())).findFirst().orElse(null);
     }

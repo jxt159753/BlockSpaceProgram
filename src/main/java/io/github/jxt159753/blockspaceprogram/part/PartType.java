@@ -17,7 +17,8 @@ public enum PartType implements StringRepresentable {
     COMMAND_POD,
     FUEL_TANK,
     SEPARATOR,
-    LANDING_LEG;
+    LANDING_LEG,
+    PARACHUTE;
 
     static final StringRepresentable.EnumCodec<PartType> CODEC = StringRepresentable.fromEnum(PartType::values);
 
@@ -34,10 +35,13 @@ public enum PartType implements StringRepresentable {
     }
 
     /** Classifies the scanned structure on the logical server. A part can serve multiple functions. */
-    static Set<PartType> classify(Iterable<BlockState> blocks, boolean hasEngines) {
+    static Set<PartType> classify(Iterable<BlockState> blocks, boolean hasEngines, boolean hasParachutes) {
         Set<PartType> types = EnumSet.noneOf(PartType.class);
         if (hasEngines) {
             types.add(ENGINE);
+        }
+        if (hasParachutes) {
+            types.add(PARACHUTE);
         }
         for (BlockState block : blocks) {
             if (block.isAir()) {

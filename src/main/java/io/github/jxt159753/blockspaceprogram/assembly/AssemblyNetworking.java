@@ -55,7 +55,7 @@ public final class AssemblyNetworking {
                 && menu.accepts(player, revision) ? menu : null;
     }
 
-    public enum Action { REMOVE, ADD_STAGE, REMOVE_STAGE, MOVE_ENGINE, MOVE_SEPARATOR, SAVE, LOAD, ASSEMBLE }
+    public enum Action { REMOVE, ADD_STAGE, REMOVE_STAGE, MOVE_ENGINE, MOVE_SEPARATOR, SAVE, LOAD, ASSEMBLE, MOVE_PARACHUTE }
 
     public record Place(int container, int revision, int slot, ShipPlacement.Request request) implements CustomPacketPayload {
         private static final Type<Place> TYPE = payloadType("assembly_place");
@@ -122,7 +122,7 @@ public final class AssemblyNetworking {
     }
 
     public record State(int container, int revision, ShipDesign design, String message, int count,
-            @Nullable Component notice) implements CustomPacketPayload {
+            @Nullable Component notice, double seaLevelDensity, double surfaceGravity) implements CustomPacketPayload {
         private static final Type<State> TYPE = payloadType("assembly_state");
         private static final StreamCodec<RegistryFriendlyByteBuf, State> CODEC = StreamCodec.of((buffer, payload) -> {
             buffer.writeVarInt(payload.container());
@@ -130,8 +130,12 @@ public final class AssemblyNetworking {
             ShipDesign.FLIGHT_STREAM_CODEC.encode(buffer, payload.design());
             buffer.writeUtf(payload.message(), 64);
             buffer.writeVarInt(payload.count());
-            if (payload.notice() != null) {
-                ComponentSerialization.STREAM_CODEC.encode(buffer, payload.notice());
+            if (payload.notice() != null || payload.seaLevelDensity() > 0) {
+                ComponentSerialization.STREAM_CODEC.encode(buffer, payload.notice() == null ? Component.empty() : payload.notice());
+            }
+            if (payload.seaLevelDensity() > 0) {
+                buffer.writeDouble(payload.seaLevelDensity());
+                buffer.writeDouble(payload.surfaceGravity());
             }
         }, buffer -> {
             int container = buffer.readVarInt();
@@ -140,7 +144,10 @@ public final class AssemblyNetworking {
             String message = buffer.readUtf(64);
             int count = buffer.readVarInt();
             var notice = buffer.isReadable() ? ComponentSerialization.STREAM_CODEC.decode(buffer) : null;
-            return new State(container, revision, design, message, count, notice);
+            double density = buffer.isReadable() ? buffer.readDouble() : 0;
+            double gravity = buffer.isReadable() ? buffer.readDouble() : 0;
+            return new State(container, revision, design, message, count, Component.empty().equals(notice) ? null : notice,
+                    density, gravity);
         });
 
         @Override
