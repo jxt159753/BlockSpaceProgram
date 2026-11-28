@@ -29,6 +29,9 @@ import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
 import io.github.jxt159753.blockspaceprogram.part.BakingTableBlock;
 import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
+import io.github.jxt159753.blockspaceprogram.part.CombustionChamberBlock;
+import io.github.jxt159753.blockspaceprogram.part.ModularEngines;
+import io.github.jxt159753.blockspaceprogram.part.NozzleSegmentBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
@@ -104,6 +107,10 @@ public final class BlockSpaceProgram {
     public static final DeferredBlock<PartConnectorBlock> SEPARATION_INTERFACE = registerConnector("separation_interface", PartConnector.Kind.SEPARATION);
     public static final DeferredBlock<PartConnectorBlock> DOCKING_INTERFACE = registerConnector("docking_interface", PartConnector.Kind.DOCKING);
     public static final DeferredBlock<PartConnectorBlock> ATTACHMENT_FACE = registerConnector("attachment_face", PartConnector.Kind.SURFACE);
+    public static final DeferredBlock<CombustionChamberBlock> COMBUSTION_CHAMBER = BLOCKS.registerBlock(
+            "combustion_chamber", CombustionChamberBlock::new, BlockBehaviour.Properties.of().strength(3.0F).noOcclusion());
+    public static final DeferredBlock<NozzleSegmentBlock> NOZZLE_SEGMENT = BLOCKS.registerBlock(
+            "nozzle_segment", NozzleSegmentBlock::new, BlockBehaviour.Properties.of().strength(2.5F).noOcclusion());
     public static final DeferredBlock<CollisionCellBlock> SHIP_COLLISION_CELL = BLOCKS.registerBlock(
             "ship_collision_cell", properties -> ModList.get().isLoaded("sable")
                     ? SableCollisionCellBlock.create(properties) : new CollisionCellBlock(properties),
@@ -144,6 +151,8 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(ASSEMBLY_TABLE);
         ITEMS.registerSimpleBlockItem(LAUNCH_PAD);
         ITEMS.registerSimpleBlockItem(FLIGHT_TERMINAL);
+        ITEMS.registerSimpleBlockItem(COMBUSTION_CHAMBER);
+        ITEMS.registerSimpleBlockItem(NOZZLE_SEGMENT);
         CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup.blockspaceprogram.main"))
                 .icon(() -> new ItemStack(LAUNCH_PAD.get()))
@@ -153,6 +162,8 @@ public final class BlockSpaceProgram {
                     output.accept(SEPARATION_INTERFACE);
                     output.accept(DOCKING_INTERFACE);
                     output.accept(ATTACHMENT_FACE);
+                    output.accept(COMBUSTION_CHAMBER);
+                    output.accept(NOZZLE_SEGMENT);
                     output.accept(ASSEMBLY_TABLE);
                     output.accept(SHIP_BLUEPRINT);
                     output.accept(SHIP_ASSEMBLER);
@@ -175,6 +186,7 @@ public final class BlockSpaceProgram {
         MENUS.register(modBus);
         COMPONENTS.register(modBus);
         modBus.addListener(BlockPartProperties::register);
+        modBus.addListener(ModularEngines::register);
         modBus.addListener(PartConnector::register);
         modBus.addListener((RegisterDataMapTypesEvent event) -> event.register(SURFACE_COLOR));
         modBus.addListener(AssemblyNetworking::register);

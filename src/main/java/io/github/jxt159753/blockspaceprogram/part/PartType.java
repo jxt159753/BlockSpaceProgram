@@ -34,14 +34,14 @@ public enum PartType implements StringRepresentable {
     }
 
     /** Classifies the scanned structure on the logical server. A part can serve multiple functions. */
-    public static Set<PartType> classify(Iterable<BlockState> blocks) {
+    static Set<PartType> classify(Iterable<BlockState> blocks, boolean hasEngines) {
         Set<PartType> types = EnumSet.noneOf(PartType.class);
+        if (hasEngines) {
+            types.add(ENGINE);
+        }
         for (BlockState block : blocks) {
             if (block.isAir()) {
                 continue;
-            }
-            if (block.is(ENGINE_NOZZLES)) {
-                types.add(ENGINE);
             }
             if (block.is(COMMAND_SEATS)) {
                 types.add(COMMAND_POD);

@@ -5,21 +5,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.joml.Vector3d;
+import org.joml.Vector3dc;
 
 /** Vacuum estimates with full tanks at launch and no fuel flow across a separable link. */
-public record StagePerformance(double deltaV, double thrustToWeight, double burnTime) {
+public record StagePerformance(double deltaV, double thrustToWeight, double burnTime, Vector3dc thrust) {
     public static List<StagePerformance> calculate(ShipDesign design) {
         int count = design.nodes().size();
         double[] fuel = new double[count];
         double[] electric = new double[count];
-        var engineThrust = new Vector3d[count];
         for (int i = 0; i < count; i++) {
             var node = design.nodes().get(i);
             fuel[i] = fuelCapacity(node);
             electric[i] = electricCapacity(node);
-            if (ShipFlightState.hasEngine(node)) {
-                engineThrust[i] = ShipFlightState.vacuumThrust(node);
-            }
         }
 
         Set<Integer> detached = new HashSet<>();
@@ -38,10 +35,8 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
                 capacity[tankGroup] += fuel[index];
                 wetMass += node.dryMass() + fuel[index];
                 charge += electric[index];
-                if (engineThrust[index] != null && ShipFlightState.hasIgnited(node.engineStage(), stage)) {
-                    var properties = node.part().properties();
-                    engines.addEngine(tankGroup, engineThrust[index],
-                            fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse()), properties.electricPower());
+                if (ShipFlightState.hasIgnited(node.engineStage(), stage)) {
+                    addVacuumEngines(engines, tankGroup, node);
                 }
             }
 
@@ -58,7 +53,9 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             }
             var propulsion = engines.build(wetMass, capacity, charge);
             var burn = propulsion.burnStage(separatingGroups);
-            performance.add(new StagePerformance(burn.deltaV(), propulsion.thrustToWeight(), burn.seconds()));
+            var thrust = propulsion.thrustVector();
+            double thrustToWeight = wetMass > 0 ? thrust.length() / (wetMass * VacuumPropulsion.STANDARD_GRAVITY) : 0;
+            performance.add(new StagePerformance(burn.deltaV(), thrustToWeight, burn.seconds(), thrust));
             double electricFraction = burn.electricFraction(charge);
             for (var branch : next) {
                 int i = branch.node();
@@ -97,6 +94,15 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
 
     static double fuelFlow(double thrust, double isp) {
         return thrust / (VacuumPropulsion.STANDARD_GRAVITY * isp);
+    }
+
+    static void addVacuumEngines(VacuumPropulsion.Builder engines, int group, ShipDesign.Node node) {
+        for (var engine : node.part().engines()) {
+            var direction = ShipFlightState.thrustDirection(node, engine);
+            var rating = engine.performance();
+            var thrust = new Vector3d(direction.x, direction.y, direction.z).mul(rating.thrust());
+            engines.addEngine(group, thrust, fuelFlow(rating.thrust(), rating.vacuumSpecificImpulse()), engine.electricPower());
+        }
     }
 
     static double fuelCapacity(ShipDesign.Node node) {

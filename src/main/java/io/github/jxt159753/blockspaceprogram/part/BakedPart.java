@@ -31,7 +31,8 @@ public record BakedPart(
         InertiaTensor inertia,
         Set<PartType> types,
         float scale,
-        List<PartConnector> connectors) {
+        List<PartConnector> connectors,
+        List<PartEngine> engines) {
 
     public static final int MAX_SIDE = 9;
     public static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
@@ -47,13 +48,16 @@ public record BakedPart(
             PartType.CODEC.listOf().xmap(Set::copyOf, types -> types.stream().sorted().toList())
                     .fieldOf("types").forGetter(BakedPart::types),
             SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale),
-            PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors)
-    ).apply(instance, BakedPart::new));
+            PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors),
+            PartEngine.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("engines").forGetter(part -> Optional.of(part.engines()))
+    ).apply(instance, BakedPart::fromSaved));
 
     private static final StreamCodec<ByteBuf, BlockPartProperties> PROPERTIES_STREAM =
             ByteBufCodecs.fromCodec(BlockPartProperties.CODEC);
     private static final StreamCodec<FriendlyByteBuf, List<PartConnector>> CONNECTOR_STREAM =
             PartConnector.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
+    private static final StreamCodec<FriendlyByteBuf, List<PartEngine>> ENGINE_STREAM =
+            PartEngine.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
     public static final StreamCodec<FriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
         buffer.writeVarInt(part.blocks().size());
         for (StructureBlock block : part.blocks()) {
@@ -71,6 +75,7 @@ public record BakedPart(
         buffer.writeEnumSet(types, PartType.class);
         buffer.writeFloat(part.scale());
         CONNECTOR_STREAM.encode(buffer, part.connectors());
+        ENGINE_STREAM.encode(buffer, part.engines());
     }, buffer -> {
         int size = buffer.readVarInt();
         if (size < 1 || size > MAX_BLOCKS) {
@@ -85,7 +90,7 @@ public record BakedPart(
         return new BakedPart(new Geometry(blocks), PROPERTIES_STREAM.decode(buffer), buffer.readVec3(),
                 new InertiaTensor(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
                         buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
-                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer));
+                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer), ENGINE_STREAM.decode(buffer));
     });
 
     public BakedPart {
@@ -95,6 +100,22 @@ public record BakedPart(
         types = Set.copyOf(types);
         // Derive the stored size for older items and whenever an item changes scale.
         connectors = connectors.stream().map(connector -> connector.atScale(scale)).toList();
+        engines = List.copyOf(engines);
+    }
+
+    private static BakedPart fromSaved(Geometry geometry, BlockPartProperties properties, Vec3 center,
+            InertiaTensor inertia, Set<PartType> types, float scale, List<PartConnector> connectors,
+            Optional<List<PartEngine>> engines) {
+        return engines.map(list -> new BakedPart(geometry, properties, center, inertia, types, scale, connectors, list))
+                .orElseGet(() -> new BakedPart(geometry, properties, center, inertia, types, scale, connectors));
+    }
+
+    public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
+            Set<PartType> types, float scale, List<PartConnector> connectors) {
+        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, types.contains(PartType.ENGINE)
+                ? PartEngine.legacy(geometry, new EnginePerformance(properties.thrust(), properties.vacuumSpecificImpulse(),
+                        properties.seaLevelSpecificImpulse()), properties.electricPower(), true)
+                : List.of());
     }
 
     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
@@ -107,7 +128,7 @@ public record BakedPart(
     }
 
     public BakedPart withScale(float newScale) {
-        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors);
+        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors, engines);
     }
 
     private static float migrateScale(float scale) {
@@ -158,26 +179,27 @@ public record BakedPart(
         }
         List<BlockPartProperties> contributions = blocks.stream()
                 .map(block -> BlockPartProperties.get(block.state())).toList();
+        boolean hasChamber = blocks.stream().anyMatch(block -> ModularEngines.isChamber(block.state()));
 
         double mass = 0;
-        double thrust = 0;
-        double vacuumFlow = 0;
-        double seaLevelFlow = 0;
+        double legacyThrust = 0;
+        var blockRatings = new ArrayList<EnginePerformance>();
         double drag = 0;
         double heat = Double.POSITIVE_INFINITY;
         double electricCapacity = 0;
         double electricPower = 0;
         double impactResistance = Double.POSITIVE_INFINITY;
         Map<ResourceLocation, Double> fuelCapacity = new HashMap<>();
-        for (BlockPartProperties contribution : contributions) {
+        for (int i = 0; i < contributions.size(); i++) {
+            BlockPartProperties contribution = contributions.get(i);
             mass += contribution.mass();
-            if (contribution.thrust() > 0) {
-                double combinedThrust = thrust + contribution.thrust();
-                electricPower = electricPower * (thrust / combinedThrust)
+            if (!hasChamber && contribution.thrust() > 0 && !(blocks.get(i).state().getBlock() instanceof NozzleSegmentBlock)) {
+                double combinedThrust = legacyThrust + contribution.thrust();
+                electricPower = electricPower * (legacyThrust / combinedThrust)
                         + contribution.electricPower() * (contribution.thrust() / combinedThrust);
-                thrust = combinedThrust;
-                vacuumFlow += contribution.thrust() / contribution.vacuumSpecificImpulse();
-                seaLevelFlow += contribution.thrust() / contribution.seaLevelSpecificImpulse();
+                legacyThrust = combinedThrust;
+                blockRatings.add(new EnginePerformance(contribution.thrust(), contribution.vacuumSpecificImpulse(),
+                        contribution.seaLevelSpecificImpulse()));
             }
             drag += contribution.dragCoefficient();
             if (contribution.heatResistance() > 0) {
@@ -187,9 +209,18 @@ public record BakedPart(
             impactResistance = Math.min(impactResistance, contribution.impactResistance());
             contribution.fuelCapacity().forEach((fuel, amount) -> fuelCapacity.merge(fuel, amount, Double::sum));
         }
-        double vacuumIsp = vacuumFlow == 0 ? 0 : thrust / vacuumFlow;
-        double seaLevelIsp = seaLevelFlow == 0 ? 0 : thrust / seaLevelFlow;
-        if (!finite(mass, thrust, vacuumIsp, seaLevelIsp, drag, electricCapacity, electricPower)
+        List<PartEngine> engines;
+        EnginePerformance rating;
+        if (hasChamber) {
+            engines = ModularEngines.bake(blocks);
+            rating = EnginePerformance.combine(engines.stream().map(PartEngine::performance).toList());
+            electricPower = engines.stream().mapToDouble(PartEngine::electricPower).sum();
+        } else {
+            rating = EnginePerformance.combine(blockRatings);
+            engines = PartEngine.legacy(geometry, rating, electricPower, false);
+        }
+        if (!finite(mass, rating.thrust(), rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(),
+                drag, electricCapacity, electricPower)
                 || fuelCapacity.values().stream().anyMatch(value -> !Double.isFinite(value))) {
             return Optional.empty();
         }
@@ -224,10 +255,11 @@ public record BakedPart(
             return Optional.empty();
         }
 
-        BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
-                drag, Double.isFinite(heat) ? heat : 0, electricCapacity, electricPower, impactResistance);
+        BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, rating.thrust(), rating.vacuumSpecificImpulse(),
+                rating.seaLevelSpecificImpulse(), drag, Double.isFinite(heat) ? heat : 0, electricCapacity, electricPower,
+                impactResistance);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
-                PartType.classify(structure.values()), scales.getFirst(), connectors));
+                PartType.classify(structure.values(), !engines.isEmpty()), scales.getFirst(), connectors, engines));
     }
 
     private static boolean finite(double... values) {

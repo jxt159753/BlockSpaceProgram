@@ -78,6 +78,8 @@ public final class BakingTableBlock extends Block {
             part = BakedPart.bake(structure).orElse(null);
         } catch (PartConnector.InvalidConnector error) {
             return reject(player, "connector_" + error.reason, error.pos.toShortString());
+        } catch (ModularEngines.SharedNozzle error) {
+            return reject(player, "shared_nozzle");
         }
         if (part == null) {
             return reject(player, "invalid_properties");

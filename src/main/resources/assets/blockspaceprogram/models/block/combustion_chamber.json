@@ -1,0 +1,43 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {"particle":"blockspaceprogram:block/combustion_chamber","body":"blockspaceprogram:block/combustion_chamber"},
+  "elements": [
+    {
+      "name": "Mounting flange",
+      "from": [0,12,0],
+      "to": [16,16,16],
+      "faces": {
+        "north": {"uv":[0,8,8,16],"texture":"#body"},
+        "east": {"uv":[0,8,8,16],"texture":"#body"},
+        "south": {"uv":[0,8,8,16],"texture":"#body"},
+        "west": {"uv":[0,8,8,16],"texture":"#body"},
+        "up": {"uv":[0,8,8,16],"texture":"#body","cullface":"up"},
+        "down": {"uv":[0,8,8,16],"texture":"#body"}
+      }
+    },
+    {
+      "name": "Copper chamber",
+      "from": [1,4,1],
+      "to": [15,12,15],
+      "faces": {
+        "north": {"uv":[0,0,16,8],"texture":"#body"},
+        "east": {"uv":[0,0,16,8],"texture":"#body"},
+        "south": {"uv":[0,0,16,8],"texture":"#body"},
+        "west": {"uv":[0,0,16,8],"texture":"#body"},
+        "down": {"uv":[0,8,8,16],"texture":"#body"}
+      }
+    },
+    {
+      "name": "Outlet collar",
+      "from": [3,0,3],
+      "to": [13,4,13],
+      "faces": {
+        "north": {"uv":[8,8,16,16],"texture":"#body"},
+        "east": {"uv":[8,8,16,16],"texture":"#body"},
+        "south": {"uv":[8,8,16,16],"texture":"#body"},
+        "west": {"uv":[8,8,16,16],"texture":"#body"},
+        "down": {"uv":[8,8,16,16],"texture":"#body"}
+      }
+    }
+  ]
+}

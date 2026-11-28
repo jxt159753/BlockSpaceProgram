@@ -25,6 +25,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3d;
+import org.joml.Vector3dc;
 import org.lwjgl.glfw.GLFW;
 
 final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
@@ -34,7 +36,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private static final int INVENTORY_COLUMNS = 12;
     private static final int SLOT = 18;
     private static final int CHIP = 15;
-    private static final int STATS = 35;
+    private static final int STATS = 46;
     private static final int WHITE = 0xFFF1F5FB;
     private static final int MUTED = 0xFFAEBECF;
     private static final int OVER_LIMIT = 0xFFFF7D7D;
@@ -204,7 +206,10 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private void drawStatus(GuiGraphics graphics, @Nullable ShipPlacement.Result preview) {
         Component status = menu.message();
         int color = MUTED;
-        if (preview != null && preview.error() != null && !menu.design().nodes().isEmpty()) {
+        var noticeColor = status == null ? null : status.getStyle().getColor();
+        if (noticeColor != null) {
+            color = 0xFF000000 | noticeColor.getValue();
+        } else if (preview != null && preview.error() != null && !menu.design().nodes().isEmpty()) {
             status = text(preview.error());
             color = 0xFFFFC28A;
         } else if (status == null) {
@@ -262,6 +267,8 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             graphics.drawString(font, text("delta_v", value(card.performance().deltaV(), 1)), stageLeft + 5, y + 15, 0xFFACDDFF);
             graphics.drawString(font, text("stage_stats", value(card.performance().thrustToWeight(), 2),
                     value(card.performance().burnTime(), 1)), stageLeft + 5, y + 25, MUTED);
+            graphics.drawString(font, text("stage_thrust_direction", thrustDirection(card.performance().thrust())),
+                    stageLeft + 5, y + 36, MUTED);
             y += STATS;
             for (StageAction action : card.actions()) {
                 graphics.fill(stageLeft + 3, y, right - 3, y + CHIP - 2,
@@ -277,6 +284,19 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             int top = VIEW_TOP + (height - thumb) * stageScroll / maxScroll();
             graphics.fill(right - 2, top, right, top + thumb, 0xFF768AA4);
         }
+    }
+
+    private static Component thrustDirection(Vector3dc thrust) {
+        if (thrust.lengthSquared() == 0) {
+            return Component.literal("—");
+        }
+        int axes = (thrust.x() != 0 ? 1 : 0) + (thrust.y() != 0 ? 1 : 0) + (thrust.z() != 0 ? 1 : 0);
+        if (axes == 1) {
+            Direction side = Direction.getNearest(thrust.x(), thrust.y(), thrust.z());
+            return Component.translatable("direction.blockspaceprogram." + side.getName());
+        }
+        var unit = thrust.normalize(new Vector3d());
+        return Component.literal("(" + value(unit.x, 2) + ", " + value(unit.y, 2) + ", " + value(unit.z, 2) + ")");
     }
 
     private int maxScroll() {

@@ -63,10 +63,14 @@ public final class WorldPartPlacement {
             return InteractionResult.FAIL;
         }
         if (context.getLevel() instanceof ServerLevel level) {
-            if (spawnPart(level, player, context.getHand(), part, preview.placements().getFirst()) == null) {
+            var placed = spawnPart(level, player, context.getHand(), part, preview.placements().getFirst());
+            if (placed == null) {
                 return InteractionResult.FAIL;
             }
             takePart(player, context.getHand());
+            if (ExhaustWarning.blocked(placed)) {
+                report(player, ExhaustWarning.MESSAGE);
+            }
         }
         return InteractionResult.sidedSuccess(context.getLevel().isClientSide);
     }
@@ -214,6 +218,9 @@ public final class WorldPartPlacement {
             return;
         }
         data.connect(level, group, target, children, placements.stream().map(Placement::link).toList());
+        if (children.stream().anyMatch(ExhaustWarning::blocked)) {
+            report(player, ExhaustWarning.MESSAGE);
+        }
     }
 
     private static boolean payForPlacement(Player player, InteractionHand hand, ItemStack sample, int count, boolean consume) {
