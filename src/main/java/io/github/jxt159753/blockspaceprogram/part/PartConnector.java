@@ -27,7 +27,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.registries.datamaps.DataMapType;
 import net.neoforged.neoforge.registries.datamaps.RegisterDataMapTypesEvent;
 
-/** A planar rectangle in unscaled baked model coordinates. Stack connectors are square. */
+/** A planar rectangle in unscaled baked model coordinates. Stack connectors are solid or open squares. */
 public record PartConnector(Kind kind, Vec3 center, Direction normal, int width, int height, int sizeQuarters) {
     private static final Codec<Integer> SIDE = Codec.intRange(1, BakedPart.MAX_SIDE);
     private static final int MAX_SIZE_QUARTERS = BakedPart.MAX_SIDE * 4;
@@ -132,11 +132,14 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
             Direction normal = state.getValue(BlockStateProperties.FACING);
             Direction u = tangent(normal);
             Direction v = secondTangent(normal);
-            int minU = u.getAxis().choose(start.getX(), start.getY(), start.getZ());
-            int minV = v.getAxis().choose(start.getX(), start.getY(), start.getZ());
+            int startU = u.getAxis().choose(start.getX(), start.getY(), start.getZ());
+            int startV = v.getAxis().choose(start.getX(), start.getY(), start.getZ());
+            int minU = startU;
+            int minV = startV;
             int maxU = minU;
             int maxV = minV;
             int count = 0;
+            BlockPos mixed = null;
             ArrayDeque<BlockPos> pending = new ArrayDeque<>();
             pending.add(start);
             while (!pending.isEmpty()) {
@@ -159,9 +162,10 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
                     if (other != null && other.getBlock() instanceof PartConnectorBlock next
                             && other.getValue(BlockStateProperties.FACING) == normal) {
                         if (next.kind() != marker.kind()) {
-                            throw new InvalidConnector(adjacent, "mixed");
-                        }
-                        if (seen.add(adjacent)) {
+                            if (mixed == null) {
+                                mixed = adjacent;
+                            }
+                        } else if (seen.add(adjacent)) {
                             pending.add(adjacent);
                         }
                     }
@@ -169,18 +173,39 @@ public record PartConnector(Kind kind, Vec3 center, Direction normal, int width,
             }
             int width = maxU - minU + 1;
             int height = maxV - minV + 1;
-            if (count != width * height || marker.kind().isStack() && width != height) {
+            boolean stack = marker.kind().isStack();
+            BlockPos corner = start.relative(u, minU - startU).relative(v, minV - startV);
+            boolean complete = count == width * height;
+            if (stack && width == height && width >= 3 && count == 4 * (width - 1)) {
+                // With an empty interior, the perimeter count guarantees every edge position is filled.
+                checkOpenInterior(structure, corner, u, v, width);
+                complete = true;
+            }
+            if (mixed != null) {
+                throw new InvalidConnector(mixed, "mixed");
+            }
+            if (!complete || stack && width != height) {
                 throw new InvalidConnector(start, "shape");
             }
-            double offsetU = (minU + maxU) / 2.0 - u.getAxis().choose(start.getX(), start.getY(), start.getZ());
-            double offsetV = (minV + maxV) / 2.0 - v.getAxis().choose(start.getX(), start.getY(), start.getZ());
-            Vec3 center = Vec3.atCenterOf(start.subtract(origin))
+            Vec3 center = Vec3.atCenterOf(corner.subtract(origin))
                     .add(Vec3.atLowerCornerOf(normal.getNormal()).scale(0.5))
-                    .add(Vec3.atLowerCornerOf(u.getNormal()).scale(offsetU))
-                    .add(Vec3.atLowerCornerOf(v.getNormal()).scale(offsetV));
+                    .add(Vec3.atLowerCornerOf(u.getNormal()).scale((width - 1) / 2.0))
+                    .add(Vec3.atLowerCornerOf(v.getNormal()).scale((height - 1) / 2.0));
             connectors.add(new PartConnector(marker.kind(), center, normal, width, height));
         }
         return List.copyOf(connectors);
+    }
+
+    private static void checkOpenInterior(Map<BlockPos, BlockState> structure, BlockPos corner,
+            Direction u, Direction v, int width) {
+        for (int i = 1; i < width - 1; i++) {
+            for (int j = 1; j < width - 1; j++) {
+                BlockPos pos = corner.relative(u, i).relative(v, j);
+                if (structure.containsKey(pos)) {
+                    throw new InvalidConnector(pos, "shape");
+                }
+            }
+        }
     }
 
     static final class InvalidConnector extends IllegalArgumentException {

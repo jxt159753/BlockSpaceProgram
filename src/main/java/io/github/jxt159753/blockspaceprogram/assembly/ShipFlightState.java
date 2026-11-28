@@ -4,7 +4,6 @@ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody.SolidBlock;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout;
 import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
-import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.PartBox;
 import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import java.util.ArrayList;
@@ -56,15 +55,19 @@ final class ShipFlightState {
         this.stage = stage;
         damagedParts = savedDamage & ((1L << count) - 1);
         int[] groups = StagePerformance.tankGroups(design);
-        double dryMass = 0;
+        double dryMass = design.nodes().stream().mapToDouble(ShipDesign.Node::dryMass).sum();
+        if (!Double.isFinite(dryMass)) {
+            throw new IllegalArgumentException("A flying ship needs finite dry mass");
+        }
+        // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
+        double extraMass = flightDryMass(dryMass) - dryMass;
         double weakest = Double.POSITIVE_INFINITY;
         long pods = 0;
-        List<PartBox> wetParts = new ArrayList<>(count);
+        cells = new LinkedHashMap<>();
         var hullBlocks = new LinkedHashMap<BlockPos, SolidBlock>();
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
             int index = branch.node();
             var node = design.nodes().get(index);
-            dryMass += node.dryMass();
             if (node.hull() != null) {
                 BlockPos origin = node.hullOrigin();
                 node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
@@ -78,12 +81,11 @@ final class ShipFlightState {
             double capacity = StagePerformance.fuelCapacity(node);
             fuel[index] = initialFuel(savedFuel, count, index, capacity, isDamaged(index));
 
-            var dry = PartBox.fromPart(part, node.pose().origin(), node.pose().rotation());
-            wetParts.add(new PartBox(dry.min(), dry.max(), dry.mass() + fuel[index]));
+            var partCells = ShipCollisionLayout.rasterize(part, node.pose().origin(), node.pose().rotation());
+            ShipCollisionLayout.addPart(cells, partCells, properties.mass() + fuel[index] + extraMass);
+            extraMass = 0;
             if (capacity > 0) {
-                var tankCells = new ArrayList<BlockPos>();
-                dry.coveredCells().forEach(pos -> tankCells.add(pos.immutable()));
-                tanks.add(new Tank(index, group, tankCells));
+                tanks.add(new Tank(index, group, partCells));
             }
             if (hasEngine(node)) {
                 engines.add(engine(node, index, group));
@@ -99,20 +101,10 @@ final class ShipFlightState {
             double z = bounds.getZsize();
             projectedDragArea.fma(properties.dragCoefficient(), new Vector3d(y * z, x * z, x * y));
         }
-        if (!Double.isFinite(dryMass)) {
-            throw new IllegalArgumentException("A flying ship needs finite dry mass");
+        if (extraMass > 0) {
+            var first = hullBlocks.firstEntry();
+            hullBlocks.put(first.getKey(), new SolidBlock(first.getValue().state(), extraMass));
         }
-        if (dryMass == 0) {
-            // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
-            if (wetParts.isEmpty()) {
-                var first = hullBlocks.firstEntry();
-                hullBlocks.put(first.getKey(), new SolidBlock(first.getValue().state(), flightDryMass(dryMass)));
-            } else {
-                PartBox first = wetParts.getFirst();
-                wetParts.set(0, new PartBox(first.min(), first.max(), first.mass() + flightDryMass(dryMass)));
-            }
-        }
-        cells = ShipCollisionLayout.rasterize(wetParts);
         hull = hullBlocks;
         seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
         weakestPart = weakest;
@@ -394,16 +386,13 @@ final class ShipFlightState {
             return false;
         }
         fuel[tank.part] = remaining;
-        double deltaPerCell = change / tank.cells.size();
-        for (BlockPos pos : tank.cells) {
-            body.changeCellMass(pos, cells.get(pos), deltaPerCell);
-        }
+        tank.cells.forEach((pos, cell) -> body.changeCellMass(pos, cells.get(pos), change * cell.mass()));
         return true;
     }
 
     private record ImpactPart(AABB bounds, double resistance) {}
 
-    private record Tank(int part, int group, List<BlockPos> cells) {}
+    private record Tank(int part, int group, Map<BlockPos, Cell> cells) {}
 
     private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
 }
