@@ -7,6 +7,11 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class ShipServerConfig {
     public static final ModConfigSpec SPEC;
     public static final FacilityConfig FACILITY;
+    public static final ModConfigSpec.BooleanValue WEB_PREVIEW_ENABLED;
+    public static final ModConfigSpec.ConfigValue<String> WEB_PREVIEW_ADDRESS;
+    public static final ModConfigSpec.IntValue WEB_PREVIEW_PORT;
+    public static final ModConfigSpec.EnumValue<WebPreviewScope> WEB_PREVIEW_VISIBILITY;
+    public static final ModConfigSpec.IntValue WEB_PREVIEW_MAX_CONNECTIONS;
     static final ModConfigSpec.IntValue MAX_DEBRIS;
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
@@ -67,10 +72,24 @@ public final class ShipServerConfig {
         STAR_SYSTEM_SEED = builder.comment("A signed 64-bit decimal seed. Leave blank to derive it from the world seed.")
                 .define("seed", "", ShipServerConfig::validStarSystemSeed);
         builder.pop();
+        builder.comment("Read-only orbit preview, applied at server startup.").push("webPreview");
+        WEB_PREVIEW_ENABLED = builder.define("enabled", false);
+        WEB_PREVIEW_ADDRESS = builder.comment("HTTP listening address.")
+                .define("bindAddress", "127.0.0.1", value -> value instanceof String address && !address.isBlank());
+        WEB_PREVIEW_PORT = builder.comment("HTTP listening port.").defineInRange("port", 8765, 1, 65535);
+        WEB_PREVIEW_VISIBILITY = builder.comment("Show PUBLIC ships only, or ALL ships.")
+                .defineEnum("visibility", WebPreviewScope.PUBLIC);
+        WEB_PREVIEW_MAX_CONNECTIONS = builder.comment("Maximum simultaneous browser event streams.")
+                .defineInRange("maxConnections", 16, 1, 256);
+        builder.pop();
         SPEC = builder.build();
     }
 
     private ShipServerConfig() {}
+
+    public enum WebPreviewScope {
+        PUBLIC, ALL
+    }
 
     public static double orbitEntryDistance() {
         return ORBIT_ENTRY_DISTANCE.get();

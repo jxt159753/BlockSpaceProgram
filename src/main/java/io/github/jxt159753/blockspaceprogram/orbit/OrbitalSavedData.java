@@ -40,6 +40,7 @@ public final class OrbitalSavedData extends SavedData {
     private final Map<UUID, ShipFlightControls> handoffControls = new HashMap<>();
     private final Set<UUID> activeShips = new HashSet<>();
     private final Set<UUID> changes = new HashSet<>();
+    private Set<UUID> lastChanges = Set.of();
     private long orbitTicks;
 
     OrbitalSavedData(StarSystem starSystem) {
@@ -240,9 +241,14 @@ public final class OrbitalSavedData extends SavedData {
     }
 
     Set<UUID> takeChanges() {
-        Set<UUID> updated = Set.copyOf(changes);
+        lastChanges = Set.copyOf(changes);
         changes.clear();
-        return updated;
+        return lastChanges;
+    }
+
+    /** Changes committed by the orbital tick, for later server tick listeners. */
+    public Set<UUID> lastChanges() {
+        return lastChanges;
     }
 
     private void index(OrbitingShip ship) {
