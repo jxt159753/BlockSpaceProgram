@@ -99,7 +99,7 @@ final class ShipDocking {
         for (var node : incoming.nodes()) {
             var pose = node.pose().in(frame);
             if (node.hull() == null) {
-                nodes.add(new Node(node.part(), pose, node.engineStage() < 0 ? -1 : node.engineStage() + stageOffset));
+                nodes.add(node.reframe(pose, stage -> stage + stageOffset));
             } else {
                 nodes.add(Node.hull(node.hull().rotate(rotation), BlockPos.containing(pose.position())));
             }

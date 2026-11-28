@@ -4,6 +4,7 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyMenu;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking;
 import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking.Action;
+import io.github.jxt159753.blockspaceprogram.assembly.ParachuteDeployment;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipPlacement;
 import io.github.jxt159753.blockspaceprogram.assembly.StagePerformance;
@@ -230,12 +231,6 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
         for (int i = 0; i < design.stageCount(); i++) {
             actions.add(new ArrayList<>());
         }
-        for (int node = 0; node < design.nodes().size(); node++) {
-            int stage = design.nodes().get(node).engineStage();
-            if (stage >= 0) {
-                actions.get(stage).add(new StageAction(Action.MOVE_ENGINE, node, stage, text("engine_action", node + 1)));
-            }
-        }
         for (int link = 0; link < design.links().size(); link++) {
             var edge = design.links().get(link);
             if (edge.separable()) {
@@ -243,16 +238,45 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
                 actions.get(stage).add(new StageAction(Action.MOVE_SEPARATOR, link, stage, text("separator_action", edge.second().node() + 1)));
             }
         }
+        for (int node = 0; node < design.nodes().size(); node++) {
+            int stage = design.nodes().get(node).engineStage();
+            if (stage >= 0) {
+                actions.get(stage).add(new StageAction(Action.MOVE_ENGINE, node, stage, text("engine_action", node + 1)));
+            }
+        }
+        for (int node = 0; node < design.nodes().size(); node++) {
+            int stage = design.nodes().get(node).parachuteStage();
+            if (stage >= 0) {
+                actions.get(stage).add(new StageAction(Action.MOVE_PARACHUTE, node, stage, text("parachute_action", node + 1)));
+            }
+        }
         List<StageCard> updated = new ArrayList<>();
         int y = 0;
         for (int stage = 0; stage < design.stageCount(); stage++) {
-            var card = new StageCard(stage, y, metrics.get(stage), actions.get(stage));
+            var performance = metrics.get(stage);
+            var stageActions = actions.get(stage);
+            var descent = stageActions.stream().anyMatch(action -> action.action() == Action.MOVE_PARACHUTE)
+                    ? parachuteDescent(performance) : null;
+            var card = new StageCard(stage, y, performance, descent, stageActions);
             updated.add(card);
             y += card.height() + 4;
         }
         cards = updated;
         stageContentHeight = y;
         stageScroll = Mth.clamp(stageScroll, 0, maxScroll());
+    }
+
+    private Component parachuteDescent(StagePerformance performance) {
+        double density = menu.seaLevelDensity();
+        if (density == 0) {
+            return text("parachute_no_atmosphere");
+        }
+        if (performance.parachuteArea() == 0) {
+            return text("parachute_none_retained");
+        }
+        double speed = ParachuteDeployment.terminalSpeed(performance.fullMass(), menu.surfaceGravity(),
+                density, performance.parachuteArea());
+        return text("parachute_descent", value(speed, 2));
     }
 
     private void drawStages(GuiGraphics graphics, int mouseY) {
@@ -269,10 +293,17 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
                     value(card.performance().burnTime(), 1)), stageLeft + 5, y + 25, MUTED);
             graphics.drawString(font, text("stage_thrust_direction", thrustDirection(card.performance().thrust())),
                     stageLeft + 5, y + 36, MUTED);
-            y += STATS;
+            if (card.descent() != null) {
+                graphics.drawString(font, card.descent(), stageLeft + 5, y + 46, 0xFFACDDFF);
+            }
+            y += card.statsHeight();
             for (StageAction action : card.actions()) {
-                graphics.fill(stageLeft + 3, y, right - 3, y + CHIP - 2,
-                        action.action() == Action.MOVE_ENGINE ? 0xFF365371 : 0xFF714D39);
+                int background = switch (action.action()) {
+                    case MOVE_ENGINE -> 0xFF365371;
+                    case MOVE_PARACHUTE -> 0xFF3D6256;
+                    default -> 0xFF714D39;
+                };
+                graphics.fill(stageLeft + 3, y, right - 3, y + CHIP - 2, background);
                 graphics.drawString(font, action.label(), stageLeft + 7, y + 2, WHITE);
                 y += CHIP;
             }
@@ -389,7 +420,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             }
             StageCard card = stageAt(x, y);
             if (card != null && !menu.readOnly()) {
-                int row = (int) y - (VIEW_TOP + card.top() - stageScroll) - STATS;
+                int row = (int) y - (VIEW_TOP + card.top() - stageScroll) - card.statsHeight();
                 if (row >= 0 && row / CHIP < card.actions().size()) {
                     dragged = card.actions().get(row / CHIP);
                     dragRevision = menu.revision();
@@ -499,9 +530,13 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
 
     private record StageAction(Action action, int index, int stage, Component label) {}
 
-    private record StageCard(int stage, int top, StagePerformance performance, List<StageAction> actions) {
+    private record StageCard(int stage, int top, StagePerformance performance, Component descent, List<StageAction> actions) {
+        int statsHeight() {
+            return STATS + (descent == null ? 0 : 11);
+        }
+
         int height() {
-            return STATS + actions.size() * CHIP + 2;
+            return statsHeight() + actions.size() * CHIP + 2;
         }
     }
 }

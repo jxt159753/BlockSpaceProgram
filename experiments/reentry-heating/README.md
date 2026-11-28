@@ -61,7 +61,7 @@
 
 ### 构建和无 Sable 验证
 
-在 `58b1f10` 上常规构建通过 119 项测试，启用原型的构建通过 125 项测试。Minecraft 1.21.1、NeoForge 21.1.267 无 Sable 专用服启动成功，试验返回舱为静态飞船。
+同步 `9655bb7` 的降落伞和 RCS 改动后，常规构建通过 124 项测试，启用原型的构建通过 130 项测试。Minecraft 1.21.1、NeoForge 21.1.267 无 Sable 专用服启动成功，试验返回舱为静态飞船。
 
 维护者确认采用五项 A。正式实现采用主世界通用阻尼为 0 的条件和候选倍率 2。 [阻尼前置 #147](https://github.com/jxt159753/BlockSpaceProgram/issues/147) · [正式实现 #148](https://github.com/jxt159753/BlockSpaceProgram/issues/148)
 

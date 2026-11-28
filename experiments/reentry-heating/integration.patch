@@ -59,7 +59,7 @@
          DOCK_DISTANCE = builder.comment("Maximum distance between docking port centers in metres.")
 --- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
 +++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
-@@ -39,6 +39,7 @@
+@@ -40,6 +40,7 @@
      private final Vec3 seat;
      private final Vector3d projectedDragArea = new Vector3d();
      private final ShipAerodynamics aerodynamics;
@@ -67,7 +67,7 @@
      private final double weakestPart;
      private final long commandPods;
      private int stage;
-@@ -73,7 +74,9 @@
+@@ -75,7 +76,9 @@
                  BlockPos origin = node.hullOrigin();
                  node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
                          new SolidBlock(material.state(), material.mass())));
@@ -78,7 +78,7 @@
                  continue;
              }
              var part = node.part();
-@@ -119,6 +122,8 @@
+@@ -121,6 +124,8 @@
          seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
          weakestPart = weakest;
          commandPods = pods;
@@ -87,33 +87,38 @@
      }
 
      static int initialStage(ShipDesign design) {
-@@ -219,7 +224,11 @@
-             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
-             remainingElectric.add(DoubleTag.valueOf(electric[part]));
+@@ -221,6 +226,9 @@
+         for (int index = 0; index < fuel.length; index++) {
+             updated.parachutes.copyNode(parachutes, index, index);
          }
--        return new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
-+        var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
++        if (reentryHeating != null) {
++            updated.reentryHeating.copyTemperatures(reentryHeating, 0);
++        }
+         return updated;
+     }
+
+@@ -238,6 +246,9 @@
+         var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
+         for (int index = 0; index < members.size(); index++) {
+             fragment.parachutes.copyNode(parachutes, members.get(index), index);
++        }
 +        if (reentryHeating != null) {
 +            fragment.reentryHeating.copyTemperatures(reentryHeating, members);
-+        }
-+        return fragment;
+         }
+         return fragment;
      }
-
-     ShipFlightState docked(ShipDesign design, ShipFlightState incoming) {
-@@ -227,7 +236,11 @@
-         var added = incoming.savePropellant();
-         combined.fuel().addAll(added.fuel());
-         combined.electric().addAll(added.electric());
--        return new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
-+        var docked = new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
+@@ -253,6 +264,10 @@
+         }
+         for (int index = 0; index < incoming.fuel.length; index++) {
+             docked.parachutes.copyNode(incoming.parachutes, index, fuel.length + index);
++        }
 +        if (reentryHeating != null) {
-+            docked.reentryHeating.copyTemperatures(reentryHeating, incoming.reentryHeating);
-+        }
-+        return docked;
++            docked.reentryHeating.copyTemperatures(reentryHeating, 0);
++            docked.reentryHeating.copyTemperatures(incoming.reentryHeating, fuel.length);
+         }
+         return docked;
      }
-
-     double wheelTorque() {
-@@ -269,13 +282,26 @@
+@@ -296,13 +311,26 @@
          pendingDamage |= hits;
      }
 
@@ -143,7 +148,7 @@
                  electric[part] = 0;
 --- a/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
 +++ b/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
-@@ -51,6 +51,7 @@
+@@ -52,6 +52,7 @@
  import org.joml.Quaterniondc;
  import org.joml.Vector3d;
  import org.joml.Vector3dc;
@@ -151,7 +156,7 @@
  import org.slf4j.Logger;
 
  import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
-@@ -94,6 +95,7 @@
+@@ -95,6 +96,7 @@
      private boolean airborne;
      private boolean landed;
      private int wheelSaturationSteps;
@@ -159,7 +164,7 @@
 
      private SableShipFlight(AssembledShipEntity ship, ShipCollisionBody body, ShipFlightState state, ShipDesign design) {
          this.ship = ship;
-@@ -139,7 +141,7 @@
+@@ -140,7 +142,7 @@
              var flights = LEVELS.get(event.getPhysicsSystem().getLevel());
              if (flights != null) {
                  for (SableShipFlight flight : flights.active.values()) {
@@ -168,7 +173,7 @@
                          flight.ship.setDamagedParts(flight.state.damagedParts());
                      }
                  }
-@@ -573,6 +575,10 @@
+@@ -574,6 +576,10 @@
          return state.aerodynamics();
      }
 
@@ -179,28 +184,28 @@
      int wheelSaturationSteps() {
          return wheelSaturationSteps;
      }
-@@ -768,6 +774,9 @@
+@@ -769,6 +775,9 @@
 
      void syncStatus() {
          ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage());
 +        if (state.reentryHeating() != null && ship.level().getGameTime() % 4 == 0) {
 +            ship.setReentryStatus(state.reentryHeating().heatRatio(), reentryWindward);
 +        }
+         ship.setParachuteStates(state.parachutes().snapshot());
      }
 
-     @Override
-@@ -1279,7 +1288,8 @@
+@@ -1297,7 +1306,8 @@
+         var pose = subLevel.logicalPose();
          var orientation = pose.orientation();
          checkRemoteControl();
-         double y = pose.position().y;
 -        var planet = PlanetFlightProperties.in(subLevel.getLevel());
 +        var profile = PlanetFlightProperties.profile(subLevel.getLevel().dimension().location());
 +        var planet = profile == null ? null : profile.flight();
-         double pressure = planet == null ? Math.max(0, DimensionPhysicsData.getAirPressure(subLevel.getLevel(), pose.position()))
-                 : planet.relativeDensityAt(y);
+         double pressure = relativeDensity(subLevel.getLevel(), planet, pose.position());
          double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
-@@ -1289,12 +1299,29 @@
-         var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
+         var gravityVector = gravityAt(planet, pose.position());
+@@ -1307,9 +1317,10 @@
+         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
          var drag = new Vector3d();
          Vector3d windward = null;
 +        double speed = 0;
@@ -211,7 +216,10 @@
              windward.div(speed);
              double force = 0.5 * density * state.dragArea(windward) * speed * speed;
              drag.set(windward).mul(-Math.min(force, mass * speed / seconds));
-+        }
+@@ -1318,6 +1329,22 @@
+         var parachuteMoment = new Vector3d();
+         stepParachutes(planet, pressure, density, seconds, linearVelocity, angularVelocity, drag.length(),
+                 parachuteForce, parachuteMoment);
 +        if (state.reentryHeating() != null) {
 +            var testVelocity = ReentryTrials.visualAirVelocity(ship);
 +            var heatDirection = windward;
@@ -227,12 +235,13 @@
 +            } else {
 +                reentryWindward.zero();
 +            }
-         }
++        }
          double hoverAcceleration = 0;
          double maxUpAcceleration = 0;
+         double maxThrustToWeight = 0;
 --- a/io/github/jxt159753/blockspaceprogram/assembly/AssembledShipEntity.java
 +++ b/io/github/jxt159753/blockspaceprogram/assembly/AssembledShipEntity.java
-@@ -33,6 +33,7 @@
+@@ -34,6 +34,7 @@
  import net.neoforged.neoforge.common.NeoForge;
  import org.jetbrains.annotations.Nullable;
  import org.joml.Vector3f;
@@ -240,9 +249,9 @@
  import org.slf4j.Logger;
 
  /** The launched ship retains its graph and stages across saves. */
-@@ -66,6 +67,11 @@
-     private static final EntityDataAccessor<Integer> THROTTLE_MODE = SynchedEntityData.defineId(
-             AssembledShipEntity.class, EntityDataSerializers.INT);
+@@ -69,6 +70,11 @@
+     private static final EntityDataAccessor<CompoundTag> PARACHUTES = SynchedEntityData.defineId(
+             AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
 
 +    private static final EntityDataAccessor<Float> REENTRY_HEAT = SynchedEntityData.defineId(
 +            AssembledShipEntity.class, EntityDataSerializers.FLOAT);
@@ -252,16 +261,16 @@
      private final ShipFlightControls flightControls = new ShipFlightControls();
      @Nullable
      private UUID owner;
-@@ -97,6 +103,8 @@
+@@ -100,6 +106,8 @@
          builder.define(ACTIVE_STAGE, -1);
          builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
          builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
 +        builder.define(REENTRY_HEAT, 0.0F);
 +        builder.define(REENTRY_WINDWARD, new Vector3f());
+         builder.define(PARACHUTES, new CompoundTag());
      }
 
-     @Nullable
-@@ -383,6 +391,19 @@
+@@ -399,6 +407,19 @@
          return ShipFlightControl.ThrottleMode.values()[entityData.get(THROTTLE_MODE)];
      }
 
@@ -295,7 +304,7 @@
                  }
 --- a/io/github/jxt159753/blockspaceprogram/client/ShipFlightClient.java
 +++ b/io/github/jxt159753/blockspaceprogram/client/ShipFlightClient.java
-@@ -97,6 +97,11 @@
+@@ -107,6 +107,11 @@
                              status.append("   ").append(Component.translatable("flight.blockspaceprogram.damage", damagedParts)
                                      .withStyle(ChatFormatting.RED));
                          }

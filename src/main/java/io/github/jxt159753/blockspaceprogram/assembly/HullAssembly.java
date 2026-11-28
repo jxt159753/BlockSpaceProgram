@@ -125,9 +125,9 @@ final class HullAssembly {
         for (var group : groups.entrySet()) {
             for (int i = 0; i < group.getValue().size(); i++) {
                 var part = group.getValue().get(i);
-                int stage = group.getKey().members().get(i).engineStage();
+                var member = group.getKey().members().get(i);
                 if (!part.isPickable() || !data.group(part).equals(group.getKey())
-                        || !node(part, origin, stage).equals(design.nodes().get(parts.indexOf(part)))) {
+                        || !node(part, origin, member).equals(design.nodes().get(parts.indexOf(part)))) {
                     ship.discard();
                     return message("world_group");
                 }
@@ -227,7 +227,7 @@ final class HullAssembly {
                 var part = members.get(i);
                 int index = parts.indexOf(part);
                 indices[i] = index;
-                nodes.set(index, node(part, origin, group.getKey().members().get(i).engineStage()));
+                nodes.set(index, node(part, origin, group.getKey().members().get(i)));
             }
             links.addAll(ShipDesign.remapLinks(group.getKey().links(), indices, Set.of()));
             stages = Math.max(stages, group.getKey().stageCount());
@@ -247,8 +247,8 @@ final class HullAssembly {
         return new ShipDesign(nodes, links, stages);
     }
 
-    private static ShipDesign.Node node(PlacedPartEntity part, Vec3 origin, int stage) {
-        return new ShipDesign.Node(part.part(), new PartPose(PartPose.snap(part.position().subtract(origin)), part.rotation()), stage);
+    private static ShipDesign.Node node(PlacedPartEntity part, Vec3 origin, WorldAssembly.Member member) {
+        return member.node(part, new PartPose(PartPose.snap(part.position().subtract(origin)), part.rotation()));
     }
 
     private static Component unsupported(BlockState state) {

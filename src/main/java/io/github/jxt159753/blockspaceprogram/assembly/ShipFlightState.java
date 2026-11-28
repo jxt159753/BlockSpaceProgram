@@ -29,6 +29,7 @@ final class ShipFlightState {
     private static final double MASSLESS_FRAGMENT_DRY_MASS = 0.01;
     private final List<Engine> engines = new ArrayList<>();
     private final List<Tank> tanks = new ArrayList<>();
+    private final ShipParachutes parachutes;
     private final double[] fuel;
     private final double[] electric;
     private final double[] groupFuel;
@@ -46,6 +47,7 @@ final class ShipFlightState {
 
     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
         int count = design.nodes().size();
+        parachutes = new ShipParachutes(design);
         fuel = new double[count];
         electric = new double[count];
         groupFuel = new double[count];
@@ -122,7 +124,9 @@ final class ShipFlightState {
                 .mapToInt(ShipDesign.Node::engineStage).min().orElse(0);
         int firstCut = design.links().stream().filter(link -> link.separationStage() >= 0)
                 .mapToInt(ShipDesign.Link::separationStage).min().orElse(design.stageCount());
-        return Math.min(engineStage, firstCut - 1);
+        int firstParachute = design.nodes().stream().mapToInt(ShipDesign.Node::parachuteStage)
+                .filter(stage -> stage >= 0).min().orElse(design.stageCount());
+        return Math.min(engineStage, Math.min(firstCut, firstParachute) - 1);
     }
 
     static double flightDryMass(double dryMass) {
@@ -204,6 +208,18 @@ final class ShipFlightState {
         this.stage = stage;
     }
 
+    ShipParachutes parachutes() {
+        return parachutes;
+    }
+
+    ShipFlightState withGraph(ShipDesign design, int stage) {
+        var updated = new ShipFlightState(design, savePropellant(), damagedParts, stage);
+        for (int index = 0; index < fuel.length; index++) {
+            updated.parachutes.copyNode(parachutes, index, index);
+        }
+        return updated;
+    }
+
     ShipFlightState fragment(ShipDesign design, List<Integer> members, int stage) {
         var remainingFuel = new ListTag();
         var remainingElectric = new ListTag();
@@ -215,7 +231,11 @@ final class ShipFlightState {
             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
             remainingElectric.add(DoubleTag.valueOf(electric[part]));
         }
-        return new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
+        var fragment = new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
+        for (int index = 0; index < members.size(); index++) {
+            fragment.parachutes.copyNode(parachutes, members.get(index), index);
+        }
+        return fragment;
     }
 
     ShipFlightState docked(ShipDesign design, ShipFlightState incoming) {
@@ -223,7 +243,14 @@ final class ShipFlightState {
         var added = incoming.savePropellant();
         combined.fuel().addAll(added.fuel());
         combined.electric().addAll(added.electric());
-        return new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
+        var docked = new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
+        for (int index = 0; index < fuel.length; index++) {
+            docked.parachutes.copyNode(parachutes, index, index);
+        }
+        for (int index = 0; index < incoming.fuel.length; index++) {
+            docked.parachutes.copyNode(incoming.parachutes, index, fuel.length + index);
+        }
+        return docked;
     }
 
     double wheelTorque() {
@@ -234,7 +261,7 @@ final class ShipFlightState {
         return damagedParts;
     }
 
-    private boolean isDamaged(int part) {
+    boolean isDamaged(int part) {
         return (damagedParts & (1L << part)) != 0;
     }
 

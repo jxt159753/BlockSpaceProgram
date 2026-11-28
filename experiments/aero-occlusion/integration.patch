@@ -67,12 +67,13 @@
      private final double weakestPart;
      private final long commandPods;
      private int stage;
-@@ -46,6 +47,7 @@
+@@ -47,7 +48,8 @@
      private long pendingDamage;
 
      ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
 +        aerodynamics = Boolean.getBoolean("bsp.aeroOcclusion.baseline") ? null : ShipAerodynamics.compute(design);
          int count = design.nodes().size();
+         parachutes = new ShipParachutes(design);
          fuel = new double[count];
          electric = new double[count];
 @@ -97,10 +99,12 @@
@@ -132,17 +133,17 @@
      }
 
      public Motion motion() {
-@@ -1183,6 +1192,7 @@
+@@ -1197,5 +1206,6 @@
          primary.flight.inputExpiresAt = inputExpiresAt;
-         primary.flight.airborne = airborne;
          primary.flight.landed = landed;
 +        primary.flight.wheelSaturationSteps = wheelSaturationSteps;
          ship.useFlightFragment(primary.layout, primary.flight);
          ship.setDockingState(primary.docking);
          detach();
-@@ -1269,12 +1279,13 @@
+@@ -1295,12 +1305,13 @@
          double mass = subLevel.getMassTracker().getMass();
          var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
+         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
          var drag = new Vector3d();
 +        Vector3d windward = null;
          if (density > 0 && linearVelocity.lengthSquared() > 0) {
@@ -157,8 +158,7 @@
 +            double force = 0.5 * density * state.dragArea(windward) * speed * speed;
 +            drag.set(windward).mul(-Math.min(force, mass * speed / seconds));
          }
-         double hoverAcceleration = 0;
-         double maxUpAcceleration = 0;
+         var parachuteForce = new Vector3d();
 @@ -1307,6 +1318,7 @@
              massData.getInertiaTensor().transform(wheel);
              double magnitude = wheel.length();

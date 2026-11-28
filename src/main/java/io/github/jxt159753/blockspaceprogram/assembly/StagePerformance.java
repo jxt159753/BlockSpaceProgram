@@ -8,7 +8,8 @@ import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
 /** Vacuum estimates with full tanks at launch and no fuel flow across a separable link. */
-public record StagePerformance(double deltaV, double thrustToWeight, double burnTime, Vector3dc thrust) {
+public record StagePerformance(double deltaV, double thrustToWeight, double burnTime, Vector3dc thrust,
+        double fullMass, double parachuteArea) {
     public static List<StagePerformance> calculate(ShipDesign design) {
         int count = design.nodes().size();
         double[] fuel = new double[count];
@@ -19,6 +20,7 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             electric[i] = electricCapacity(node);
         }
 
+        double[] fullTanks = fuel.clone();
         Set<Integer> detached = new HashSet<>();
         int[] group = tankGroups(design);
         List<StagePerformance> performance = new ArrayList<>(design.stageCount());
@@ -27,6 +29,8 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             double[] capacity = new double[count];
             var engines = new VacuumPropulsion.Builder(count);
             double wetMass = 0;
+            double fullMass = 0;
+            double parachuteArea = 0;
             double charge = 0;
             for (ShipDesign.Branch branch : attached) {
                 int index = branch.node();
@@ -34,6 +38,12 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
                 int tankGroup = group[index];
                 capacity[tankGroup] += fuel[index];
                 wetMass += node.dryMass() + fuel[index];
+                fullMass += node.dryMass() + fullTanks[index];
+                if (node.part() != null) {
+                    for (var parachute : node.part().parachutes()) {
+                        parachuteArea += parachute.performance().dragArea();
+                    }
+                }
                 charge += electric[index];
                 if (ShipFlightState.hasIgnited(node.engineStage(), stage)) {
                     addVacuumEngines(engines, tankGroup, node);
@@ -55,7 +65,7 @@ public record StagePerformance(double deltaV, double thrustToWeight, double burn
             var burn = propulsion.burnStage(separatingGroups);
             var thrust = propulsion.thrustVector();
             double thrustToWeight = wetMass > 0 ? thrust.length() / (wetMass * VacuumPropulsion.STANDARD_GRAVITY) : 0;
-            performance.add(new StagePerformance(burn.deltaV(), thrustToWeight, burn.seconds(), thrust));
+            performance.add(new StagePerformance(burn.deltaV(), thrustToWeight, burn.seconds(), thrust, fullMass, parachuteArea));
             double electricFraction = burn.electricFraction(charge);
             for (var branch : next) {
                 int i = branch.node();

@@ -1,0 +1,25 @@
+local ok, report = pcall(function()
+    local flight = assert(peripheral.find("bsp_flight_terminal"), "Flight terminal is missing")
+    local before = flight.getTelemetry()
+    assert(before.rcs == false, "RCS should start off")
+    assert(not pcall(flight.setTranslation, 1.1, 0, 0), "Invalid axis was accepted")
+    flight.setRcs(true)
+    flight.setTranslation(0.35, 0, 0)
+    sleep(1.5)
+    local after = flight.getTelemetry()
+    assert(after.rcs, "RCS is off")
+    assert(after.translation.x == 0.35 and after.translation.y == 0 and after.translation.z == 0,
+        "Translation telemetry did not match the command")
+    local moved = after.position.x - before.position.x
+    assert(moved > 0.03 and after.velocity.x > 0, "Ship did not move along +X")
+    flight.setTranslation(0, 0, 0)
+    flight.setRcs(false)
+    local stopped = flight.getTelemetry()
+    assert(not stopped.rcs and stopped.translation.x == 0, "RCS off telemetry did not update")
+    return ("translation=(%.2f,%.2f,%.2f) movedX=%.4fm speedX=%.4fm/s consumed=%.4fkg"):format(
+        after.translation.x, after.translation.y, after.translation.z, moved, after.velocity.x, before.fuel - after.fuel)
+end)
+
+local result = assert(fs.open("/rcs-result.txt", "w"))
+result.writeLine((ok and "PASS " or "FAIL ") .. tostring(report))
+result.close()

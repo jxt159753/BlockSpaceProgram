@@ -124,9 +124,8 @@ final class ReentryHeating {
         }
     }
 
-    void copyTemperatures(ReentryHeating primary, ReentryHeating incoming) {
-        System.arraycopy(primary.temperature, 0, temperature, 0, primary.temperature.length);
-        System.arraycopy(incoming.temperature, 0, temperature, primary.temperature.length, incoming.temperature.length);
+    void copyTemperatures(ReentryHeating previous, int offset) {
+        System.arraycopy(previous.temperature, 0, temperature, offset, previous.temperature.length);
     }
 
     static final class Sample {
