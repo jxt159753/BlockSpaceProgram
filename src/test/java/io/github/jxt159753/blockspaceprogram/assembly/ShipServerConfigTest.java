@@ -21,4 +21,18 @@ public class ShipServerConfigTest {
         assertEquals("18", config.get("star_system.seed"));
         assertTrue(ShipServerConfig.SPEC.isCorrect(config));
     }
+
+    @Test
+    public void onlyAcceptsSupportedMotherPlanetMapWidths() {
+        var config = CommentedConfig.inMemory();
+        ShipServerConfig.SPEC.correct(config);
+        assertEquals(1024, config.getInt("surface_map.mother_planet_width"));
+        for (int width : new int[] {512, 1024, 2048}) {
+            config.set("surface_map.mother_planet_width", width);
+            assertTrue(ShipServerConfig.SPEC.isCorrect(config));
+        }
+        config.set("surface_map.mother_planet_width", 1025);
+        ShipServerConfig.SPEC.correct(config);
+        assertEquals(1024, config.getInt("surface_map.mother_planet_width"));
+    }
 }

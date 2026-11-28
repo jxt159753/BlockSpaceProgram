@@ -2,9 +2,11 @@ package io.github.jxt159753.blockspaceprogram.sky;
 
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties.Appearance;
 import io.github.jxt159753.blockspaceprogram.client.PlanetSkyClient;
 import io.github.jxt159753.blockspaceprogram.orbit.Orbit;
 import io.github.jxt159753.blockspaceprogram.orbit.OrbitalRegion;
+import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapNetworking;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +25,7 @@ import net.neoforged.neoforge.event.OnDatapackSyncEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.NetworkRegistry;
 
 public final class SkyNetworking {
     private static final Map<ServerPlayer, OrbitalRegion.View> VIEWS = new WeakHashMap<>();
@@ -41,11 +44,20 @@ public final class SkyNetworking {
                 (payload, context) -> PlanetSkyClient.receiveAtmospheres(payload.planets()));
         registrar.playToClient(OrbitalView.TYPE, OrbitalView.CODEC,
                 (payload, context) -> PlanetSkyClient.receiveOrbitalView(payload));
+        registrar.optional().playToClient(Appearances.TYPE, Appearances.CODEC,
+                (payload, context) -> PlanetSkyClient.receiveAppearances(payload.planets()));
+        SurfaceMapNetworking.register(event);
     }
 
     private static void syncAtmospheres(OnDatapackSyncEvent event) {
         var payload = new Atmospheres(PlanetFlightProperties.all());
-        event.getRelevantPlayers().forEach(player -> PacketDistributor.sendToPlayer(player, payload));
+        var appearances = new Appearances(PlanetFlightProperties.appearances());
+        event.getRelevantPlayers().forEach(player -> {
+            PacketDistributor.sendToPlayer(player, payload);
+            if (NetworkRegistry.hasChannel(player.connection, Appearances.TYPE.id())) {
+                PacketDistributor.sendToPlayer(player, appearances);
+            }
+        });
     }
 
     private static void syncOrbitalViews(ServerTickEvent.Post event) {
@@ -81,6 +93,19 @@ public final class SkyNetworking {
 
         @Override
         public Type<Atmospheres> type() {
+            return TYPE;
+        }
+    }
+
+    private record Appearances(Map<ResourceLocation, Appearance> planets) implements CustomPacketPayload {
+        private static final Type<Appearances> TYPE = new Type<>(
+                ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "sky_appearance"));
+        private static final StreamCodec<FriendlyByteBuf, Appearances> CODEC = StreamCodec.composite(
+                ByteBufCodecs.map(HashMap::new, ResourceLocation.STREAM_CODEC, ByteBufCodecs.fromCodec(Appearance.CODEC)),
+                Appearances::planets, Appearances::new);
+
+        @Override
+        public Type<Appearances> type() {
             return TYPE;
         }
     }

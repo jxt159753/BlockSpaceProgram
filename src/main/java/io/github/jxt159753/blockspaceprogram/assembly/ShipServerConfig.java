@@ -26,6 +26,7 @@ public final class ShipServerConfig {
     private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SPACING;
     private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SHAPE;
     private static final ModConfigSpec.ConfigValue<String> STAR_SYSTEM_SEED;
+    private static final ModConfigSpec.ConfigValue<Integer> MOTHER_PLANET_SURFACE_MAP_WIDTH;
 
     static {
         var builder = new ModConfigSpec.Builder();
@@ -82,6 +83,12 @@ public final class ShipServerConfig {
         WEB_PREVIEW_MAX_CONNECTIONS = builder.comment("Maximum simultaneous browser event streams.")
                 .defineInRange("maxConnections", 16, 1, 256);
         builder.pop();
+        builder.push("surface_map");
+        MOTHER_PLANET_SURFACE_MAP_WIDTH = builder.comment("Surface map width for the mother planet: 512, 1024 or 2048.",
+                        "The height is half the width. Other bodies use 512 by 256.")
+                .define("mother_planet_width", 1024, value -> value instanceof Integer width
+                        && (width == 512 || width == 1024 || width == 2048));
+        builder.pop();
         SPEC = builder.build();
     }
 
@@ -113,6 +120,10 @@ public final class ShipServerConfig {
 
     public static String starSystemSeed() {
         return STAR_SYSTEM_SEED.get().trim();
+    }
+
+    public static int motherPlanetSurfaceMapWidth() {
+        return MOTHER_PLANET_SURFACE_MAP_WIDTH.get();
     }
 
     private static boolean validStarSystemSeed(Object value) {

@@ -312,5 +312,10 @@
   "web_preview.blockspaceprogram.page.disconnected": "连接已断开，正在重连",
   "web_preview.blockspaceprogram.page.unnamed": "飞船 %s",
   "web_preview.blockspaceprogram.page.body.minecraft:overworld": "母星",
-  "web_preview.blockspaceprogram.page.body.blockspaceprogram:moon": "卫星"
+  "web_preview.blockspaceprogram.page.body.blockspaceprogram:moon": "卫星",
+  "surface_map.blockspaceprogram.regenerate": "已安排重新生成 %s 个天体的颜色图。",
+  "surface_map.blockspaceprogram.no_regeneration": "当前没有可重新生成的颜色图。详情见服务端日志。",
+  "surface_map.blockspaceprogram.unknown_body": "天体系统中没有维度 %s。",
+  "surface_map.blockspaceprogram.unavailable": "维度 %s 暂无可用颜色图。",
+  "surface_map.blockspaceprogram.cell": "颜色图中 %s, %s 处的生物群系为 %s"
 }

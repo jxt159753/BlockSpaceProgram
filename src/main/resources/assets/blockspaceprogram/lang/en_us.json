@@ -312,5 +312,10 @@
   "web_preview.blockspaceprogram.page.disconnected": "Disconnected · reconnecting",
   "web_preview.blockspaceprogram.page.unnamed": "Ship %s",
   "web_preview.blockspaceprogram.page.body.minecraft:overworld": "Home planet",
-  "web_preview.blockspaceprogram.page.body.blockspaceprogram:moon": "Moon"
+  "web_preview.blockspaceprogram.page.body.blockspaceprogram:moon": "Moon",
+  "surface_map.blockspaceprogram.regenerate": "Queued surface map regeneration for %s celestial bodies.",
+  "surface_map.blockspaceprogram.no_regeneration": "No surface maps are eligible for regeneration. See the server log.",
+  "surface_map.blockspaceprogram.unknown_body": "No celestial body has the dimension ID %s.",
+  "surface_map.blockspaceprogram.unavailable": "No surface map is available for %s.",
+  "surface_map.blockspaceprogram.cell": "Surface map biome at %s, %s: %s"
 }
