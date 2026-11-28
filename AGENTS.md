@@ -32,7 +32,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 | `collision` | 零件碰撞体与碰撞格 |
 | `assembly` | 装配台、世界内组装、蓝图、飞船实体、飞行、着陆、分级、推进计算 |
 | `orbit` | 天体、开普勒传播、轨道存档、机动节点、飞船与轨道层的交接 |
-| `sky` | 天空数据同步 |
+| `sky` | 天空数据同步，天体颜色图的采样、缓存和发送 |
 | `client` | 界面、渲染、按键、客户端状态 |
 
 包之间只允许依赖表中位置更靠前的包。所有包都可以引用主类 `BlockSpaceProgram` 中的注册对象。
@@ -49,6 +49,17 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 - 船体方块只提供质量，取数据映射 `part_properties` 的 `mass`。推力、燃料容量这类功能属性只来自零件。
 - 船体节点不计入零件数上限。零件和船体节点合计不超过 63，因为损坏、起落架和指令舱的状态用 64 位 `long` 按节点下标记录。
 - 以后可能加大烘焙范围。船体区域的格式不绑定 `BakedPart.MAX_SIDE`，新代码也不按 9 格推算船体或飞船的范围。
+
+### 天体外观
+
+- 天体的地表颜色来自颜色图（#89、#102）。服务端在后台线程按生物群系采样，不加载区块。只有一种生物群系的天体不生成颜色图，例如自带的卫星，继续用程序化图案。
+- 颜色图在两端都有缓存：
+  - 服务端缓存在 `<存档目录>/blockspaceprogram/surface_maps/`，开服时抽样校验。
+  - 客户端缓存在 `<游戏目录>/blockspaceprogram/surface_maps/`（#90），保存服务端发来的原始生物群系网格，不保存上色后的贴图。
+- 颜色图按「清单加请求」发送。外观参数用 `sky_appearance` 载荷同步。这些载荷都在 `sky` 包中，用 `optional()` 注册。旧客户端和旧服务端都能连接。`sky_atmospheres` 载荷的格式不变。
+- 颜色图与程序化海陆按相机高度混合（#105）：低空用颜色图，高空用程序化海陆。混合只影响海陆从哪里来。大气层、云、海面反光和光照在各个高度都照常叠加。
+- 外观参数写在 `ship_flight` 文件的可选对象 `appearance` 中。它的记录类型与 `PlanetFlightProperties.Profile` 一起放在 `assembly` 包。字段都可选，缺省值等于着色器常量，不写 `appearance` 时画面不变。
+- 生物群系的地表颜色由数据映射 `blockspaceprogram:surface_color` 决定（#99），不放进 `appearance`，因为生物群系的颜色与天体无关。
 
 ### 与整合包的边界
 
@@ -76,6 +87,7 @@ BlockSpaceProgram 是 [BlockSpaceProgram 整合包](https://github.com/jxt159753
 
 - 玩家或整合包作者可能要调整的数值放在数据包或配置文件里，不写死在代码中。
 - 零件属性用数据映射 `data_maps/block/part_properties.json`，天体参数放在 `data/<命名空间>/ship_flight/<维度路径>.json`，修改后可用 `/reload` 生效。
+- 天体外观参数写在 `ship_flight` 文件的 `appearance` 对象中。生物群系的地表颜色用数据映射 `data_maps/worldgen/biome/surface_color.json`。
 - 服务器管理员调整的参数放在 `blockspaceprogram-server.toml`（`ModConfigSpec`）。
 
 ### 多语言
