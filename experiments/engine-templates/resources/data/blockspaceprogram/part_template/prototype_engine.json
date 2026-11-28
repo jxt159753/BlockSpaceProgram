@@ -1,0 +1,25 @@
+{
+  "size": [3, 2, 3],
+  "connectors": [
+    {
+      "kind": "stack",
+      "center": [1.5, 2, 1.5],
+      "normal": "up",
+      "width": 3,
+      "height": 3
+    }
+  ],
+  "nozzle": {
+    "face": "down",
+    "position": [1.5, 0, 1.5]
+  },
+  "properties": {
+    "mass": 220,
+    "thrust": 12000,
+    "vacuum_specific_impulse": 350,
+    "sea_level_specific_impulse": 235,
+    "drag_coefficient": 0.6,
+    "impact_resistance": 12
+  },
+  "display_model": "blockspaceprogram:part/template_engine"
+}

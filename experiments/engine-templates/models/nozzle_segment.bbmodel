@@ -1,0 +1,17 @@
+{
+  "meta": {"format_version": "5.0", "model_format": "java_block", "box_uv": false},
+  "name": "nozzle_segment",
+  "parent": "minecraft:block/block",
+  "ambientocclusion": true,
+  "resolution": {"width": 16, "height": 16},
+  "elements": [
+    {"name": "Shared plate", "type": "cube", "box_uv": false, "autouv": 0, "origin": [0, 0, 0], "export": true, "faces": {"north": {"uv": [0, 0, 16, 3], "texture": null}, "east": {"uv": [0, 0, 16, 3], "texture": null}, "south": {"uv": [0, 0, 16, 3], "texture": null}, "west": {"uv": [0, 0, 16, 3], "texture": null}, "up": {"uv": [0, 0, 16, 16], "texture": 1}, "down": {"uv": [0, 0, 16, 16], "texture": 2}}, "uuid": "bb13f237-5164-5f93-97e8-87f492632f9b", "from": [0, 13, 0], "to": [16, 16, 16]}
+  ],
+  "groups": [],
+  "outliner": ["bb13f237-5164-5f93-97e8-87f492632f9b"],
+  "textures": [
+    {"name": "smooth_basalt.png", "id": "smooth_basalt", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/smooth_basalt.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": true, "visible": true, "internal": false, "uuid": "5064c125-c056-54b2-a620-21acc68b9bcc"},
+    {"name": "iron_block.png", "id": "iron_block", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/iron_block.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": false, "visible": true, "internal": false, "uuid": "122ecd6d-3011-5ff8-8ce9-a6a3af232e2e"},
+    {"name": "polished_blackstone.png", "id": "polished_blackstone", "namespace": "minecraft", "folder": "block", "relative_path": "assets/minecraft/textures/block/polished_blackstone.png", "uv_width": 16, "uv_height": 16, "width": 16, "height": 16, "particle": false, "visible": true, "internal": false, "uuid": "8a7da371-e317-5970-aea1-4ebcb9100ee5"}
+  ]
+}

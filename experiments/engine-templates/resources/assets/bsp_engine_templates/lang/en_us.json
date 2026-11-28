@@ -1,0 +1,7 @@
+{
+  "block.blockspaceprogram.combustion_chamber": "Combustion Chamber",
+  "block.blockspaceprogram.nozzle_segment": "Nozzle Segment",
+  "assembly.blockspaceprogram.exhaust_blocked": "Exhaust blocked. Check staging.",
+  "block.blockspaceprogram.baking_table.shared_nozzle": "A nozzle can only connect to one combustion chamber.",
+  "block.blockspaceprogram.baking_table.template_disassembly": "A template part cannot be dismantled at the baking table."
+}

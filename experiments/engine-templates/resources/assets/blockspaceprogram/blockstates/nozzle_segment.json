@@ -1,0 +1,43 @@
+{
+  "multipart": [
+    {
+      "apply": {"model": "blockspaceprogram:block/nozzle_segment"}
+    },
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {"model": "blockspaceprogram:block/nozzle_segment_rim"}
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim",
+        "y": 90,
+        "uvlock": true
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim",
+        "y": 180,
+        "uvlock": true
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "blockspaceprogram:block/nozzle_segment_rim",
+        "y": 270,
+        "uvlock": true
+      }
+    }
+  ]
+}

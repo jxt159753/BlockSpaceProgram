@@ -1,0 +1,52 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "minecraft:block/smooth_basalt",
+    "cap": "minecraft:block/iron_block",
+    "side": "minecraft:block/smooth_basalt",
+    "inner": "minecraft:block/polished_blackstone"
+  },
+  "elements": [
+    {
+      "name": "Top flange edge",
+      "from": [0, 13, 0],
+      "to": [16, 16, 1],
+      "faces": {
+        "north": {"texture": "#cap"}
+      }
+    },
+    {
+      "name": "Outer shoulder",
+      "from": [0, 9, 3],
+      "to": [16, 13, 6],
+      "faces": {
+        "north": {"texture": "#side"},
+        "south": {"texture": "#inner"},
+        "down": {"texture": "#inner"},
+        "up": {"texture": "#cap"}
+      }
+    },
+    {
+      "name": "Exhaust wall",
+      "from": [0, 3, 1],
+      "to": [16, 9, 5],
+      "faces": {
+        "north": {"texture": "#side"},
+        "south": {"texture": "#inner"},
+        "down": {"texture": "#inner"},
+        "up": {"texture": "#cap"}
+      }
+    },
+    {
+      "name": "Lip",
+      "from": [0, 0, 0],
+      "to": [16, 3, 4],
+      "faces": {
+        "north": {"texture": "#cap"},
+        "south": {"texture": "#inner"},
+        "down": {"texture": "#cap"},
+        "up": {"texture": "#cap"}
+      }
+    }
+  ]
+}
