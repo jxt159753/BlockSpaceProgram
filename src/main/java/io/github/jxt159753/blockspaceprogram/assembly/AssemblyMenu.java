@@ -13,6 +13,7 @@ import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,6 +31,8 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     private WorldAssembly.Inspection worldView;
     private ShipDesign design = ShipDesign.EMPTY;
     private int revision;
+    private double seaLevelDensity;
+    private double surfaceGravity;
     @Nullable
     private Component message;
 
@@ -167,6 +170,14 @@ public final class AssemblyMenu extends AbstractContainerMenu {
         return revision;
     }
 
+    public double seaLevelDensity() {
+        return seaLevelDensity;
+    }
+
+    public double surfaceGravity() {
+        return surfaceGravity;
+    }
+
     public int maximumParts() {
         return maximumParts == 0 ? ShipDesign.MAX_PARTS : Math.min(maximumParts, ShipDesign.MAX_PARTS);
     }
@@ -183,6 +194,8 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     void receive(AssemblyNetworking.State state) {
         design = state.design();
         revision = state.revision();
+        seaLevelDensity = state.seaLevelDensity();
+        surfaceGravity = state.surfaceGravity();
         message = state.notice();
         if (message == null && !state.message().isEmpty()) {
             message = Component.translatable("assembly.blockspaceprogram." + state.message(), state.count());
@@ -270,6 +283,11 @@ public final class AssemblyMenu extends AbstractContainerMenu {
                     design = design.moveEngine(index, stage);
                 }
             }
+            case MOVE_PARACHUTE -> {
+                if (validStage(stage) && index >= 0 && index < design.nodes().size() && design.nodes().get(index).parachuteStage() >= 0) {
+                    design = design.moveParachute(index, stage);
+                }
+            }
             case MOVE_SEPARATOR -> {
                 if (validStage(stage) && index >= 0 && index < design.links().size() && design.links().get(index).separable()) {
                     design = design.moveSeparator(index, stage);
@@ -327,10 +345,28 @@ public final class AssemblyMenu extends AbstractContainerMenu {
     }
 
     private void sync(ServerPlayer player, String feedback, int count) {
-        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, feedback, count, null));
+        sync(player, feedback, count, null);
     }
 
     private void sync(ServerPlayer player, Component notice) {
-        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, "", 0, notice));
+        sync(player, "", 0, notice);
+    }
+
+    private void sync(ServerPlayer player, String feedback, int count, @Nullable Component notice) {
+        double density = 0;
+        double gravity = 0;
+        if (design.nodes().stream().anyMatch(node -> node.parachuteStage() >= 0)) {
+            var level = player.serverLevel();
+            var planet = PlanetFlightProperties.in(level);
+            if (planet != null && planet.hasAtmosphere()) {
+                density = planet.seaLevelDensity();
+                gravity = planet.surfaceGravity();
+            } else if (planet == null && ModList.get().isLoaded("sable")) {
+                density = SableShipFlight.referenceAirDensity(level);
+                gravity = SableShipFlight.referenceGravity(level);
+            }
+        }
+        PacketDistributor.sendToPlayer(player, new AssemblyNetworking.State(containerId, revision, design, feedback, count,
+                notice, density, gravity));
     }
 }

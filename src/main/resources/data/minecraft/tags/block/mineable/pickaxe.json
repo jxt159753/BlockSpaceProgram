@@ -8,6 +8,7 @@
     "blockspaceprogram:docking_interface",
     "blockspaceprogram:attachment_face",
     "blockspaceprogram:combustion_chamber",
-    "blockspaceprogram:nozzle_segment"
+    "blockspaceprogram:nozzle_segment",
+    "blockspaceprogram:parachute"
   ]
 }

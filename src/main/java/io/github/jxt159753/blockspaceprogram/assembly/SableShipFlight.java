@@ -39,6 +39,7 @@ import net.minecraft.util.Unit;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.portal.DimensionTransition;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -737,8 +738,8 @@ public final class SableShipFlight implements ShipFlightControl {
             stageRequested |= (pressedKeys & STAGE) != 0;
             pressedKeys = 0;
         }
-        syncStatus();
         updateFlightEvents();
+        syncStatus();
         if (stageRequested && !flights.frozenForWarp) {
             stageRequested = false;
             ShipFlightEvent event;
@@ -759,6 +760,7 @@ public final class SableShipFlight implements ShipFlightControl {
 
     void syncStatus() {
         ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage());
+        ship.setParachuteStates(state.parachutes().snapshot());
     }
 
     @Override
@@ -861,10 +863,11 @@ public final class SableShipFlight implements ShipFlightControl {
             electricDepleted = false;
             postFlightEvent(ShipFlightEvent.Kind.ELECTRIC_DEPLETED, state.stage());
         }
-        if (isDebris()) {
+        boolean debris = isDebris();
+        if (debris && state.parachutes().mounts().isEmpty()) {
             return;
         }
-        if (fuelDepleted) {
+        if (fuelDepleted && !debris) {
             fuelDepleted = false;
             postFlightEvent(ShipFlightEvent.Kind.FUEL_DEPLETED, state.stage());
         }
@@ -877,7 +880,10 @@ public final class SableShipFlight implements ShipFlightControl {
             landed = true;
             if (airborne) {
                 airborne = false;
-                postFlightEvent(ShipFlightEvent.Kind.LANDED, state.stage());
+                state.parachutes().recover();
+                if (!debris) {
+                    postFlightEvent(ShipFlightEvent.Kind.LANDED, state.stage());
+                }
             }
         }
     }
@@ -1071,7 +1077,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     private void updateGraph(ShipDesign updated, int stage, ShipDockingState docking) {
-        state = new ShipFlightState(updated, state.savePropellant(), state.damagedParts(), stage);
+        state = state.withGraph(updated, stage);
         ship.setFlightDesign(updated);
         ship.setDockingState(docking);
         syncStatus();
@@ -1145,6 +1151,7 @@ public final class SableShipFlight implements ShipFlightControl {
                         .mul(new Quaterniond(PartPose.orientation(frame.rotation()))).normalize();
                 var next = spawn(owner, level, layout, state.fragment(layout, members, projection.stage()),
                         vector(worldPoint(frame.position())), orientation);
+                next.airborne = airborne;
                 fragments.add(new Fragment(next, layout, indices, projection.state(), frame));
                 var center = next.body.subLevel().logicalPose().position();
                 var offset = center.sub(vector(previous.center()), new Vector3d());
@@ -1190,7 +1197,6 @@ public final class SableShipFlight implements ShipFlightControl {
         var primary = fragments.getFirst();
         primary.flight.keys = keys;
         primary.flight.inputExpiresAt = inputExpiresAt;
-        primary.flight.airborne = airborne;
         primary.flight.landed = landed;
         ship.useFlightFragment(primary.layout, primary.flight);
         ship.setDockingState(primary.docking);
@@ -1262,21 +1268,33 @@ public final class SableShipFlight implements ShipFlightControl {
         return planet == null ? flights.baseGravity : new Vector3d(0, -planet.gravityAt(position.y()), 0);
     }
 
+    private static double relativeDensity(ServerLevel level, @Nullable PlanetFlightProperties planet, Vector3dc position) {
+        return planet == null ? Math.max(0, DimensionPhysicsData.getAirPressure(level, position))
+                : planet.relativeDensityAt(position.y());
+    }
+
+    static double referenceAirDensity(ServerLevel level) {
+        return relativeDensity(level, null, new Vector3d(0, level.getSeaLevel(), 0)) * STANDARD_AIR_DENSITY;
+    }
+
+    static double referenceGravity(ServerLevel level) {
+        return DimensionPhysicsData.getGravity(level).length();
+    }
+
     private void step(double seconds) {
         var subLevel = body.subLevel();
         var pipeline = body.pipeline();
         var pose = subLevel.logicalPose();
         var orientation = pose.orientation();
         checkRemoteControl();
-        double y = pose.position().y;
         var planet = PlanetFlightProperties.in(subLevel.getLevel());
-        double pressure = planet == null ? Math.max(0, DimensionPhysicsData.getAirPressure(subLevel.getLevel(), pose.position()))
-                : planet.relativeDensityAt(y);
+        double pressure = relativeDensity(subLevel.getLevel(), planet, pose.position());
         double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
         var gravityVector = gravityAt(planet, pose.position());
         double gravity = gravityVector.length();
         double mass = subLevel.getMassTracker().getMass();
         var linearVelocity = pipeline.getLinearVelocity(subLevel, new Vector3d());
+        var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var drag = new Vector3d();
         if (density > 0 && linearVelocity.lengthSquared() > 0) {
             var velocity = orientation.transformInverse(linearVelocity, new Vector3d());
@@ -1285,12 +1303,17 @@ public final class SableShipFlight implements ShipFlightControl {
             double force = 0.5 * density * state.dragArea(velocity) * speed * speed;
             drag.set(velocity).mul(-Math.min(force, mass * speed / seconds));
         }
+        var parachuteForce = new Vector3d();
+        var parachuteMoment = new Vector3d();
+        stepParachutes(planet, pressure, density, seconds, linearVelocity, angularVelocity, drag.length(),
+                parachuteForce, parachuteMoment);
         double hoverAcceleration = 0;
         double maxUpAcceleration = 0;
         double maxThrustToWeight = 0;
         if (controls.needsThrustEstimate()) {
             var available = orientation.transform(state.availableThrust());
-            hoverAcceleration = -gravityVector.y() - orientation.transform(drag, new Vector3d()).y / mass;
+            var totalDrag = drag.add(parachuteForce, new Vector3d());
+            hoverAcceleration = -gravityVector.y() - orientation.transform(totalDrag).y / mass;
             maxUpAcceleration = available.y / mass;
             maxThrustToWeight = gravity > 0 ? available.length() / (mass * gravity) : 0;
         }
@@ -1305,8 +1328,9 @@ public final class SableShipFlight implements ShipFlightControl {
         var massData = subLevel.getMassTracker();
         var origin = body.plotOrigin();
         var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
+        impulse.fma(seconds, parachuteForce);
+        moment.fma(seconds, parachuteMoment);
         moment.sub(center.cross(impulse, new Vector3d()));
-        var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var podRotation = pilotRotation();
         // The local physics velocity omits the orbital frame's translation around the planet.
         var attitudeVelocity = orbitalGravity == null ? linearVelocity : vector(orbitalVelocity).add(linearVelocity);
@@ -1334,6 +1358,66 @@ public final class SableShipFlight implements ShipFlightControl {
         if (impulse.lengthSquared() > 0 || moment.lengthSquared() > 0) {
             pipeline.applyLinearAndAngularImpulse(subLevel, impulse, moment, powered);
         }
+    }
+
+    private void stepParachutes(@Nullable PlanetFlightProperties planet, double pressure, double density, double seconds,
+            Vector3dc linearVelocity, Vector3dc angularVelocity, double bodyDrag, Vector3d force, Vector3d moment) {
+        var mounts = state.parachutes().mounts();
+        if (mounts.isEmpty()) {
+            return;
+        }
+        var subLevel = body.subLevel();
+        var pose = subLevel.logicalPose();
+        var level = subLevel.getLevel();
+        var mass = subLevel.getMassTracker();
+        var origin = body.plotOrigin();
+        var center = new Vector3d(mass.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
+        var velocity = pose.orientation().transformInverse(linearVelocity, new Vector3d());
+        var spin = pose.orientation().transformInverse(angularVelocity, new Vector3d());
+        var docking = ship.dockingState();
+        for (var mount : mounts) {
+            boolean armed = mount.stage >= 0 && docking.actionStage(mount.node, state.stage()) >= mount.stage;
+            boolean disabled = landed || state.isDamaged(mount.node);
+            var arm = mount.point.sub(center, new Vector3d());
+            // Wind at the attachment includes its motion as the body rotates.
+            var airVelocity = spin.cross(arm, new Vector3d()).add(velocity);
+            double speed = airVelocity.length();
+            double height = Double.POSITIVE_INFINITY;
+            if (armed && !disabled && pressure > 0 && mount.deployment.readyForFull()) {
+                var position = pose.transformPosition(mount.point.add(origin.getX(), origin.getY(), origin.getZ(), new Vector3d()));
+                height = heightAboveGround(level, planet, position);
+            }
+            mount.deployment = mount.deployment.advance(mount.performance, armed, disabled, pressure, speed, height, seconds);
+            double area = mount.deployment.dragArea(mount.performance);
+            if (area > 0 && density > 0 && speed > 0) {
+                var direction = airVelocity.div(speed);
+                var lever = arm.cross(direction, new Vector3d());
+                double inverseMassAtMount = mass.getInverseMass()
+                        + lever.dot(mass.getInverseInertiaTensor().transform(new Vector3d(lever)));
+                double drag = Math.min(0.5 * density * speed * speed * area, speed / (seconds * inverseMassAtMount));
+                direction.mul(-drag);
+                force.add(direction);
+                moment.add(mount.point.cross(direction, new Vector3d()));
+            }
+        }
+        double speed = velocity.length();
+        if (speed > 0) {
+            // All parachutes share the braking budget left after hull drag.
+            double braking = -force.dot(velocity) / speed;
+            double remaining = Math.max(0, mass.getMass() * speed / seconds - bodyDrag);
+            if (braking > remaining) {
+                force.mul(remaining / braking);
+                moment.mul(remaining / braking);
+            }
+        }
+    }
+
+    private static double heightAboveGround(ServerLevel level, @Nullable PlanetFlightProperties planet, Vector3dc point) {
+        BlockPos pos = BlockPos.containing(point.x(), point.y(), point.z());
+        var chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+        double ground = chunk == null ? (planet == null ? level.getSeaLevel() : planet.seaLevel())
+                : chunk.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.getX() & 15, pos.getZ() & 15) + 1;
+        return point.y() - ground;
     }
 
     private record Fragment(SableShipFlight flight, ShipDesign layout, int[] indices, ShipDockingState docking, PartPose frame) {}

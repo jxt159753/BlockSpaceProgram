@@ -1,0 +1,508 @@
+{
+  "meta": {
+    "format_version": "5.0",
+    "model_format": "java_block",
+    "box_uv": false
+  },
+  "name": "parachute",
+  "parent": "minecraft:block/block",
+  "resolution": {
+    "width": 16,
+    "height": 16
+  },
+  "elements": [
+    {
+      "name": "Mounting plate",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        3,
+        16
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ],
+          "cullface": "down"
+        }
+      },
+      "uuid": "69162475-624d-57ce-8b6a-f29ec6452e90"
+    },
+    {
+      "name": "Deployment cradle",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        1,
+        3,
+        1
+      ],
+      "to": [
+        15,
+        8,
+        15
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            8,
+            8,
+            16,
+            16
+          ]
+        }
+      },
+      "uuid": "1d6d4f6e-4223-5cac-8336-dccd49291961"
+    },
+    {
+      "name": "Packed canvas",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        2,
+        8,
+        2
+      ],
+      "to": [
+        14,
+        14,
+        14
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            8,
+            0,
+            16,
+            8
+          ]
+        }
+      },
+      "uuid": "c091396e-10a4-529d-b155-b50bfd1edfa9"
+    },
+    {
+      "name": "Left retaining strap",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        3,
+        12,
+        1.75
+      ],
+      "to": [
+        5,
+        15,
+        14.25
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        }
+      },
+      "uuid": "f54bb797-2c3d-55fb-becb-ac83f839b732"
+    },
+    {
+      "name": "Right retaining strap",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        11,
+        12,
+        1.75
+      ],
+      "to": [
+        13,
+        15,
+        14.25
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            0,
+            8,
+            8,
+            16
+          ]
+        }
+      },
+      "uuid": "ebfbfdd8-9895-550c-8d80-bd5112c16b59"
+    },
+    {
+      "name": "Pull handle",
+      "type": "cube",
+      "box_uv": false,
+      "from": [
+        7,
+        14,
+        5
+      ],
+      "to": [
+        9,
+        16,
+        11
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "autouv": 0,
+      "faces": {
+        "north": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "east": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "south": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "west": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "up": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        },
+        "down": {
+          "texture": 0,
+          "uv": [
+            0,
+            0,
+            8,
+            8
+          ]
+        }
+      },
+      "uuid": "f6ca2e65-f27d-5d5d-a55a-79a29ab87a99"
+    }
+  ],
+  "groups": [],
+  "outliner": [
+    "69162475-624d-57ce-8b6a-f29ec6452e90",
+    "1d6d4f6e-4223-5cac-8336-dccd49291961",
+    "c091396e-10a4-529d-b155-b50bfd1edfa9",
+    "f54bb797-2c3d-55fb-becb-ac83f839b732",
+    "ebfbfdd8-9895-550c-8d80-bd5112c16b59",
+    "f6ca2e65-f27d-5d5d-a55a-79a29ab87a99"
+  ],
+  "textures": [
+    {
+      "name": "parachute.png",
+      "path": "assets/blockspaceprogram/textures/block/parachute.png",
+      "folder": "block",
+      "namespace": "blockspaceprogram",
+      "id": "pack",
+      "uv_width": 16,
+      "uv_height": 16,
+      "particle": true,
+      "internal": true,
+      "uuid": "c71b2bfb-4cb6-52d0-a323-01c676f09b0e",
+      "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAA3klEQVR42mNUN7BmwAbc/z7EKs7CwMBgamuHJnr68CEGBoYqNwk08bZdL1gYGBhuXbuO1bBbdz5jCjIxkAigGtS0NLFKq6nwYtFQUZ4Hd9XHt68ryvPg0uIyvLYOUhAEEWFUN7DmFxZFM+bj29fufx+GKHGjia+595UFIo3VPWvufcUSrB56bFhV37ijgTMeaioz0ERb2mcwMDBkxEagic9YvIKFgYHh/t0bWA3bduAw9eJBURm7i70cbLFrgLtq6aoDWF316PFT7E6KDnPAapWcrDQilNBMhQO4qcgAAIAGRNA6+AusAAAAAElFTkSuQmCC"
+    }
+  ]
+}

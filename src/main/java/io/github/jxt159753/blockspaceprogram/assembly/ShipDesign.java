@@ -96,29 +96,52 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         return (int) nodes.stream().filter(node -> node.part() != null).count();
     }
 
-    public record Node(@Nullable BakedPart part, PartPose pose, int engineStage, @Nullable HullRegion hull) {
+    public record Node(@Nullable BakedPart part, PartPose pose, int engineStage, int parachuteStage, @Nullable HullRegion hull) {
         private static final Codec<Node> CODEC = RecordCodecBuilder.<Node>create(instance -> instance.group(
                 BakedPart.CODEC.optionalFieldOf("part").forGetter(node -> Optional.ofNullable(node.part())),
                 PartPose.CODEC.fieldOf("pose").forGetter(Node::pose),
                 STAGE.optionalFieldOf("engine_stage", -1).forGetter(Node::engineStage),
+                STAGE.optionalFieldOf("parachute_stage", -1).forGetter(Node::parachuteStage),
                 HullRegion.CODEC.optionalFieldOf("hull").forGetter(node -> Optional.ofNullable(node.hull()))
-        ).apply(instance, (part, pose, stage, hull) -> new Node(part.orElse(null), pose, stage, hull.orElse(null))))
+        ).apply(instance, (part, pose, engine, parachute, hull) ->
+                new Node(part.orElse(null), pose, engine, parachute, hull.orElse(null))))
                 .validate(node -> node.hasGeometry() ? DataResult.success(node)
                         : DataResult.error(() -> "A ship node needs either a part or a hull region"));
-        private static final StreamCodec<RegistryFriendlyByteBuf, Node> STREAM_CODEC = StreamCodec.composite(
-                BakedPart.STREAM_CODEC, Node::part, PartPose.STREAM_CODEC, Node::pose,
-                ByteBufCodecs.VAR_INT, Node::engineStage, Node::new);
+        private static final StreamCodec<RegistryFriendlyByteBuf, Node> STREAM_CODEC = StreamCodec.of((buffer, node) -> {
+            BakedPart.STREAM_CODEC.encode(buffer, node.part());
+            PartPose.STREAM_CODEC.encode(buffer, node.pose());
+            buffer.writeVarInt(node.engineStage());
+            if (!node.part().parachutes().isEmpty()) {
+                buffer.writeVarInt(node.parachuteStage());
+            }
+        }, buffer -> {
+            var part = BakedPart.STREAM_CODEC.decode(buffer);
+            var pose = PartPose.STREAM_CODEC.decode(buffer);
+            int engine = buffer.readVarInt();
+            int parachute = part.parachutes().isEmpty() ? -1 : buffer.readVarInt();
+            return new Node(part, pose, engine, parachute);
+        });
 
         public Node(BakedPart part, PartPose pose, int engineStage) {
-            this(part, pose, engineStage, null);
+            this(part, pose, engineStage, -1);
+        }
+
+        public Node(BakedPart part, PartPose pose, int engineStage, int parachuteStage) {
+            this(part, pose, engineStage, parachuteStage, null);
         }
 
         static Node hull(HullRegion hull, BlockPos origin) {
-            return new Node(null, new PartPose(origin.multiply(4), PartPose.ROOT.rotation()), -1, hull);
+            return new Node(null, new PartPose(origin.multiply(4), PartPose.ROOT.rotation()), -1, -1, hull);
         }
 
         static Node placed(BakedPart part, PartPose pose) {
-            return new Node(part, pose, part.types().contains(PartType.ENGINE) ? 0 : -1);
+            return new Node(part, pose, part.types().contains(PartType.ENGINE) ? 0 : -1,
+                    part.types().contains(PartType.PARACHUTE) ? 0 : -1);
+        }
+
+        Node reframe(PartPose pose, IntUnaryOperator stageMap) {
+            return new Node(part, pose, engineStage < 0 ? -1 : stageMap.applyAsInt(engineStage),
+                    parachuteStage < 0 ? -1 : stageMap.applyAsInt(parachuteStage), hull);
         }
 
         private boolean hasGeometry() {
@@ -284,7 +307,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
                 return false;
             }
             if (node.hull() != null) {
-                if (node.engineStage() != -1 || node.pose().rotation() != PartPose.ROOT.rotation()
+                if (node.engineStage() != -1 || node.parachuteStage() != -1
+                        || node.pose().rotation() != PartPose.ROOT.rotation()
                         || !node.pose().position().equals(Vec3.atLowerCornerOf(node.hullOrigin()))) {
                     return false;
                 }
@@ -302,7 +326,8 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
                 continue;
             }
             if (!(hulls == 0 ? node.pose().valid() : node.pose().validRotation())
-                    || !validStage(node.engineStage(), node.part().types().contains(PartType.ENGINE))) {
+                    || !validStage(node.engineStage(), node.part().types().contains(PartType.ENGINE))
+                    || !validStage(node.parachuteStage(), node.part().types().contains(PartType.PARACHUTE))) {
                 return false;
             }
             if (hulls != 0) {
@@ -393,8 +418,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         var keptNodes = new ArrayList<Node>(members.size());
         for (int member : members) {
             Node node = nodes.get(member);
-            keptNodes.add(new Node(node.part(), node.pose().relativeTo(frame),
-                    node.engineStage() < 0 ? -1 : stageMap.applyAsInt(node.engineStage()), node.hull()));
+            keptNodes.add(node.reframe(node.pose().relativeTo(frame), stageMap));
         }
         var keptLinks = remapLinks(links, indices(nodes.size(), members), cuts).stream()
                 .map(link -> link.separationStage() < 0 ? link
@@ -427,7 +451,14 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     ShipDesign moveEngine(int index, int stage) {
         var updated = new ArrayList<>(nodes);
         Node node = nodes.get(index);
-        updated.set(index, new Node(node.part(), node.pose(), stage));
+        updated.set(index, new Node(node.part(), node.pose(), stage, node.parachuteStage()));
+        return new ShipDesign(updated, links, stageCount);
+    }
+
+    ShipDesign moveParachute(int index, int stage) {
+        var updated = new ArrayList<>(nodes);
+        Node node = nodes.get(index);
+        updated.set(index, new Node(node.part(), node.pose(), node.engineStage(), stage));
         return new ShipDesign(updated, links, stageCount);
     }
 
@@ -440,7 +471,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
 
     public boolean lastStageEmpty() {
         int last = stageCount - 1;
-        return nodes.stream().noneMatch(node -> node.engineStage() == last)
+        return nodes.stream().noneMatch(node -> node.engineStage() == last || node.parachuteStage() == last)
                 && links.stream().noneMatch(link -> link.separationStage() == last);
     }
 }

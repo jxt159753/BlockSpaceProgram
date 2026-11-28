@@ -3,6 +3,8 @@ package io.github.jxt159753.blockspaceprogram.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
+import io.github.jxt159753.blockspaceprogram.assembly.ParachuteDeployment;
+import io.github.jxt159753.blockspaceprogram.assembly.ParachuteDeployment.Phase;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput;
 import java.util.Locale;
 import net.minecraft.ChatFormatting;
@@ -18,6 +20,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
@@ -80,6 +83,13 @@ public final class ShipFlightClient {
     }
 
     @SubscribeEvent
+    public static void renderParachutes(RenderLevelStageEvent event) {
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_ENTITIES && ModList.get().isLoaded("sable")) {
+            SableParachuteRenderer.render(event);
+        }
+    }
+
+    @SubscribeEvent
     public static void registerHud(RegisterGuiLayersEvent event) {
         event.registerAbove(VanillaGuiLayers.HOTBAR, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "flight_status"),
                 (graphics, tick) -> {
@@ -102,12 +112,32 @@ public final class ShipFlightClient {
                                 Component.translatable("flight.blockspaceprogram.attitude." + ship.attitudeMode().id()),
                                 Component.translatable("flight.blockspaceprogram.throttle." + ship.throttleMode().id()));
                         graphics.drawCenteredString(game.font, modes, graphics.guiWidth() / 2, graphics.guiHeight() - 97, 0xFFFFFF);
+                        int row = graphics.guiHeight() - 109;
+                        byte[] parachutes = ship.parachuteStates();
+                        if (parachutes.length > 0) {
+                            graphics.drawCenteredString(game.font, parachuteStatus(parachutes), graphics.guiWidth() / 2, row, 0xFFFFFF);
+                            row -= 12;
+                        }
                         var orbit = OrbitalRegionClient.flightOrbit(game.level, ship.getUUID());
                         if (orbit != null) {
                             var heights = Component.translatable("flight.blockspaceprogram.orbit_heights", orbit.altitude(), orbit.periapsis());
-                            graphics.drawCenteredString(game.font, heights, graphics.guiWidth() / 2, graphics.guiHeight() - 109, 0xFFFFFF);
+                            graphics.drawCenteredString(game.font, heights, graphics.guiWidth() / 2, row, 0xFFFFFF);
                         }
                     }
                 });
+    }
+
+    private static Component parachuteStatus(byte[] states) {
+        if (states.length == 1) {
+            var phase = ParachuteDeployment.phase(states[0]);
+            return Component.translatable("flight.blockspaceprogram.parachute",
+                    Component.translatable("flight.blockspaceprogram.parachute." + phase.id()));
+        }
+        int[] counts = new int[Phase.values().length];
+        for (byte state : states) {
+            counts[ParachuteDeployment.phase(state).ordinal()]++;
+        }
+        return Component.translatable("flight.blockspaceprogram.parachute_counts", counts[Phase.STOWED.ordinal()],
+                counts[Phase.ARMED.ordinal()], counts[Phase.SEMI_OPEN.ordinal()], counts[Phase.FULL_OPEN.ordinal()]);
     }
 }

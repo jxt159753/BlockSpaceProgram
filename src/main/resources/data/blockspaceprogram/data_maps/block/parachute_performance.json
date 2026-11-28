@@ -1,0 +1,12 @@
+{
+  "values": {
+    "blockspaceprogram:parachute": {
+      "semi_drag_area": 20,
+      "drag_area": 400,
+      "min_relative_density": 0.02,
+      "max_deploy_speed": 250,
+      "full_deploy_height": 500,
+      "opening_time": 2
+    }
+  }
+}

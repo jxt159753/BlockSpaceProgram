@@ -33,6 +33,7 @@ import io.github.jxt159753.blockspaceprogram.part.CombustionChamberBlock;
 import io.github.jxt159753.blockspaceprogram.part.ModularEngines;
 import io.github.jxt159753.blockspaceprogram.part.NozzleSegmentBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
+import io.github.jxt159753.blockspaceprogram.part.PartParachute;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartTemplate;
 import io.github.jxt159753.blockspaceprogram.part.PartTemplateRecipe;
@@ -53,6 +54,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
@@ -115,6 +117,8 @@ public final class BlockSpaceProgram {
             "combustion_chamber", CombustionChamberBlock::new, BlockBehaviour.Properties.of().strength(3.0F).noOcclusion());
     public static final DeferredBlock<NozzleSegmentBlock> NOZZLE_SEGMENT = BLOCKS.registerBlock(
             "nozzle_segment", NozzleSegmentBlock::new, BlockBehaviour.Properties.of().strength(2.5F).noOcclusion());
+    public static final DeferredBlock<Block> PARACHUTE = BLOCKS.registerBlock(
+            "parachute", Block::new, BlockBehaviour.Properties.of().strength(2.0F).noOcclusion());
     public static final DeferredBlock<CollisionCellBlock> SHIP_COLLISION_CELL = BLOCKS.registerBlock(
             "ship_collision_cell", properties -> ModList.get().isLoaded("sable")
                     ? SableCollisionCellBlock.create(properties) : new CollisionCellBlock(properties),
@@ -159,6 +163,7 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(FLIGHT_TERMINAL);
         ITEMS.registerSimpleBlockItem(COMBUSTION_CHAMBER);
         ITEMS.registerSimpleBlockItem(NOZZLE_SEGMENT);
+        ITEMS.registerSimpleBlockItem(PARACHUTE);
         CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup.blockspaceprogram.main"))
                 .icon(() -> new ItemStack(LAUNCH_PAD.get()))
@@ -170,6 +175,7 @@ public final class BlockSpaceProgram {
                     output.accept(ATTACHMENT_FACE);
                     output.accept(COMBUSTION_CHAMBER);
                     output.accept(NOZZLE_SEGMENT);
+                    output.accept(PARACHUTE);
                     ItemStack largeEngine = PartTemplate.creativeLargeEngine(parameters.holders());
                     if (!largeEngine.isEmpty()) {
                         output.accept(largeEngine);
@@ -199,6 +205,7 @@ public final class BlockSpaceProgram {
         COMPONENTS.register(modBus);
         modBus.addListener(BlockPartProperties::register);
         modBus.addListener(ModularEngines::register);
+        modBus.addListener(PartParachute::register);
         modBus.addListener(PartConnector::register);
         modBus.addListener((RegisterDataMapTypesEvent event) -> event.register(SURFACE_COLOR));
         modBus.addListener(AssemblyNetworking::register);
