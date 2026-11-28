@@ -12,6 +12,7 @@ import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapNetworking
 import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapNetworking.Request;
 import io.github.jxt159753.blockspaceprogram.sky.surfacemap.SurfaceMapTransfer;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.Util;
@@ -36,6 +37,7 @@ import org.slf4j.Logger;
 @EventBusSubscriber(modid = BlockSpaceProgram.MOD_ID, value = Dist.CLIENT)
 public final class SurfaceMapClient {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Path CACHE_PATH = Path.of("blockspaceprogram", "surface_maps");
     // Keep completed hashes for the connection, including maps withdrawn by a newer manifest.
     private static final Map<Entry, Download> DOWNLOADS = new HashMap<>();
     private static Map<ResourceLocation, Entry> manifest = Map.of();
@@ -75,10 +77,16 @@ public final class SurfaceMapClient {
     }
 
     public static void receiveManifest(Manifest payload) {
+        var game = Minecraft.getInstance();
+        var connection = game.getConnection();
+        if (connection == null) {
+            return;
+        }
+        var biomes = connection.registryAccess().registryOrThrow(Registries.BIOME);
         var previous = manifest;
         var next = new HashMap<ResourceLocation, Entry>();
         for (var entry : payload.entries()) {
-            if (BiomeGrid.supportedWidth(entry.width()) && entry.hash().length() == 64) {
+            if (BiomeGrid.supportedWidth(entry.width()) && SurfaceMapDiskCache.isContentHash(entry.hash())) {
                 next.put(entry.dimension(), entry);
             }
         }
@@ -90,9 +98,9 @@ public final class SurfaceMapClient {
         }
         for (var entry : next.values()) {
             var download = DOWNLOADS.computeIfAbsent(entry, unused -> new Download());
-            if (!entry.equals(previous.get(entry.dimension())) && download.grid == null && !download.decoding) {
-                download.assembly = new SurfaceMapTransfer.Assembler();
-                PacketDistributor.sendToServer(new Request(entry));
+            if (!entry.equals(previous.get(entry.dimension())) && download.grid == null && !download.loading) {
+                download.loading = true;
+                Util.ioPool().execute(() -> load(game, biomes, entry, download, null));
             }
         }
     }
@@ -121,8 +129,8 @@ public final class SurfaceMapClient {
         var connection = game.getConnection();
         if (connection != null) {
             var biomes = connection.registryAccess().registryOrThrow(Registries.BIOME);
-            download.decoding = true;
-            Util.backgroundExecutor().execute(() -> decode(game, biomes, entry, download, assembly));
+            download.loading = true;
+            Util.ioPool().execute(() -> load(game, biomes, entry, download, assembly));
         }
     }
 
@@ -132,20 +140,56 @@ public final class SurfaceMapClient {
         return download == null ? null : download.texture;
     }
 
-    private static void decode(Minecraft game, Registry<Biome> biomes, Entry entry, Download download,
-                               SurfaceMapTransfer.Assembler assembly) {
+    private static void load(Minecraft game, Registry<Biome> biomes, Entry entry, Download download,
+                             @Nullable SurfaceMapTransfer.Assembler assembly) {
         try {
-            var grid = BiomeGrid.decode(entry.width(), entry.hash(), assembly.assemble());
+            Path directory = game.gameDirectory.toPath().resolve(CACHE_PATH);
+            var grid = assembly == null ? readCache(directory, entry) : decodeAndCache(directory, entry, assembly);
+            if (grid == null) {
+                game.execute(() -> request(entry, download));
+                return;
+            }
             game.execute(() -> {
                 if (DOWNLOADS.get(entry) == download) {
-                    download.decoding = false;
+                    download.loading = false;
                     download.grid = grid;
+                    download.fromCache = assembly == null;
                     recolor(biomes, entry, download);
                 }
             });
         } catch (IOException | RuntimeException e) {
-            game.execute(() -> download.decoding = false);
-            LOGGER.warn("Could not decode surface map for {}: {}", entry.dimension(), e.getMessage());
+            game.execute(() -> download.loading = false);
+            LOGGER.warn("Could not load surface map for {}: {}", entry.dimension(), e.getMessage());
+        }
+    }
+
+    @Nullable
+    private static BiomeGrid readCache(Path directory, Entry entry) {
+        try {
+            return SurfaceMapDiskCache.read(directory, entry.width(), entry.hash());
+        } catch (IOException e) {
+            LOGGER.warn("Could not read surface map cache for {}: {}", entry.dimension(), e.getMessage());
+            return null;
+        }
+    }
+
+    private static BiomeGrid decodeAndCache(Path directory, Entry entry, SurfaceMapTransfer.Assembler assembly)
+            throws IOException {
+        byte[] compressed = assembly.assemble();
+        var decoded = BiomeGrid.decodeWithHash(entry.width(), entry.hash(), compressed);
+        try {
+            SurfaceMapDiskCache.write(directory, decoded.hash(), compressed);
+        } catch (IOException e) {
+            LOGGER.warn("Could not write surface map cache for {}: {}", entry.dimension(), e.getMessage());
+        }
+        return decoded.grid();
+    }
+
+    private static void request(Entry entry, Download download) {
+        download.loading = false;
+        if (DOWNLOADS.get(entry) == download && entry.equals(manifest.get(entry.dimension()))) {
+            download.assembly = new SurfaceMapTransfer.Assembler();
+            PacketDistributor.sendToServer(new Request(entry));
         }
     }
 
@@ -173,9 +217,9 @@ public final class SurfaceMapClient {
                     if (previous != null) {
                         TextureUtil.releaseTextureId(previous);
                     } else {
-                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={}",
+                        LOGGER.info("Surface map uploaded: dimension={} grid={}x{} hash={} login_ms={} source={}",
                                 entry.dimension(), grid.width(), grid.height(), entry.hash(),
-                                (System.nanoTime() - loginNanos) / 1e6);
+                                (System.nanoTime() - loginNanos) / 1e6, download.fromCache ? "cache" : "network");
                     }
                 }
             });
@@ -240,7 +284,8 @@ public final class SurfaceMapClient {
 
     private static final class Download {
         private SurfaceMapTransfer.Assembler assembly;
-        private boolean decoding;
+        private boolean loading;
+        private boolean fromCache;
         private BiomeGrid grid;
         private Integer texture;
     }

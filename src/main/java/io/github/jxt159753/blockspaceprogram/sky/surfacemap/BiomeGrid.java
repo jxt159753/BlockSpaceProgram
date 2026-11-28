@@ -99,6 +99,10 @@ public final class BiomeGrid {
     }
 
     public static BiomeGrid decode(int width, String hash, byte[] compressed) throws IOException {
+        return decodeWithHash(width, hash, compressed).grid();
+    }
+
+    public static Decoded decodeWithHash(int width, String expectedHash, byte[] compressed) throws IOException {
         if (!supportedWidth(width) || compressed.length > SurfaceMapTransfer.MAX_COMPRESSED_BYTES) {
             throw new IOException("Unsupported surface map size");
         }
@@ -122,7 +126,8 @@ public final class BiomeGrid {
             if (cells.length != size || data.read() != -1) {
                 throw new IOException("Invalid surface map grid size");
             }
-            if (!HexFormat.of().formatHex(digest.digest()).equals(hash)) {
+            String hash = HexFormat.of().formatHex(digest.digest());
+            if (!hash.equals(expectedHash)) {
                 throw new IOException("Surface map content does not match its SHA-256 hash");
             }
             for (byte cell : cells) {
@@ -130,7 +135,7 @@ public final class BiomeGrid {
                     throw new IOException("Unknown surface map palette index");
                 }
             }
-            return new BiomeGrid(width, sampleY, palette, cells);
+            return new Decoded(new BiomeGrid(width, sampleY, palette, cells), hash);
         }
     }
 
@@ -148,4 +153,6 @@ public final class BiomeGrid {
     }
 
     record Encoded(String hash, byte[] compressed) {}
+
+    public record Decoded(BiomeGrid grid, String hash) {}
 }
