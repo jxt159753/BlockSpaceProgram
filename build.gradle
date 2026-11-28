@@ -146,6 +146,10 @@ if (providers.gradleProperty('rcsAllocation').isPresent()) {
     apply from: 'experiments/rcs-allocation/rcs-allocation.gradle'
 }
 
+if (providers.gradleProperty('dockingCapacity').isPresent()) {
+    apply from: 'experiments/docking-capacity/docking-capacity.gradle'
+}
+
 if (providers.gradleProperty('propellantElectric').isPresent()) {
     apply from: 'experiments/propellant-electric/propellant-electric.gradle'
 } else {

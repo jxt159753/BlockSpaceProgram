@@ -1,0 +1,929 @@
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipDesign.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipDesign.java
+@@ -17,6 +17,7 @@
+ import java.util.function.IntUnaryOperator;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Direction;
++import net.minecraft.nbt.NbtAccounter;
+ import net.minecraft.network.FriendlyByteBuf;
+ import net.minecraft.network.RegistryFriendlyByteBuf;
+ import net.minecraft.network.codec.ByteBufCodecs;
+@@ -30,22 +31,25 @@
+     // Keep the original blueprint part limit. Hull nodes have their own limit.
+     public static final int MAX_PARTS = 36;
+     public static final int MAX_HULL_NODES = 27;
+-    static final int MAX_NODES = MAX_PARTS + MAX_HULL_NODES;
+     public static final int BENCHMARK_MAX_PARTS = 50;
+     public static final int MAX_STAGES = MAX_PARTS * 2;
+     static final int MAX_LINKS = MAX_PARTS * (MAX_PARTS - 1) / 2;
+-    private static final int MAX_NODE_LINKS = MAX_NODES * (MAX_NODES - 1) / 2;
+-    static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_STAGES - 1);
++    public static final int MAX_FLIGHT_PARTS = DockingCapacityDesigns.MAX_PARTS;
++    static final int MAX_FLIGHT_HULLS = DockingCapacityDesigns.MAX_HULLS;
++    static final int MAX_NODES = MAX_FLIGHT_PARTS + MAX_FLIGHT_HULLS;
++    static final int MAX_FLIGHT_STAGES = MAX_FLIGHT_PARTS * 2;
++    static final int MAX_NODE_LINKS = MAX_NODES * (MAX_NODES - 1) / 2;
++    static final Codec<Integer> STAGE = Codec.intRange(-1, MAX_FLIGHT_STAGES - 1);
+     public static final ShipDesign EMPTY = new ShipDesign(List.of(), List.of(), 1);
+
+     public static final Codec<ShipDesign> FLIGHT_CODEC = RecordCodecBuilder.<ShipDesign>create(instance -> instance.group(
+             Node.CODEC.listOf(1, MAX_NODES).fieldOf("nodes").forGetter(ShipDesign::nodes),
+             Link.CODEC.listOf(0, MAX_NODE_LINKS).fieldOf("links").forGetter(ShipDesign::links),
+-            Codec.intRange(1, MAX_STAGES).fieldOf("stages").forGetter(ShipDesign::stageCount)
++            Codec.intRange(1, MAX_FLIGHT_STAGES).fieldOf("stages").forGetter(ShipDesign::stageCount)
+     ).apply(instance, ShipDesign::new)).validate(design -> design.isValidLayout() ? DataResult.success(design)
+             : DataResult.error(() -> "Invalid ship layout"));
+
+-    public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.hasBlueprintRoot()
++    public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.withinAssemblyLimits() && design.hasBlueprintRoot()
+             ? DataResult.success(design) : DataResult.error(() -> "Invalid ship blueprint root"));
+
+     public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS);
+@@ -53,13 +57,17 @@
+             streamCodec(BENCHMARK_MAX_PARTS, BENCHMARK_MAX_PARTS - 1);
+     private static final int HULL_STREAM_MARKER = -1;
+     private static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> HULL_STREAM_CODEC =
+-            ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC);
++            Boolean.getBoolean("bsp.dockingCapacity.wideNbt")
++                    ? ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC, () -> NbtAccounter.create(16 * 1024 * 1024L))
++                    : ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC);
++    private static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> PART_FLIGHT_STREAM_CODEC =
++            streamCodec(MAX_FLIGHT_PARTS, MAX_NODE_LINKS);
+     public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> FLIGHT_STREAM_CODEC = StreamCodec.of((buffer, design) -> {
+         if (design.hasHull()) {
+             buffer.writeVarInt(HULL_STREAM_MARKER);
+             HULL_STREAM_CODEC.encode(buffer, design);
+         } else {
+-            STREAM_CODEC.encode(buffer, design);
++            PART_FLIGHT_STREAM_CODEC.encode(buffer, design);
+         }
+     }, buffer -> {
+         int start = buffer.readerIndex();
+@@ -67,7 +75,7 @@
+             return HULL_STREAM_CODEC.decode(buffer);
+         }
+         buffer.readerIndex(start);
+-        return STREAM_CODEC.decode(buffer);
++        return PART_FLIGHT_STREAM_CODEC.decode(buffer);
+     });
+
+     private static StreamCodec<RegistryFriendlyByteBuf, ShipDesign> streamCodec(int parts, int links) {
+@@ -281,7 +289,13 @@
+     }
+
+     public boolean isValid() {
+-        return hasBlueprintRoot() && isValidLayout();
++        return withinAssemblyLimits() && hasBlueprintRoot() && isValidLayout();
++    }
++
++    private boolean withinAssemblyLimits() {
++        int parts = partCount();
++        return parts <= MAX_PARTS && nodes.size() - parts <= MAX_HULL_NODES && stageCount <= MAX_STAGES
++                && (hasHull() || links.size() <= MAX_LINKS);
+     }
+
+     private boolean hasBlueprintRoot() {
+@@ -296,9 +310,9 @@
+     boolean isValidLayout() {
+         int parts = partCount();
+         int hulls = nodes.size() - parts;
+-        if (nodes.isEmpty() || parts > MAX_PARTS || hulls > MAX_HULL_NODES
+-                || links.size() > (hulls == 0 ? MAX_LINKS : MAX_NODE_LINKS) || stageCount < 1
+-                || stageCount > MAX_STAGES) {
++        if (nodes.isEmpty() || parts > MAX_FLIGHT_PARTS || hulls > MAX_FLIGHT_HULLS
++                || links.size() > MAX_NODE_LINKS || stageCount < 1
++                || stageCount > MAX_FLIGHT_STAGES) {
+             return false;
+         }
+         Map<BlockPos, Node> hullCells = new HashMap<>();
+--- a/io/github/jxt159753/blockspaceprogram/assembly/PartPose.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/PartPose.java
+@@ -20,7 +20,7 @@
+
+ /** The baked minimum corner and a proper right-angle rotation, in ship coordinates. */
+ public record PartPose(BlockPos origin, OctahedralGroup rotation) {
+-    private static final int MAX_OFFSET = ShipDesign.MAX_PARTS * 9 * 4;
++    private static final int MAX_OFFSET = ShipDesign.MAX_FLIGHT_PARTS * 9 * 4;
+     private static final OctahedralGroup[] ORIENTATIONS = OctahedralGroup.values();
+     private static final List<OctahedralGroup> ROTATIONS = Arrays.stream(ORIENTATIONS)
+             .filter(ShipCollisionLayout::isRotation).toList();
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
+@@ -6,6 +6,7 @@
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionLayout.Cell;
+ import io.github.jxt159753.blockspaceprogram.part.PartEngine;
+ import io.github.jxt159753.blockspaceprogram.part.PartType;
++import java.math.BigInteger;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.LinkedHashMap;
+@@ -40,12 +41,12 @@
+     private final Vec3 seat;
+     private final Vector3d projectedDragArea = new Vector3d();
+     private final double weakestPart;
+-    private final long commandPods;
++    private final BigInteger commandPods;
+     private int stage;
+-    private long damagedParts;
+-    private long pendingDamage;
+-
+-    ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
++    private BigInteger damagedParts;
++    private BigInteger pendingDamage = BigInteger.ZERO;
++
++    ShipFlightState(ShipDesign design, ShipPropellantData saved, BigInteger savedDamage, int stage) {
+         int count = design.nodes().size();
+         parachutes = new ShipParachutes(design);
+         fuel = new double[count];
+@@ -54,7 +55,7 @@
+         supply = new PropellantFlow(count);
+         impactParts = new ImpactPart[count];
+         this.stage = stage;
+-        damagedParts = savedDamage & ((1L << count) - 1);
++        damagedParts = savedDamage.and(BigInteger.ONE.shiftLeft(count).subtract(BigInteger.ONE));
+         int[] groups = StagePerformance.tankGroups(design);
+         double dryMass = design.nodes().stream().mapToDouble(ShipDesign.Node::dryMass).sum();
+         if (!Double.isFinite(dryMass)) {
+@@ -63,7 +64,7 @@
+         // A zero-mass fragment still needs a valid rigid body once its fuel is gone.
+         double extraMass = flightDryMass(dryMass) - dryMass;
+         double weakest = Double.POSITIVE_INFINITY;
+-        long pods = 0;
++        BigInteger pods = BigInteger.ZERO;
+         cells = new LinkedHashMap<>();
+         var hullBlocks = new LinkedHashMap<BlockPos, SolidBlock>();
+         for (ShipDesign.Branch branch : design.tree(Set.of())) {
+@@ -73,7 +74,7 @@
+                 BlockPos origin = node.hullOrigin();
+                 node.hull().forEach((pos, material) -> hullBlocks.put(origin.offset(pos),
+                         new SolidBlock(material.state(), material.mass())));
+-                damagedParts &= ~(1L << index);
++                damagedParts = damagedParts.clearBit(index);
+                 continue;
+             }
+             var part = node.part();
+@@ -99,7 +100,7 @@
+                 }
+             }
+             if (node.isCommandPod()) {
+-                pods |= 1L << index;
++                pods = pods.setBit(index);
+             }
+             var bounds = node.bounds();
+             impactParts[index] = new ImpactPart(bounds, properties.impactResistance());
+@@ -114,7 +115,7 @@
+             hullBlocks.put(first.getKey(), new SolidBlock(first.getValue().state(), extraMass));
+         }
+         hull = hullBlocks;
+-        seat = pods == 0 ? Vec3.ZERO : seat(design, Long.numberOfTrailingZeros(pods));
++        seat = pods.signum() == 0 ? Vec3.ZERO : seat(design, pods.getLowestSetBit());
+         weakestPart = weakest;
+         commandPods = pods;
+     }
+@@ -197,7 +198,7 @@
+     }
+
+     boolean isDebris() {
+-        return commandPods == 0;
++        return commandPods.signum() == 0;
+     }
+
+     int stage() {
+@@ -223,10 +224,10 @@
+     ShipFlightState fragment(ShipDesign design, List<Integer> members, int stage) {
+         var remainingFuel = new ListTag();
+         var remainingElectric = new ListTag();
+-        long damage = 0;
++        BigInteger damage = BigInteger.ZERO;
+         for (int part : members) {
+             if (isDamaged(part)) {
+-                damage |= 1L << remainingFuel.size();
++                damage = damage.setBit(remainingFuel.size());
+             }
+             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
+             remainingElectric.add(DoubleTag.valueOf(electric[part]));
+@@ -243,7 +244,7 @@
+         var added = incoming.savePropellant();
+         combined.fuel().addAll(added.fuel());
+         combined.electric().addAll(added.electric());
+-        var docked = new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
++        var docked = new ShipFlightState(design, combined, damagedParts.or(incoming.damagedParts.shiftLeft(fuel.length)), stage);
+         for (int index = 0; index < fuel.length; index++) {
+             docked.parachutes.copyNode(parachutes, index, index);
+         }
+@@ -254,15 +255,15 @@
+     }
+
+     double wheelTorque() {
+-        return POD_WHEEL_TORQUE * Long.bitCount(commandPods & ~damagedParts);
+-    }
+-
+-    long damagedParts() {
++        return POD_WHEEL_TORQUE * commandPods.andNot(damagedParts).bitCount();
++    }
++
++    BigInteger damagedParts() {
+         return damagedParts;
+     }
+
+     boolean isDamaged(int part) {
+-        return (damagedParts & (1L << part)) != 0;
++        return damagedParts.testBit(part);
+     }
+
+     void recordImpact(BlockPos origin, BlockPos cell, Vector3dc point, double speed) {
+@@ -272,7 +273,7 @@
+         var contact = new Vec3(point.x() - origin.getX(), point.y() - origin.getY(), point.z() - origin.getZ());
+         BlockPos local = cell.subtract(origin);
+         double nearestDistance = Double.POSITIVE_INFINITY;
+-        long hits = 0;
++        BigInteger hits = BigInteger.ZERO;
+         for (int i = 0; i < impactParts.length; i++) {
+             ImpactPart part = impactParts[i];
+             if (part == null || !part.bounds.intersects(local.getX(), local.getY(), local.getZ(),
+@@ -283,30 +284,30 @@
+             double distance = part.bounds.distanceToSqr(contact);
+             if (distance < nearestDistance) {
+                 nearestDistance = distance;
+-                hits = 0;
++                hits = BigInteger.ZERO;
+             }
+             if (distance == nearestDistance && speed > part.resistance) {
+-                hits |= 1L << i;
+-            }
+-        }
+-        pendingDamage |= hits;
++                hits = hits.setBit(i);
++            }
++        }
++        pendingDamage = pendingDamage.or(hits);
+     }
+
+     boolean applyImpactDamage(ShipCollisionBody body) {
+-        long damage = pendingDamage & ~damagedParts;
+-        pendingDamage = 0;
+-        if (damage == 0) {
++        BigInteger damage = pendingDamage.andNot(damagedParts);
++        pendingDamage = BigInteger.ZERO;
++        if (damage.signum() == 0) {
+             return false;
+         }
+-        damagedParts |= damage;
++        damagedParts = damagedParts.or(damage);
+         for (int part = 0; part < electric.length; part++) {
+-            if ((damage & (1L << part)) != 0) {
++            if (damage.testBit(part)) {
+                 electric[part] = 0;
+             }
+         }
+         boolean drained = false;
+         for (Tank tank : tanks) {
+-            if ((damage & (1L << tank.part)) != 0) {
++            if (damage.testBit(tank.part)) {
+                 drained |= setFuel(tank, 0, body);
+             }
+         }
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipLandingGear.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipLandingGear.java
+@@ -4,6 +4,7 @@
+ import dev.ryanhcode.sable.mixinterface.clip_overwrite.ClipContextExtension;
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
+ import io.github.jxt159753.blockspaceprogram.part.PartType;
++import java.math.BigInteger;
+ import java.util.ArrayList;
+ import java.util.List;
+ import net.minecraft.core.BlockPos;
+@@ -25,29 +26,28 @@
+     private static final double SETTLE_SPEED = 0.4;
+
+     private final List<Leg> legs = new ArrayList<>();
+-    private final long legParts;
++    private final BigInteger legParts;
+
+     ShipLandingGear(ShipDesign design) {
+-        long parts = 0;
++        BigInteger parts = BigInteger.ZERO;
+         for (int i = 0; i < design.nodes().size(); i++) {
+             var node = design.nodes().get(i);
+             if (node.part() != null && node.part().types().contains(PartType.LANDING_LEG)) {
+                 var size = node.part().geometry().size();
+                 var foot = node.point(new Vec3(size.x / 2, 0, size.z / 2));
+                 var up = node.pose().rotation().rotate(Direction.UP).getNormal();
+-                long bit = 1L << i;
+-                legs.add(new Leg(bit, JOMLConversion.toJOML(foot), new Vector3d(up.getX(), up.getY(), up.getZ()),
++                legs.add(new Leg(i, JOMLConversion.toJOML(foot), new Vector3d(up.getX(), up.getY(), up.getZ()),
+                         TRAVEL * node.part().scale()));
+-                parts |= bit;
++                parts = parts.setBit(i);
+             }
+         }
+         legParts = parts;
+     }
+
+-    void addImpulse(ShipCollisionBody body, long damagedParts, Vector3dc center, Vector3dc linearVelocity,
++    void addImpulse(ShipCollisionBody body, BigInteger damagedParts, Vector3dc center, Vector3dc linearVelocity,
+             double gravity, double seconds, Vector3d impulse, Vector3d moment) {
+-        long working = legParts & ~damagedParts;
+-        if (working == 0) {
++        BigInteger working = legParts.andNot(damagedParts);
++        if (working.signum() == 0) {
+             return;
+         }
+         var subLevel = body.subLevel();
+@@ -61,10 +61,10 @@
+         var level = subLevel.getLevel();
+         var massData = subLevel.getMassTracker();
+         double mass = massData.getMass();
+-        double massPerLeg = mass / Long.bitCount(working);
++        double massPerLeg = mass / working.bitCount();
+         Matrix3d inverseInertia = null;
+         for (Leg leg : legs) {
+-            if ((working & leg.part) == 0) {
++            if (!working.testBit(leg.part)) {
+                 continue;
+             }
+             var lever = new Vector3d(leg.foot).sub(center);
+@@ -111,5 +111,5 @@
+         }
+     }
+
+-    private record Leg(long part, Vector3dc foot, Vector3dc up, double travel) {}
++    private record Leg(int part, Vector3dc foot, Vector3dc up, double travel) {}
+ }
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipDocking.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipDocking.java
+@@ -4,6 +4,7 @@
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Link;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Node;
+ import io.github.jxt159753.blockspaceprogram.part.PartConnector;
++import java.math.BigInteger;
+ import java.util.ArrayList;
+ import java.util.HashSet;
+ import java.util.List;
+@@ -37,11 +38,11 @@
+         }
+     }
+
+-    static List<Port> openPorts(ShipDesign design, long damage, Set<PortKey> released) {
++    static List<Port> openPorts(ShipDesign design, BigInteger damage, Set<PortKey> released) {
+         var ports = new ArrayList<Port>();
+         for (int index = 0; index < design.nodes().size(); index++) {
+             var node = design.nodes().get(index);
+-            if (node.part() == null || (damage & 1L << index) != 0) {
++            if (node.part() == null || damage.testBit(index)) {
+                 continue;
+             }
+             var connectors = node.part().connectors();
+@@ -124,7 +125,7 @@
+         return new Endpoint(index, endpoint.marker(), rotation.rotate(endpoint.normal()), PartPose.rotate(rotation, endpoint.anchor()));
+     }
+
+-    static ShipDesign closeAlignedPorts(ShipDesign design, long damage, Set<PortKey> released) {
++    static ShipDesign closeAlignedPorts(ShipDesign design, BigInteger damage, Set<PortKey> released) {
+         var ports = openPorts(design, damage, released);
+         var links = new ArrayList<>(design.links());
+         var used = new HashSet<PortKey>();
+@@ -133,7 +134,7 @@
+             if (used.contains(first.key())) {
+                 continue;
+             }
+-            for (int j = i + 1; j < ports.size() && links.size() < ShipDesign.MAX_LINKS; j++) {
++            for (int j = i + 1; j < ports.size() && links.size() < ShipDesign.MAX_NODE_LINKS; j++) {
+                 var second = ports.get(j);
+                 if (first.endpoint().node() != second.endpoint().node() && first.size() == second.size()
+                         && first.center().distanceToSqr(second.center()) == 0 && first.normal() == second.normal().getOpposite()
+--- a/io/github/jxt159753/blockspaceprogram/assembly/ShipDockingState.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/ShipDockingState.java
+@@ -3,6 +3,8 @@
+ import com.mojang.serialization.Codec;
+ import com.mojang.serialization.codecs.RecordCodecBuilder;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.PortKey;
++import java.math.BigInteger;
++import java.nio.ByteBuffer;
+ import java.util.ArrayList;
+ import java.util.HashSet;
+ import java.util.List;
+@@ -25,16 +27,20 @@
+
+     record Identity(UUID id, Optional<UUID> owner, Optional<Component> name) {}
+
+-    record StageBlock(long parts, int root, int count, int progress, Optional<Identity> identity) {
++    record StageBlock(BigInteger parts, int root, int count, int progress, Optional<Identity> identity) {
++        StageBlock(long parts, int root, int count, int progress, Optional<Identity> identity) {
++            this(BigInteger.valueOf(parts), root, count, progress, identity);
++        }
++
+         int progressAt(int stageInBlock) {
+             return Math.max(progress, Math.min(stageInBlock, count - 1));
+         }
+
+         StageBlock project(int[] indices, int nextProgress) {
+-            long retained = 0;
++            BigInteger retained = BigInteger.ZERO;
+             for (int node = 0; node < indices.length; node++) {
+-                if (indices[node] >= 0 && (parts & 1L << node) != 0) {
+-                    retained |= 1L << indices[node];
++                if (indices[node] >= 0 && parts.testBit(node)) {
++                    retained = retained.setBit(indices[node]);
+                 }
+             }
+             int nextRoot = root < 0 ? -1 : indices[root];
+@@ -44,7 +50,7 @@
+
+     ShipDockingState snapshot(ShipDesign design, int stage, Identity ship) {
+         if (stages.isEmpty()) {
+-            return new ShipDockingState(List.of(new StageBlock((1L << design.nodes().size()) - 1,
++            return new ShipDockingState(List.of(new StageBlock(BigInteger.ONE.shiftLeft(design.nodes().size()).subtract(BigInteger.ONE),
+                     0, design.stageCount(), stage, Optional.of(ship))), released);
+         }
+         var snapshot = new ArrayList<StageBlock>(stages.size());
+@@ -60,7 +66,7 @@
+     ShipDockingState merge(ShipDockingState other, int offset) {
+         var combined = new ArrayList<>(stages);
+         for (var block : other.stages) {
+-            combined.add(new StageBlock(block.parts() << offset, block.root() < 0 ? -1 : block.root() + offset,
++            combined.add(new StageBlock(block.parts().shiftLeft(offset), block.root() < 0 ? -1 : block.root() + offset,
+                     block.count(), block.progress(), block.identity()));
+         }
+         var ports = new HashSet<>(released);
+@@ -90,7 +96,7 @@
+     int actionStage(int node, int current) {
+         int start = 0;
+         for (var block : stages) {
+-            if ((block.parts() & 1L << node) != 0) {
++            if (block.parts().testBit(node)) {
+                 return Math.max(current, start + block.progress());
+             }
+             start += block.count();
+@@ -124,7 +130,7 @@
+         int nextStage = -1;
+         for (var block : stages) {
+             var next = block.project(indices, block.progressAt(stage - oldStart));
+-            if (next.parts() != 0) {
++            if (next.parts().signum() != 0) {
+                 if (retained.isEmpty() || stage >= oldStart) {
+                     nextStage = newStart + next.progress();
+                 }
+@@ -156,9 +162,10 @@
+                 ComponentSerialization.CODEC.optionalFieldOf("name").forGetter(Identity::name)
+         ).apply(instance, Identity::new));
+         private static final Codec<StageBlock> STAGES = RecordCodecBuilder.create(instance -> instance.group(
+-                Codec.LONG.fieldOf("parts").forGetter(StageBlock::parts),
++                Codec.BYTE_BUFFER.xmap(bytes -> new BigInteger(1, bytes.array()),
++                        (BigInteger parts) -> ByteBuffer.wrap(parts.toByteArray())).fieldOf("parts").forGetter(StageBlock::parts),
+                 Codec.INT.fieldOf("root").forGetter(StageBlock::root),
+-                Codec.intRange(1, ShipDesign.MAX_STAGES).fieldOf("count").forGetter(StageBlock::count),
++                Codec.intRange(1, ShipDesign.MAX_FLIGHT_STAGES).fieldOf("count").forGetter(StageBlock::count),
+                 ShipDesign.STAGE.fieldOf("progress").forGetter(StageBlock::progress),
+                 IDENTITY.optionalFieldOf("ship").forGetter(StageBlock::identity)
+         ).apply(instance, StageBlock::new));
+--- a/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/OrbitalShipPropulsion.java
+@@ -1,5 +1,6 @@
+ package io.github.jxt159753.blockspaceprogram.assembly;
+
++import java.math.BigInteger;
+ import java.util.Arrays;
+ import java.util.Set;
+ import net.minecraft.core.HolderLookup;
+@@ -19,7 +20,7 @@
+     private final VacuumPropulsion propulsion;
+     private final int stage;
+
+-    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ShipPropellantData saved, long damage) {
++    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ShipPropellantData saved, BigInteger damage) {
+         this.shipData = shipData;
+         this.stage = stage;
+         int count = design.nodes().size();
+@@ -33,7 +34,7 @@
+             int index = branch.node();
+             var node = design.nodes().get(index);
+             int group = groups[index];
+-            boolean damaged = (damage & (1L << index)) != 0;
++            boolean damaged = damage.testBit(index);
+             partFuel[index] = ShipPropellantData.initialAmount(saved.fuel(), count, index,
+                     StagePerformance.fuelCapacity(node), damaged);
+             partElectric[index] = ShipPropellantData.initialAmount(saved.electric(), count, index,
+@@ -63,7 +64,7 @@
+             stage = ShipFlightState.initialStage(design);
+         }
+         return new OrbitalShipPropulsion(shipData, design, stage, ShipPropellantData.read(shipData),
+-                shipData.getLong("DamagedParts"));
++                new BigInteger(1, shipData.getByteArray("DamagedParts")));
+     }
+
+     public VacuumPropulsion propulsion() {
+--- a/io/github/jxt159753/blockspaceprogram/orbit/OrbitalShipView.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/OrbitalShipView.java
+@@ -15,7 +15,7 @@
+ /** Map data shared with clients. Ship construction and tank NBT stay on the server. */
+ public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Optional<VacuumPropulsion> propulsion) {
+     // Legacy payloads used a plain group count and one scalar thrust per group.
+-    private static final int VECTOR_GROUP_OFFSET = ShipDesign.MAX_PARTS + 1;
++    private static final int VECTOR_GROUP_OFFSET = ShipDesign.MAX_FLIGHT_PARTS + 1;
+     private static final int ELECTRIC_GROUP_OFFSET = 2 * VECTOR_GROUP_OFFSET;
+     private static final StreamCodec<ByteBuf, VacuumPropulsion.Drive> DRIVE_CODEC = StreamCodec.of((buffer, drive) -> {
+         buffer.writeDouble(drive.thrustX());
+@@ -26,7 +26,7 @@
+             buffer.readDouble()));
+     private static final StreamCodec<ByteBuf, VacuumPropulsion> PROPULSION_CODEC = StreamCodec.of((buffer, propulsion) -> {
+         int count = propulsion.groups().size();
+-        if (count > ShipDesign.MAX_PARTS) {
++        if (count > ShipDesign.MAX_FLIGHT_PARTS) {
+             throw new EncoderException("Too many orbital fuel groups: " + count);
+         }
+         buffer.writeDouble(propulsion.wetMass());
+@@ -44,7 +44,7 @@
+         double wetMass = buffer.readDouble();
+         double fuel = buffer.readDouble();
+         int header = ByteBufCodecs.VAR_INT.decode(buffer);
+-        if (header < 0 || header > ELECTRIC_GROUP_OFFSET + ShipDesign.MAX_PARTS) {
++        if (header < 0 || header > ELECTRIC_GROUP_OFFSET + ShipDesign.MAX_FLIGHT_PARTS) {
+             throw new DecoderException("Invalid orbital fuel group header: " + header);
+         }
+         boolean vectors = header >= VECTOR_GROUP_OFFSET;
+--- a/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/SableShipFlight.java
+@@ -16,6 +16,7 @@
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.Port;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.PortKey;
+ import io.github.jxt159753.blockspaceprogram.collision.ShipCollisionBody;
++import java.math.BigInteger;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Comparator;
+@@ -166,7 +167,7 @@
+         if (design.nodes().stream().noneMatch(node -> node.dryMass() > 0)) {
+             throw new IllegalArgumentException("A flying ship needs positive dry mass");
+         }
+-        var state = new ShipFlightState(design, ShipPropellantData.EMPTY, 0, ShipFlightState.initialStage(design));
++        var state = new ShipFlightState(design, ShipPropellantData.EMPTY, BigInteger.ZERO, ShipFlightState.initialStage(design));
+         var origin = new Vector3d(ship.getX(), ship.getY(), ship.getZ());
+         var rotation = new Quaterniond(PartPose.orientation(ship.launchRotation())).normalize();
+         var flight = spawn(ship, level, design, state, origin, rotation);
+@@ -693,7 +694,12 @@
+         return state.isDebris();
+     }
+
+-    long damagedParts() {
++    void damageCapacityPart(int index) {
++        state = new ShipFlightState(layout(), state.savePropellant(), state.damagedParts().setBit(index), state.stage());
++        ship.setDamagedParts(state.damagedParts());
++    }
++
++    BigInteger damagedParts() {
+         return state.damagedParts();
+     }
+
+@@ -949,8 +955,8 @@
+     private boolean tryDock(DockingShip primary, DockingShip incoming, CaptureLimits limits) {
+         int nodes = primary.layout.nodes().size() + incoming.layout.nodes().size();
+         int parts = primary.layout.partCount() + incoming.layout.partCount();
+-        if (parts > ShipDesign.MAX_PARTS || nodes - parts > ShipDesign.MAX_HULL_NODES || nodes > ShipDesign.MAX_NODES
+-                || primary.layout.stageCount() + incoming.layout.stageCount() > ShipDesign.MAX_STAGES) {
++        if (parts > ShipDesign.MAX_FLIGHT_PARTS || nodes - parts > ShipDesign.MAX_FLIGHT_HULLS || nodes > ShipDesign.MAX_NODES
++                || primary.layout.stageCount() + incoming.layout.stageCount() > ShipDesign.MAX_FLIGHT_STAGES) {
+             return false;
+         }
+         var relative = primary.motion.orientation().conjugate(new Quaterniond()).mul(incoming.motion.orientation());
+@@ -985,7 +991,7 @@
+         var ownState = ship.dockingState().snapshot(primary.layout, state.stage(), ship.dockingIdentity());
+         var peerState = other.ship.dockingState().snapshot(incoming.layout, other.state.stage(), other.ship.dockingIdentity());
+         var docking = ownState.merge(peerState, offset);
+-        layout = ShipDocking.closeAlignedPorts(layout, state.damagedParts() | other.state.damagedParts() << offset, docking.released());
++        layout = ShipDocking.closeAlignedPorts(layout, state.damagedParts().or(other.state.damagedParts().shiftLeft(offset)), docking.released());
+         var next = spawn(ship, level, layout, state.docked(layout, other.state), vector(worldPoint(Vec3.ZERO)),
+                 primary.motion.orientation());
+         try {
+@@ -1019,6 +1025,7 @@
+         incomingStanding.forEach(rider -> next.moveHullRider(rider.player(), frame.point(rider.local())));
+         other.removeForOrbit();
+         removeBodyNow();
++        DockingCapacityTiming.success("dock", ship);
+         return true;
+     }
+
+@@ -1073,6 +1080,7 @@
+         var endpoint = pilotComponent.contains(link.first().node()) ? link.first() : link.second();
+         var docking = ship.dockingState().release(new PortKey(endpoint.node(), endpoint.marker()));
+         cutLinks(layout, cuts, components, state.stage(), docking);
++        DockingCapacityTiming.success("undock", ship);
+         return true;
+     }
+
+--- a/io/github/jxt159753/blockspaceprogram/assembly/AssembledShipEntity.java
++++ b/io/github/jxt159753/blockspaceprogram/assembly/AssembledShipEntity.java
+@@ -4,6 +4,7 @@
+ import com.mojang.math.OctahedralGroup;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import java.util.Arrays;
++import java.math.BigInteger;
+ import java.util.List;
+ import java.util.Optional;
+ import java.util.UUID;
+@@ -58,8 +59,8 @@
+             AssembledShipEntity.class, EntityDataSerializers.FLOAT);
+     private static final EntityDataAccessor<Long> ELECTRIC = SynchedEntityData.defineId(
+             AssembledShipEntity.class, EntityDataSerializers.LONG);
+-    private static final EntityDataAccessor<Long> DAMAGED_PARTS = SynchedEntityData.defineId(
+-            AssembledShipEntity.class, EntityDataSerializers.LONG);
++    private static final EntityDataAccessor<CompoundTag> DAMAGED_PARTS = SynchedEntityData.defineId(
++            AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
+     private static final EntityDataAccessor<Integer> ACTIVE_STAGE = SynchedEntityData.defineId(
+             AssembledShipEntity.class, EntityDataSerializers.INT);
+     private static final EntityDataAccessor<Integer> ATTITUDE_MODE = SynchedEntityData.defineId(
+@@ -81,6 +82,7 @@
+     private CompoundTag seats = new CompoundTag();
+     private long debrisSince = -1;
+     private boolean triedFlight;
++    private boolean capacityBenchmark;
+
+     public AssembledShipEntity(EntityType<? extends AssembledShipEntity> type, Level level) {
+         super(type, level);
+@@ -96,7 +98,7 @@
+         builder.define(THROTTLE, 0);
+         builder.define(FUEL, 0.0F);
+         builder.define(ELECTRIC, 0L);
+-        builder.define(DAMAGED_PARTS, 0L);
++        builder.define(DAMAGED_PARTS, new CompoundTag());
+         builder.define(ACTIVE_STAGE, -1);
+         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
+         builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
+@@ -111,7 +113,7 @@
+     }
+
+     public boolean isBenchmark() {
+-        return entityData.get(BLUEPRINT).has(BlockSpaceProgram.BENCHMARK_LAYOUT);
++        return capacityBenchmark || entityData.get(BLUEPRINT).has(BlockSpaceProgram.BENCHMARK_LAYOUT);
+     }
+
+     @Nullable
+@@ -143,8 +145,15 @@
+     @Nullable
+     static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation,
+             @Nullable UUID owner) {
++        return spawn(level, blueprint, origin, rotation, owner, false);
++    }
++
++    @Nullable
++    static AssembledShipEntity spawn(ServerLevel level, ItemStack blueprint, Vec3 origin, OctahedralGroup rotation,
++            @Nullable UUID owner, boolean capacityBenchmark) {
+         var ship = new AssembledShipEntity(BlockSpaceProgram.ASSEMBLED_SHIP.get(), level);
+         ship.owner = owner;
++        ship.capacityBenchmark = capacityBenchmark;
+         ship.setBlueprint(blueprint);
+         ship.entityData.set(LAUNCH_ROTATION, (byte) rotation.ordinal());
+         ship.setPos(origin);
+@@ -174,8 +183,12 @@
+             return false;
+         }
+         try {
+-            bindFlight(bodyId == null ? SableShipFlight.launch(this, level, design)
+-                    : SableShipFlight.restore(this, level, design, bodyId, savedPropellant, activeStage()));
++            boolean fromDisk = bodyId != null;
++            bindFlight(fromDisk ? SableShipFlight.restore(this, level, design, bodyId, savedPropellant, activeStage())
++                    : SableShipFlight.launch(this, level, design));
++            if (fromDisk) {
++                DockingCapacityTiming.success("restart", this);
++            }
+             return true;
+         } catch (RuntimeException error) {
+             LOGGER.warn("Could not initialize ship flight for {}", getUUID(), error);
+@@ -368,15 +381,19 @@
+     }
+
+     public int damagedPartCount() {
+-        return Long.bitCount(damagedParts());
+-    }
+-
+-    long damagedParts() {
+-        return entityData.get(DAMAGED_PARTS);
+-    }
+-
+-    void setDamagedParts(long damage) {
+-        entityData.set(DAMAGED_PARTS, damage);
++        return damagedParts().bitCount();
++    }
++
++    BigInteger damagedParts() {
++        return new BigInteger(1, entityData.get(DAMAGED_PARTS).getByteArray("parts"));
++    }
++
++    void setDamagedParts(BigInteger damage) {
++        var tag = new CompoundTag();
++        if (damage.signum() != 0) {
++            tag.putByteArray("parts", damage.toByteArray());
++        }
++        entityData.set(DAMAGED_PARTS, tag);
+     }
+
+     public byte[] parachuteStates() {
+@@ -673,7 +690,7 @@
+             savedPropellant = ShipPropellantData.read(tag);
+             entityData.set(FLYING, true);
+             entityData.set(ACTIVE_STAGE, tag.contains("FlightStage") ? tag.getInt("FlightStage") : NO_SAVED_STAGE);
+-            setDamagedParts(tag.getLong("DamagedParts"));
++            setDamagedParts(new BigInteger(1, tag.getByteArray("DamagedParts")));
+             debrisSince = tag.contains("DebrisSince") ? tag.getLong("DebrisSince") : -1;
+         }
+     }
+@@ -688,7 +705,7 @@
+         if (bodyId != null) {
+             tag.putUUID("FlightBody", bodyId);
+             (flight == null ? savedPropellant : flight.savePropellant()).write(tag);
+-            tag.putLong("DamagedParts", damagedParts());
++            tag.putByteArray("DamagedParts", damagedParts().toByteArray());
+             if (activeStage() >= -1) {
+                 tag.putInt("FlightStage", activeStage());
+             }
+--- a/io/github/jxt159753/blockspaceprogram/orbit/ShipOrbitHandoff.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/ShipOrbitHandoff.java
+@@ -3,6 +3,7 @@
+ import com.mojang.logging.LogUtils;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
++import io.github.jxt159753.blockspaceprogram.assembly.DockingCapacityTiming;
+ import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties;
+ import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
+ import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight.Motion;
+@@ -223,6 +224,9 @@
+                 throw error;
+             }
+         }
++        if (restored != null) {
++            DockingCapacityTiming.success("orbit", restored);
++        }
+         return restored;
+     }
+
+--- a/io/github/jxt159753/blockspaceprogram/orbit/OrbitalRegion.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/OrbitalRegion.java
+@@ -44,7 +44,7 @@
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final SavedData.Factory<Region> FACTORY = new SavedData.Factory<>(Region::new, Region::load);
+     private static final String STORAGE_ID = "blockspaceprogram_orbital_region";
+-    private static final String PLAYER_RETURN = "BlockSpaceProgramOrbitalReturn";
++    static final String PLAYER_RETURN = "BlockSpaceProgramOrbitalReturn";
+     private static final String EVA_FLIGHT = "BlockSpaceProgramEvaFlight";
+     private static final ResourceLocation ZERO_GRAVITY =
+             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "orbital_gravity");
+--- a/io/github/jxt159753/blockspaceprogram/orbit/BenchmarkCommands.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/BenchmarkCommands.java
+@@ -7,6 +7,7 @@
+ import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+ import com.mojang.logging.LogUtils;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
++import io.github.jxt159753.blockspaceprogram.assembly.DockingCapacityDesigns.Shape;
+ import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
+ import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
+ import io.github.jxt159753.blockspaceprogram.orbit.BenchmarkReport.Trial;
+@@ -87,6 +88,16 @@
+
+     private static int start(CommandSourceStack source, List<Kind> sequence, int shipCount, int partsPerShip,
+             int warmup, int sample) throws CommandSyntaxException {
++        return start(source, sequence, shipCount, partsPerShip, warmup, sample, null);
++    }
++
++    static int capacity(CommandSourceStack source, Shape capacity, Kind kind, int warmup, int sample)
++            throws CommandSyntaxException {
++        return start(source, List.of(Kind.EMPTY, kind), 1, capacity.parts(), warmup, sample, capacity);
++    }
++
++    private static int start(CommandSourceStack source, List<Kind> sequence, int shipCount, int partsPerShip,
++            int warmup, int sample, @Nullable Shape capacity) throws CommandSyntaxException {
+         var player = onlinePlayer(source);
+         var server = source.getServer();
+         if (ACTIVE.containsKey(server)) {
+@@ -96,7 +107,7 @@
+             throw failure("client_missing");
+         }
+         boolean sable = ModList.get().isLoaded("sable");
+-        boolean drifting = sequence.getFirst() == Kind.DRIFTING;
++        boolean drifting = sequence.getLast() == Kind.DRIFTING;
+         if (drifting && !sable) {
+             throw failure("sable_required");
+         }
+@@ -107,7 +118,8 @@
+         if (drifting && !OrbitalRegion.get(server).availableForBenchmark(level)) {
+             throw failure("orbital_busy");
+         }
+-        var scene = shipCount == 0 ? BenchmarkScene.render(level)
++        var scene = capacity != null ? BenchmarkScene.capacity(level, drifting, capacity)
++                : shipCount == 0 ? BenchmarkScene.render(level)
+                 : BenchmarkScene.ships(level, sable, drifting, shipCount, partsPerShip);
+         var run = new Run(player, scene, sequence, shipCount, partsPerShip, warmup, sample);
+         ACTIVE.put(server, run);
+@@ -350,11 +362,20 @@
+             var kind = sequence.get(index);
+             boolean ships = shipCount != 0;
+             String tier = ships ? shipCount + "x" + partsPerShip + "_" + kind.id() : kind.id();
+-            trial = Trial.create(ships ? "ships" : "render", tier, index / RENDER.size() + 1,
++            var capacity = scene.capacity();
++            if (capacity != null) {
++                String state = scene.drifting() ? "drifting" : "landed";
++                trial = Trial.create("docking_capacity", capacity.id() + "_" + state + "_" + (kind == Kind.EMPTY ? "empty" : "ship"),
++                        1, kind == Kind.EMPTY ? 0 : 1, capacity.parts(), state, "capacity_slabs",
++                        scene.level().dimension().location().toString(), scene.origin(), scene.camera(), warmupSeconds,
++                        sampleSeconds, scene.level().getServer().isDedicatedServer());
++            } else {
++                trial = Trial.create(ships ? "ships" : "render", tier, index / RENDER.size() + 1,
+                     ships ? shipCount : kind == Kind.EMPTY ? 0 : BenchmarkScene.RENDER_OBJECTS, partsPerShip,
+                     ships ? kind.id() : null, ships ? BenchmarkScene.SHIP_LAYOUT : null,
+                     scene.level().dimension().location().toString(), scene.origin(), scene.camera(), warmupSeconds, sampleSeconds,
+                     scene.level().getServer().isDedicatedServer());
++            }
+             sampleStarted = System.nanoTime();
+             BenchmarkNetworking.start(player, trial);
+         }
+--- a/io/github/jxt159753/blockspaceprogram/orbit/BenchmarkScene.java
++++ b/io/github/jxt159753/blockspaceprogram/orbit/BenchmarkScene.java
+@@ -4,6 +4,8 @@
+ import com.mojang.math.OctahedralGroup;
+ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
+ import io.github.jxt159753.blockspaceprogram.assembly.AssembledShipEntity;
++import io.github.jxt159753.blockspaceprogram.assembly.DockingCapacityDesigns;
++import io.github.jxt159753.blockspaceprogram.assembly.DockingCapacityDesigns.Shape;
+ import io.github.jxt159753.blockspaceprogram.assembly.PartPose;
+ import io.github.jxt159753.blockspaceprogram.assembly.PlacedPartEntity;
+ import io.github.jxt159753.blockspaceprogram.assembly.SableShipFlight;
+@@ -53,32 +55,48 @@
+     private final int shipCount;
+     private final int columns;
+     @Nullable private final ShipDesign design;
++    @Nullable private final Shape capacity;
+     private final List<Entity> entities = new ArrayList<>();
+     private final Set<ChunkPos> terrain = new HashSet<>();
+
+-    private BenchmarkScene(ServerLevel level, boolean sable, boolean drifting, int shipCount, int partsPerShip) {
++    private BenchmarkScene(ServerLevel level, boolean sable, boolean drifting, int shipCount, int partsPerShip,
++            @Nullable Shape capacity) {
+         this.level = level;
+         this.sable = sable;
+         this.drifting = drifting;
+         this.shipCount = shipCount;
+         columns = (int) Math.ceil(Math.sqrt(shipCount));
+         origin = drifting ? OrbitalRegion.ORIGIN : GROUND_ORIGIN;
+-        design = shipCount == 0 ? null : shipDesign(partsPerShip);
++        this.capacity = capacity;
++        design = capacity != null ? DockingCapacityDesigns.pair(capacity).merged()
++                : shipCount == 0 ? null : shipDesign(partsPerShip);
+         if (design == null) {
+             camera = RENDER_CAMERA;
+         } else {
+             double height = design.bounds().getYsize();
+             double distance = Math.max(22, Math.max(height * 0.9, columns * 5));
++            if (capacity != null) {
++                distance = Math.clamp(height * 0.9 + design.bounds().getZsize() / 2, 30, 82);
++            }
+             camera = new BenchmarkReport.Camera(origin.add(0.5, Math.max(2, height / 2), 0.5 - distance), 0, 0);
+         }
+     }
+
+     static BenchmarkScene render(ServerLevel level) {
+-        return new BenchmarkScene(level, false, false, 0, 0);
++        return new BenchmarkScene(level, false, false, 0, 0, null);
+     }
+
+     static BenchmarkScene ships(ServerLevel level, boolean sable, boolean drifting, int shipCount, int partsPerShip) {
+-        return new BenchmarkScene(level, sable, drifting, shipCount, partsPerShip);
++        return new BenchmarkScene(level, sable, drifting, shipCount, partsPerShip, null);
++    }
++
++    static BenchmarkScene capacity(ServerLevel level, boolean drifting, Shape shape) {
++        return new BenchmarkScene(level, true, drifting, 1, shape.parts(), shape);
++    }
++
++    @Nullable
++    Shape capacity() {
++        return capacity;
+     }
+
+     ServerLevel level() {
+@@ -189,11 +207,16 @@
+     private void populateShips() throws CommandSyntaxException {
+         var bounds = design.bounds();
+         for (int index = 0; index < shipCount; index++) {
+-            var ship = AssembledShipEntity.spawnBenchmark(level, design, shipOrigin(index, bounds));
++            Vec3 position = shipOrigin(index, bounds);
++            var ship = capacity == null ? AssembledShipEntity.spawnBenchmark(level, design, position)
++                    : DockingCapacityDesigns.spawn(level, design, position, capacity.id() + "_" + (drifting ? "drifting" : "landed"), true);
+             if (ship == null) {
+                 throw BenchmarkCommands.failure("spawn_failed");
+             }
+             entities.add(ship);
++            if (capacity != null) {
++                DockingCapacityTrials.measureData(ship);
++            }
+             if (drifting) {
+                 var flight = ship.activeFlight();
+                 if (flight == null) {
+--- a/io/github/jxt159753/blockspaceprogram/client/PartRenderingClient.java
++++ b/io/github/jxt159753/blockspaceprogram/client/PartRenderingClient.java
+@@ -166,6 +166,7 @@
+                     OrbitalRegionClient.shipRendered(entity.getUUID());
+                 }
+                 poses.popPose();
++                DockingCapacityClient.partsRendered(entity);
+             }
+             super.render(entity, yaw, partialTick, poses, buffers, light);
+         }
