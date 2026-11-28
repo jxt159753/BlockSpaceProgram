@@ -8,11 +8,12 @@ import io.github.jxt159753.blockspaceprogram.BlockSpaceProgram;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
@@ -24,6 +25,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import org.jetbrains.annotations.Nullable;
 
 public final class EngineTemplates {
+    private static final ResourceKey<CreativeModeTab> CREATIVE_TAB = ResourceKey.create(
+            Registries.CREATIVE_MODE_TAB, ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "main"));
     private static final DeferredRegister<RecipeSerializer<?>> SERIALIZERS =
             DeferredRegister.create(Registries.RECIPE_SERIALIZER, BlockSpaceProgram.MOD_ID);
     static final DeferredHolder<RecipeSerializer<?>, PartTemplateRecipe.Serializer> RECIPE =
@@ -41,7 +44,7 @@ public final class EngineTemplates {
         SERIALIZERS.register(modBus);
         modBus.addListener(ModularEngines::register);
         modBus.addListener((BuildCreativeModeTabContentsEvent event) -> {
-            if (event.getTabKey().equals(CreativeModeTabs.FUNCTIONAL_BLOCKS)) {
+            if (event.getTabKey().equals(CREATIVE_TAB)) {
                 event.accept(chamber);
                 event.accept(segment);
             }

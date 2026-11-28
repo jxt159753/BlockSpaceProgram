@@ -40,7 +40,7 @@
 
 ## 拼装发动机
 
-1. 在烘焙台上分别用 `blockspaceprogram:nozzle_segment` 摆 1×1、2×2 和 3×3 正方形。每组正上方贴一块 `blockspaceprogram:combustion_chamber`。此原型的喷管朝下。
+1. 从 BlockSpaceProgram 创造模式标签页取出燃烧室和喷管段。在烘焙台上分别用 `blockspaceprogram:nozzle_segment` 摆 1×1、2×2 和 3×3 正方形。每组正上方贴一块 `blockspaceprogram:combustion_chamber`。此原型的喷管朝下。
 2. 手持铜锭右击烘焙台。喷管段的四向连接状态随结构保存，零件物品、装配和飞行共用这份几何。将每件发动机以表面模式接到有燃料的指令舱下方，分别保存并发射。
 3. 每个同一高度、边相连的喷管组由正上方的一个燃烧室驱动。无燃烧室的喷管可用作装饰。两个燃烧室共用一组喷管时，烘焙台报错并保留原结构。
 

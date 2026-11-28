@@ -1,5 +1,5 @@
 diff --git a/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java b/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
-index 51b7def..5243676 100644
+index 34d14f6..b28c127 100644
 --- a/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
 +++ b/io/github/jxt159753/blockspaceprogram/BlockSpaceProgram.java
 @@ -29,6 +29,7 @@ import io.github.jxt159753.blockspaceprogram.orbit.OrbitalNetworking;
@@ -10,14 +10,14 @@ index 51b7def..5243676 100644
  import io.github.jxt159753.blockspaceprogram.part.PartConnector;
  import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
  import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
-@@ -148,6 +149,7 @@ public final class BlockSpaceProgram {
+@@ -167,6 +168,7 @@ public final class BlockSpaceProgram {
          facilities = new FacilityLevels(ShipServerConfig.FACILITY, ModList.get().isLoaded("ftbteams")
                  ? new FtbTeamsFacilityOwnerResolver() : FacilityOwnerResolver::personal);
          NeoForge.EVENT_BUS.addListener(FacilityCommands::register);
 +        EngineTemplates.register(modBus, BLOCKS, ITEMS);
          BLOCKS.register(modBus);
          ITEMS.register(modBus);
-         ENTITIES.register(modBus);
+         CREATIVE_TABS.register(modBus);
 diff --git a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java b/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
 index 9daa9bb..7a4dda0 100644
 --- a/io/github/jxt159753/blockspaceprogram/assembly/ShipFlightState.java
