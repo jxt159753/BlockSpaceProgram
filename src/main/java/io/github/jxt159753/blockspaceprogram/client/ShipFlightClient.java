@@ -36,6 +36,13 @@ public final class ShipFlightClient {
     private static final KeyMapping CUTOFF_KEY = key("cutoff", GLFW.GLFW_KEY_X);
     private static final KeyMapping ATTITUDE_KEY = key("cycle_attitude", GLFW.GLFW_KEY_J);
     private static final KeyMapping THROTTLE_MODE_KEY = key("cycle_throttle", GLFW.GLFW_KEY_K);
+    private static final KeyMapping TRANSLATE_LEFT_KEY = key("translate_left", GLFW.GLFW_KEY_LEFT);
+    private static final KeyMapping TRANSLATE_RIGHT_KEY = key("translate_right", GLFW.GLFW_KEY_RIGHT);
+    private static final KeyMapping TRANSLATE_UP_KEY = key("translate_up", GLFW.GLFW_KEY_UP);
+    private static final KeyMapping TRANSLATE_DOWN_KEY = key("translate_down", GLFW.GLFW_KEY_DOWN);
+    private static final KeyMapping TRANSLATE_FORWARD_KEY = key("translate_forward", GLFW.GLFW_KEY_PAGE_UP);
+    private static final KeyMapping TRANSLATE_BACK_KEY = key("translate_back", GLFW.GLFW_KEY_PAGE_DOWN);
+    private static final KeyMapping TOGGLE_RCS_KEY = key("toggle_rcs", GLFW.GLFW_KEY_O);
 
     private static KeyMapping key(String name, int keyCode) {
         return new KeyMapping("key.blockspaceprogram." + name, InputConstants.Type.KEYSYM, keyCode, "key.categories.blockspaceprogram");
@@ -50,6 +57,13 @@ public final class ShipFlightClient {
         event.register(CUTOFF_KEY);
         event.register(ATTITUDE_KEY);
         event.register(THROTTLE_MODE_KEY);
+        event.register(TRANSLATE_LEFT_KEY);
+        event.register(TRANSLATE_RIGHT_KEY);
+        event.register(TRANSLATE_UP_KEY);
+        event.register(TRANSLATE_DOWN_KEY);
+        event.register(TRANSLATE_FORWARD_KEY);
+        event.register(TRANSLATE_BACK_KEY);
+        event.register(TOGGLE_RCS_KEY);
         if (ModList.get().isLoaded("sable")) {
             SableShipCamera.register(event);
         }
@@ -63,6 +77,7 @@ public final class ShipFlightClient {
     @SubscribeEvent
     public static void sendInput(ClientTickEvent.Post event) {
         var game = Minecraft.getInstance();
+        boolean toggleRcs = TOGGLE_RCS_KEY.consumeClick();
         if (game.player == null || !(game.player.getVehicle() instanceof AssembledShipEntity ship) || !ship.isFlyingShip()) {
             return;
         }
@@ -73,7 +88,11 @@ public final class ShipFlightClient {
                     | flag(options.keyLeft, YAW_LEFT) | flag(options.keyRight, YAW_RIGHT)
                     | flag(ROLL_LEFT_KEY, ROLL_LEFT) | flag(ROLL_RIGHT_KEY, ROLL_RIGHT)
                     | flag(THROTTLE_UP_KEY, THROTTLE_UP) | flag(THROTTLE_DOWN_KEY, THROTTLE_DOWN) | flag(CUTOFF_KEY, CUTOFF)
-                    | flag(options.keyJump, STAGE) | flag(ATTITUDE_KEY, CYCLE_ATTITUDE) | flag(THROTTLE_MODE_KEY, CYCLE_THROTTLE);
+                    | flag(options.keyJump, STAGE) | flag(ATTITUDE_KEY, CYCLE_ATTITUDE) | flag(THROTTLE_MODE_KEY, CYCLE_THROTTLE)
+                    | flag(TRANSLATE_LEFT_KEY, TRANSLATE_LEFT) | flag(TRANSLATE_RIGHT_KEY, TRANSLATE_RIGHT)
+                    | flag(TRANSLATE_UP_KEY, TRANSLATE_UP) | flag(TRANSLATE_DOWN_KEY, TRANSLATE_DOWN)
+                    | flag(TRANSLATE_FORWARD_KEY, TRANSLATE_FORWARD) | flag(TRANSLATE_BACK_KEY, TRANSLATE_BACK)
+                    | (toggleRcs ? TOGGLE_RCS : 0) | flag(TOGGLE_RCS_KEY, TOGGLE_RCS);
         }
         PacketDistributor.sendToServer(new ShipFlightInput(ship.getId(), keys));
     }
@@ -111,8 +130,17 @@ public final class ShipFlightClient {
                         var modes = Component.translatable("flight.blockspaceprogram.modes",
                                 Component.translatable("flight.blockspaceprogram.attitude." + ship.attitudeMode().id()),
                                 Component.translatable("flight.blockspaceprogram.throttle." + ship.throttleMode().id()));
+                        modes.append("   ").append(Component.translatable(ship.rcsEnabled()
+                                ? "flight.blockspaceprogram.rcs_on" : "flight.blockspaceprogram.rcs_off"));
                         graphics.drawCenteredString(game.font, modes, graphics.guiWidth() / 2, graphics.guiHeight() - 97, 0xFFFFFF);
                         int row = graphics.guiHeight() - 109;
+                        float heat = ship.reentryHeatRatio();
+                        if (heat > 0) {
+                            var heatStatus = Component.translatable("flight.blockspaceprogram.reentry_heat", Math.round(100 * heat))
+                                    .withStyle(heat > 1 ? ChatFormatting.RED : ChatFormatting.GOLD);
+                            graphics.drawCenteredString(game.font, heatStatus, graphics.guiWidth() / 2, row, 0xFFFFFF);
+                            row -= 12;
+                        }
                         byte[] parachutes = ship.parachuteStates();
                         if (parachutes.length > 0) {
                             graphics.drawCenteredString(game.font, parachuteStatus(parachutes), graphics.guiWidth() / 2, row, 0xFFFFFF);

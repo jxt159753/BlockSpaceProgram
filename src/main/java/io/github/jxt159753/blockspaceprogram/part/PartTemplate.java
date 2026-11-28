@@ -37,7 +37,7 @@ import org.slf4j.Logger;
 
 /** Data pack definition of a factory-made part in unscaled block coordinates. */
 public record PartTemplate(Component name, BlockPos size, List<PartConnector> connectors, List<PartEngine> engines,
-                           BlockPartProperties properties, Optional<ResourceLocation> displayModel) {
+                           BlockPartProperties properties, Optional<ResourceLocation> displayModel, List<PartRcsThruster> rcs) {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String DIRECTORY = "part_template";
     private static final String LARGE_ENGINE_RESOURCE = "/data/blockspaceprogram/part_template/large_engine.json";
@@ -49,7 +49,8 @@ public record PartTemplate(Component name, BlockPos size, List<PartConnector> co
             PartConnector.CODEC.listOf(0, BakedPart.MAX_BLOCKS).fieldOf("connectors").forGetter(PartTemplate::connectors),
             PartEngine.CODEC.listOf(0, BakedPart.MAX_BLOCKS).fieldOf("engines").forGetter(PartTemplate::engines),
             BlockPartProperties.CODEC.fieldOf("properties").forGetter(PartTemplate::properties),
-            ResourceLocation.CODEC.optionalFieldOf("display_model").forGetter(PartTemplate::displayModel)
+            ResourceLocation.CODEC.optionalFieldOf("display_model").forGetter(PartTemplate::displayModel),
+            PartRcsThruster.CODEC.listOf(0, BakedPart.MAX_BLOCKS).optionalFieldOf("rcs", List.of()).forGetter(PartTemplate::rcs)
     ).apply(instance, PartTemplate::new));
 
     public static void register(AddReloadListenerEvent event) {
@@ -120,6 +121,12 @@ public record PartTemplate(Component name, BlockPos size, List<PartConnector> co
                 return DataResult.error(() -> "An engine outlet must be on the specified face of the part");
             }
         }
+        for (PartRcsThruster thruster : rcs) {
+            Vec3 point = thruster.outlet().point();
+            if (!(point.x >= 0 && point.x <= max.x && point.y >= 0 && point.y <= max.y && point.z >= 0 && point.z <= max.z)) {
+                return DataResult.error(() -> "An RCS outlet must be within the part bounds");
+            }
+        }
 
         var rating = EnginePerformance.combine(engines.stream().map(PartEngine::performance).toList());
         double power = engines.stream().mapToDouble(PartEngine::electricPower).sum();
@@ -134,10 +141,11 @@ public record PartTemplate(Component name, BlockPos size, List<PartConnector> co
 
         var bakedProperties = new BlockPartProperties(mass, properties.fuelCapacity(), rating.thrust(),
                 rating.vacuumSpecificImpulse(), rating.seaLevelSpecificImpulse(), BlockPartProperties.DEFAULT_DRAG_COEFFICIENT,
-                properties.heatResistance(), properties.electricCapacity(), power, properties.impactResistance());
+                properties.heatResistance(), properties.electricCapacity(), power, properties.impactResistance(),
+                properties.wheelTorque());
         var inertia = new BakedPart.InertiaTensor(xx, yy, zz, 0, 0, 0);
         return DataResult.success(new BakedPart(BakedPart.Geometry.filledBox(size), bakedProperties, max.scale(0.5), inertia,
-                types(), 1.0F, connectors, engines, displayModel, Optional.of(name)));
+                types(), 1.0F, connectors, engines, displayModel, Optional.of(name), List.of(), rcs));
     }
 
     private Set<PartType> types() {

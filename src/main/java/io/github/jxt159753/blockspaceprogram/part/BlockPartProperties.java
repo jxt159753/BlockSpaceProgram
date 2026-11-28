@@ -23,14 +23,15 @@ public record BlockPartProperties(
         double heatResistance,
         double electricCapacity,
         double electricPower,
-        double impactResistance) {
+        double impactResistance,
+        double wheelTorque) {
 
     static final double DEFAULT_DRAG_COEFFICIENT = 1.0;
     private static final double DEFAULT_MASS = 1.0;
     private static final double DEFAULT_IMPACT_RESISTANCE = 8.0;
     private static final BlockPartProperties DEFAULT = new BlockPartProperties(
-            DEFAULT_MASS, Map.of(), 0, 0, 0, DEFAULT_DRAG_COEFFICIENT, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
-    private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0, 0);
+            DEFAULT_MASS, Map.of(), 0, 0, 0, DEFAULT_DRAG_COEFFICIENT, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE, 0);
+    private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0);
     private static final Codec<Double> NON_NEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
     static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             NON_NEGATIVE.optionalFieldOf("mass", DEFAULT_MASS).forGetter(BlockPartProperties::mass),
@@ -44,7 +45,8 @@ public record BlockPartProperties(
             NON_NEGATIVE.optionalFieldOf("electric_capacity", 0.0).forGetter(BlockPartProperties::electricCapacity),
             NON_NEGATIVE.optionalFieldOf("electric_power", 0.0).forGetter(BlockPartProperties::electricPower),
             NON_NEGATIVE.optionalFieldOf("impact_resistance", DEFAULT_IMPACT_RESISTANCE)
-                    .forGetter(BlockPartProperties::impactResistance)
+                    .forGetter(BlockPartProperties::impactResistance),
+            NON_NEGATIVE.optionalFieldOf("wheel_torque", 0.0).forGetter(BlockPartProperties::wheelTorque)
     ).apply(instance, BlockPartProperties::new));
 
     private static final DataMapType<Block, BlockPartProperties> DATA_MAP = DataMapType.builder(
@@ -55,6 +57,13 @@ public record BlockPartProperties(
 
     public BlockPartProperties {
         fuelCapacity = Map.copyOf(fuelCapacity);
+    }
+
+    public BlockPartProperties(double mass, Map<ResourceLocation, Double> fuelCapacity, double thrust,
+            double vacuumSpecificImpulse, double seaLevelSpecificImpulse, double dragCoefficient, double heatResistance,
+            double electricCapacity, double electricPower, double impactResistance) {
+        this(mass, fuelCapacity, thrust, vacuumSpecificImpulse, seaLevelSpecificImpulse, dragCoefficient, heatResistance,
+                electricCapacity, electricPower, impactResistance, 0);
     }
 
     public static void register(RegisterDataMapTypesEvent event) {

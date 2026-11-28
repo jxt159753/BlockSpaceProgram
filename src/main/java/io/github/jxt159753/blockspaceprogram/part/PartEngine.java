@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -28,20 +29,27 @@ public record PartEngine(Outlet outlet, EnginePerformance performance, double el
     ).apply(instance, PartEngine::new));
 
     static final StreamCodec<FriendlyByteBuf, PartEngine> STREAM_CODEC = StreamCodec.of((buffer, engine) -> {
-        buffer.writeVec3(engine.outlet.point);
-        buffer.writeEnum(engine.outlet.exhaust);
+        Outlet.STREAM_CODEC.encode(buffer, engine.outlet);
         buffer.writeDouble(engine.performance.thrust());
         buffer.writeDouble(engine.performance.vacuumSpecificImpulse());
         buffer.writeDouble(engine.performance.seaLevelSpecificImpulse());
         buffer.writeDouble(engine.electricPower);
-    }, buffer -> new PartEngine(new Outlet(buffer.readVec3(), buffer.readEnum(Direction.class)),
+    }, buffer -> new PartEngine(Outlet.STREAM_CODEC.decode(buffer),
             new EnginePerformance(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()), buffer.readDouble()));
 
     public record Outlet(Vec3 point, Direction exhaust) {
-        private static final Codec<Outlet> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+        static final Codec<Outlet> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Vec3.CODEC.fieldOf("position").forGetter(Outlet::point),
                 Direction.CODEC.fieldOf("face").forGetter(Outlet::exhaust)
         ).apply(instance, Outlet::new));
+        static final StreamCodec<FriendlyByteBuf, Outlet> STREAM_CODEC = StreamCodec.of((buffer, outlet) -> {
+            buffer.writeVec3(outlet.point);
+            buffer.writeEnum(outlet.exhaust);
+        }, buffer -> new Outlet(buffer.readVec3(), buffer.readEnum(Direction.class)));
+
+        static Outlet at(BlockPos pos, Direction exhaust) {
+            return new Outlet(Vec3.atCenterOf(pos).relative(exhaust, 0.5), exhaust);
+        }
     }
 
     static Direction exhaustDirection(BlockState state) {
@@ -58,7 +66,7 @@ public record PartEngine(Outlet outlet, EnginePerformance performance, double el
         for (var block : geometry.blocks()) {
             if (block.state().is(PartType.ENGINE_NOZZLES) && !(block.state().getBlock() instanceof NozzleSegmentBlock)) {
                 Direction exhaust = exhaustDirection(block.state());
-                outlets.add(new Outlet(Vec3.atCenterOf(block.pos()).relative(exhaust, 0.5), exhaust));
+                outlets.add(Outlet.at(block.pos(), exhaust));
             }
         }
         if (outlets.isEmpty() && keepUnmarkedEngine) {

@@ -1,5 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
+import com.electronwill.nightconfig.core.CommentedConfig;
 import com.mojang.math.OctahedralGroup;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign.Endpoint;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDocking.CaptureLimits;
@@ -12,8 +13,10 @@ import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartType;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.EncoderException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,10 +33,15 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.config.IConfigSpec.ILoadedConfig;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.loading.LoadingModList;
 import org.joml.Quaterniond;
+import org.joml.Vector3d;
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -41,10 +49,22 @@ import static org.junit.Assert.*;
 
 public class ShipDockingTest {
     @BeforeClass
-    public static void bootstrap() {
+    public static void bootstrap() throws ReflectiveOperationException {
         SharedConstants.tryDetectVersion();
         LoadingModList.of(List.of(), List.of(), List.of(), List.of(), Map.of());
         Bootstrap.bootStrap();
+        var values = CommentedConfig.inMemory();
+        ShipServerConfig.SPEC.correct(values);
+        // FML seals the loaded config interface. Supply its in-memory record without starting a game server.
+        var loadedConfig = ILoadedConfig.class.getPermittedSubclasses()[0]
+                .getDeclaredConstructor(CommentedConfig.class, Path.class, ModConfig.class);
+        loadedConfig.setAccessible(true);
+        ShipServerConfig.SPEC.acceptConfig(ILoadedConfig.class.cast(loadedConfig.newInstance(values, null, null)));
+    }
+
+    @AfterClass
+    public static void unloadConfig() {
+        ShipServerConfig.SPEC.acceptConfig(null);
     }
 
     @Test
@@ -196,6 +216,32 @@ public class ShipDockingTest {
         assertEquals(merged.damagedParts(), AssembledShipEntity.readDamagedParts(saved));
         saved.putLong("DamagedParts", -1);
         assertTrue(AssembledShipEntity.readDamagedParts(saved).isEmpty());
+    }
+
+    @Test
+    public void burnedHullRemainsDamagedAfterRebuildingAndSeparating() {
+        var parts = chain(65, 1);
+        var origin = new BlockPos(0, -1, 0);
+        var hullBlocks = new LinkedHashMap<BlockPos, BlockState>();
+        for (int x = 0; x < parts.nodes().size(); x++) {
+            hullBlocks.put(origin.offset(x, 0, 0), Blocks.STONE.defaultBlockState());
+        }
+        var hull = HullRegion.capture(hullBlocks, origin);
+        var nodes = new ArrayList<>(parts.nodes());
+        nodes.add(ShipDesign.Node.hull(hull, origin));
+        var links = new ArrayList<>(parts.links());
+        links.add(new ShipDesign.Link(new Endpoint(65, -1, Direction.UP, new Vec3(64.5, 1, 0.5)),
+                new Endpoint(64, -1, Direction.DOWN, new Vec3(0.5, 0, 0.5)), true, false, -1));
+        var layout = new ShipDesign(nodes, links, 1);
+        var state = new ShipFlightState(layout, ShipPropellantData.EMPTY, new BitSet(), 0);
+        state.updateHeating(new Vector3d(0, -1, 0), 1, 960, 2, 0.025);
+        assertTrue(state.applyDamage(null));
+        assertEquals(bits(65), state.damagedParts());
+        assertEquals(bits(65), state.withGraph(layout, 0).damagedParts());
+
+        var members = List.of(64, 65);
+        var fragment = layout.subset(members, Set.of(), new BlockPos(64, 0, 0));
+        assertEquals(bits(1), state.fragment(fragment, members, ShipDesign.indices(nodes.size(), members), 0).damagedParts());
     }
 
     @Test

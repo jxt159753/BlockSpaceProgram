@@ -2,6 +2,8 @@
 
 `-PreentryHeating` 启用再入原型并复用 `-PaeroOcclusion` 的六向投影。两个原型的接入补丁依次应用到 `build/` 中的源码副本。 [再入加热 #137](https://github.com/jxt159753/BlockSpaceProgram/issues/137) · [气动原型 #135](https://github.com/jxt159753/BlockSpaceProgram/issues/135)
 
+复测使用 Git 提交 `9a90935` 的源码和资源作为基线。正式版的校准值和玩家操作见[再入加热](../../docs/flight.md#再入加热)。
+
 ## 模型
 
 - 每个节点从 293.15 K 开始。平衡温度为 `293.15 K + reentry_heat_multiplier × v² / (2 × 1005)`。默认倍率为 2。745 m/s 和 960 m/s 对应 845.41 K 和 1,210.16 K。

@@ -6,7 +6,6 @@ import io.github.jxt159753.blockspaceprogram.part.BlockPartProperties;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.BitSet;
 import java.util.Arrays;
 import java.util.List;
 import net.minecraft.core.BlockPos;
@@ -50,7 +49,7 @@ final class AeroCacheTrial {
         var cachedTimes = new long[samples];
         for (int i = -15; i < samples; i++) {
             long start = System.nanoTime();
-            ShipAerodynamics.project(design, new BitSet());
+            ShipAerodynamics.project(design, 0);
             long liveNanos = System.nanoTime() - start;
             start = System.nanoTime();
             AeroProjection projection = assembleFromCache(design, baked);
@@ -69,7 +68,7 @@ final class AeroCacheTrial {
     }
 
     private static void checkEquivalent(ShipDesign design, CompoundTag baked) {
-        AeroProjection live = ShipAerodynamics.project(design, new BitSet());
+        AeroProjection live = ShipAerodynamics.project(design, 0);
         AeroProjection cached = assembleFromCache(design, baked);
         for (Side side : SIDES) {
             var direction = new Vector3d().setComponent(side.axis, side.sign);

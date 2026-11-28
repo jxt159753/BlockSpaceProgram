@@ -1,0 +1,8 @@
+{
+  "values": {
+    "blockspaceprogram:rcs_thruster": {
+      "thrust": 350,
+      "isp": 220
+    }
+  }
+}

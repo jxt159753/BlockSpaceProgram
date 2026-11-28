@@ -36,6 +36,7 @@ import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.slf4j.Logger;
 
 /** The launched ship retains its graph and stages across saves. */
@@ -69,8 +70,10 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> THROTTLE_MODE = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.INT);
-    private static final EntityDataAccessor<CompoundTag> PARACHUTES = SynchedEntityData.defineId(
+    private static final EntityDataAccessor<CompoundTag> FLIGHT_EFFECTS = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
+    private static final EntityDataAccessor<Boolean> RCS_ENABLED = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.BOOLEAN);
 
     private final ShipFlightControls flightControls = new ShipFlightControls();
     @Nullable
@@ -103,7 +106,8 @@ public final class AssembledShipEntity extends Entity {
         builder.define(ACTIVE_STAGE, -1);
         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
         builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
-        builder.define(PARACHUTES, new CompoundTag());
+        builder.define(FLIGHT_EFFECTS, new CompoundTag());
+        builder.define(RCS_ENABLED, false);
     }
 
     @Nullable
@@ -401,14 +405,36 @@ public final class AssembledShipEntity extends Entity {
     }
 
     public byte[] parachuteStates() {
-        return entityData.get(PARACHUTES).getByteArray("states");
+        return entityData.get(FLIGHT_EFFECTS).getByteArray("states");
     }
 
     void setParachuteStates(byte[] states) {
         if (!Arrays.equals(parachuteStates(), states)) {
-            var tag = new CompoundTag();
+            var tag = entityData.get(FLIGHT_EFFECTS).copy();
             tag.putByteArray("states", states);
-            entityData.set(PARACHUTES, tag);
+            entityData.set(FLIGHT_EFFECTS, tag);
+        }
+    }
+
+    public float reentryHeatRatio() {
+        return entityData.get(FLIGHT_EFFECTS).getFloat("heat");
+    }
+
+    public Vector3f reentryWindward() {
+        var tag = entityData.get(FLIGHT_EFFECTS);
+        return new Vector3f(tag.getFloat("wind_x"), tag.getFloat("wind_y"), tag.getFloat("wind_z"));
+    }
+
+    void setReentryStatus(float ratio, Vector3fc windward) {
+        var current = entityData.get(FLIGHT_EFFECTS);
+        if (current.getFloat("heat") != ratio || current.getFloat("wind_x") != windward.x()
+                || current.getFloat("wind_y") != windward.y() || current.getFloat("wind_z") != windward.z()) {
+            var tag = current.copy();
+            tag.putFloat("heat", ratio);
+            tag.putFloat("wind_x", windward.x());
+            tag.putFloat("wind_y", windward.y());
+            tag.putFloat("wind_z", windward.z());
+            entityData.set(FLIGHT_EFFECTS, tag);
         }
     }
 
@@ -420,13 +446,18 @@ public final class AssembledShipEntity extends Entity {
         return ShipFlightControl.ThrottleMode.values()[entityData.get(THROTTLE_MODE)];
     }
 
-    void setFlightStatus(float fuel, double electric, int stage) {
+    public boolean rcsEnabled() {
+        return entityData.get(RCS_ENABLED);
+    }
+
+    void setFlightStatus(float fuel, double electric, int stage, boolean rcsEnabled) {
         entityData.set(THROTTLE, (int) Math.round(100 * flightControls.throttle()));
         entityData.set(FUEL, fuel);
         entityData.set(ELECTRIC, Double.doubleToLongBits(electric));
         entityData.set(ACTIVE_STAGE, stage);
         entityData.set(ATTITUDE_MODE, flightControls.attitudeMode().ordinal());
         entityData.set(THROTTLE_MODE, flightControls.throttleMode().ordinal());
+        entityData.set(RCS_ENABLED, rcsEnabled);
     }
 
     void acceptFlightInput(ServerPlayer pilot, int keys) {

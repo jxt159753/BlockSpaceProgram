@@ -54,6 +54,7 @@ import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 
 import static io.github.jxt159753.blockspaceprogram.assembly.ShipFlightInput.*;
@@ -91,12 +92,14 @@ public final class SableShipFlight implements ShipFlightControl {
     private boolean stageRequested;
     private long inputExpiresAt = Long.MIN_VALUE;
     private boolean remoteTicket;
+    private boolean rcsEnabled;
     private double thrust;
     private boolean fuelDepleted;
     private boolean electricDepleted;
     private long supportAt = Long.MIN_VALUE;
     private boolean airborne;
     private boolean landed;
+    private final Vector3f reentryWindward = new Vector3f();
 
     private SableShipFlight(AssembledShipEntity ship, ShipCollisionBody body, ShipFlightState state, ShipDesign design) {
         this.ship = ship;
@@ -142,7 +145,7 @@ public final class SableShipFlight implements ShipFlightControl {
             var flights = LEVELS.get(event.getPhysicsSystem().getLevel());
             if (flights != null) {
                 for (SableShipFlight flight : flights.active.values()) {
-                    if (!flight.body.subLevel().isRemoved() && flight.state.applyImpactDamage(flight.body)) {
+                    if (!flight.body.subLevel().isRemoved() && flight.state.applyDamage(flight.body)) {
                         flight.ship.setDamagedParts(flight.state.damagedParts());
                     }
                 }
@@ -722,7 +725,7 @@ public final class SableShipFlight implements ShipFlightControl {
                 || !pilot.isAlive()) {
             clearInput();
         } else if (ship.level().getGameTime() >= inputExpiresAt) {
-            keys &= STAGE | CYCLE_ATTITUDE | CYCLE_THROTTLE;
+            keys &= STAGE | CYCLE_ATTITUDE | CYCLE_THROTTLE | TOGGLE_RCS;
             pressedKeys = 0;
             controls.clearPilot();
         } else {
@@ -736,6 +739,9 @@ public final class SableShipFlight implements ShipFlightControl {
                     case VERTICAL_SPEED -> setThrottle(ThrottleMode.THRUST_TO_WEIGHT, telemetry().thrustToWeight());
                     case THRUST_TO_WEIGHT -> setThrottle(ThrottleMode.MANUAL, 0);
                 }
+            }
+            if ((pressedKeys & TOGGLE_RCS) != 0) {
+                rcsEnabled = !rcsEnabled;
             }
             controls.tickPilot(keys | (pressedKeys & CUTOFF));
             stageRequested |= (pressedKeys & STAGE) != 0;
@@ -762,8 +768,11 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     void syncStatus() {
-        ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage());
+        ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage(), rcsEnabled);
         ship.setParachuteStates(state.parachutes().snapshot());
+        if (ship.level().getGameTime() % 4 == 0 || ship.reentryHeatRatio() == 0) {
+            ship.setReentryStatus(state.reentryHeatRatio(), reentryWindward);
+        }
     }
 
     @Override
@@ -1343,7 +1352,8 @@ public final class SableShipFlight implements ShipFlightControl {
         var pose = subLevel.logicalPose();
         var orientation = pose.orientation();
         checkRemoteControl();
-        var planet = PlanetFlightProperties.in(subLevel.getLevel());
+        var profile = PlanetFlightProperties.profile(subLevel.getLevel().dimension().location());
+        var planet = profile == null ? null : profile.flight();
         double pressure = relativeDensity(subLevel.getLevel(), planet, pose.position());
         double density = pressure * (planet == null ? STANDARD_AIR_DENSITY : planet.seaLevelDensity());
         var gravityVector = gravityAt(planet, pose.position());
@@ -1353,12 +1363,19 @@ public final class SableShipFlight implements ShipFlightControl {
         var angularVelocity = pipeline.getAngularVelocity(subLevel, new Vector3d());
         var drag = new Vector3d();
         Vector3d windward = null;
+        double speed = 0;
         if (density > 0 && linearVelocity.lengthSquared() > 0) {
             windward = orientation.transformInverse(linearVelocity, new Vector3d());
-            double speed = windward.length();
+            speed = windward.length();
             windward.div(speed);
             double force = state.aerodynamics().dragForce(windward, density, speed, mass * speed / seconds);
             drag.set(windward).mul(-force);
+        }
+        double heatMultiplier = profile == null ? ReentryTemperature.DEFAULT_MULTIPLIER : profile.reentryHeatMultiplier();
+        if (state.updateHeating(windward, density, speed, heatMultiplier, seconds)) {
+            reentryWindward.set(windward);
+        } else {
+            reentryWindward.zero();
         }
         var parachuteForce = new Vector3d();
         var parachuteMoment = new Vector3d();
@@ -1377,26 +1394,47 @@ public final class SableShipFlight implements ShipFlightControl {
         var impulse = new Vector3d();
         var moment = new Vector3d();
         double throttle = controls.resolveThrottle(keys, linearVelocity.y, hoverAcceleration, maxUpAcceleration, maxThrustToWeight);
-        var depletion = state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment);
-        fuelDepleted |= depletion.fuel();
-        electricDepleted |= depletion.electric();
-        thrust = impulse.length() / seconds;
-
-        var massData = subLevel.getMassTracker();
-        var origin = body.plotOrigin();
-        var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
-        impulse.fma(seconds, parachuteForce);
-        moment.fma(seconds, parachuteMoment);
-        moment.sub(center.cross(impulse, new Vector3d()));
         var podRotation = pilotRotation();
         // The local physics velocity omits the orbital frame's translation around the planet.
         var attitudeVelocity = orbitalGravity == null ? linearVelocity : vector(orbitalVelocity).add(linearVelocity);
         var axes = controls.resolveAxes(keys, new Quaterniond(orientation).mul(podRotation), attitudeVelocity, angularVelocity);
         double wheelTorque = state.wheelTorque();
-        if (wheelTorque > 0 && axes.lengthSquared() > 0) {
-            var wheel = podRotation.transform(new Vector3d(axes))
-                    .mul(ShipFlightControls.WHEEL_ACCELERATION / Math.max(1, axes.length()));
+        var acceleration = podRotation.transform(new Vector3d(axes))
+                .mul(ShipFlightControls.WHEEL_ACCELERATION / Math.max(1, axes.length()));
+        var massData = subLevel.getMassTracker();
+        var origin = body.plotOrigin();
+        ShipRcs.Command rcs = null;
+        if (rcsEnabled) {
+            var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
+            var translation = podRotation.transform(new Vector3d(axis(keys, TRANSLATE_RIGHT, TRANSLATE_LEFT),
+                    axis(keys, TRANSLATE_UP, TRANSLATE_DOWN), axis(keys, TRANSLATE_BACK, TRANSLATE_FORWARD)));
+            var torque = massData.getInertiaTensor().transform(acceleration, new Vector3d());
+            rcs = state.rcsCommand(subLevel.getLevel().getServer().getTickCount(), center, translation, torque, wheelTorque);
+        }
+        var rcsImpulse = new Vector3d();
+        var rcsMoment = new Vector3d();
+        var depletion = state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment,
+                rcs == null ? List.of() : rcs.firings(), rcsImpulse, rcsMoment);
+        fuelDepleted |= depletion.fuel();
+        electricDepleted |= depletion.electric();
+        thrust = impulse.length() / seconds;
+
+        massData = subLevel.getMassTracker();
+        var center = new Vector3d(massData.getCenterOfMass()).sub(origin.getX(), origin.getY(), origin.getZ());
+        impulse.fma(seconds, parachuteForce);
+        moment.fma(seconds, parachuteMoment);
+        moment.sub(center.cross(impulse, new Vector3d()));
+        var wheel = acceleration;
+        if (rcs != null) {
+            impulse.add(rcsImpulse);
+            rcsMoment.sub(center.cross(rcsImpulse, new Vector3d()));
+            moment.add(rcsMoment);
+            // Keep the tick's allocation while compensating for changed mass or supply within a substep.
+            rcs.netTorque().mul(seconds, wheel).sub(rcsMoment).div(seconds);
+        } else if (wheelTorque > 0 && acceleration.lengthSquared() > 0) {
             massData.getInertiaTensor().transform(wheel);
+        }
+        if (wheelTorque > 0 && wheel.lengthSquared() > 0) {
             double magnitude = wheel.length();
             if (magnitude > wheelTorque) {
                 wheel.mul(wheelTorque / magnitude);

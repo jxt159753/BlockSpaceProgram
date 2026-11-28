@@ -42,6 +42,12 @@
 
 燃烧室和喷管段的干质量分别为 40 kg 和 10 kg，由 `part_properties` 配置。执行 `/reload` 后，新烘焙的零件使用更新后的数值。已烘焙的零件、蓝图与飞船保存烘焙时的发动机数据。 [零件属性数据包](part-properties.md)
 
+## RCS 推力器
+
+在工作台的中间一列放铁锭、铁粒、铁锭，再在铁粒左右各放一个铜锭，合成两个 RCS 推力器。在创造模式的 BlockSpaceProgram 标签页也可取出。
+
+将推力器放在零件外侧并与结构一起烘焙。喷口沿放置时点击的方块面朝外，推力与排气方向相反。每个推力器的默认额定推力为 350 N，比冲为 220 s。用装配台检查各船体轴的纯平移推力。 [飞行控制](flight.md#rcs-平移) · [性能数据映射](part-properties.md#rcs-性能)
+
 ## 成品发动机
 
 用一个高炉、一个避雷针和一个铜锭无序合成大型发动机。合成器也能制作，创造模式下还可以从 BlockSpaceProgram 标签页取出。它占用 `3×2×3` 格，干质量为 220 kg，顶面有一个 `3×3` 堆叠接口。喷口朝下，额定推力为 12,000 N，真空和海平面比冲分别为 350 s 和 235 s。
@@ -75,7 +81,8 @@
 - `size` 是未缩放的 `[x, y, z]` 尺寸，每边为 1 到 9 格。原点位于包围盒的最小角，碰撞格填满整个包围盒。
 - `connectors` 是接口列表，可为空。`kind` 支持 `stack`、`separation`、`docking` 和 `surface`。`center` 是接口中心，`normal` 是所在面的外法线。`width` 和 `height` 为未缩放的整格尺寸，接口须完全落在所在面上，堆叠类接口须为正方形。
 - `engines` 是发动机列表，可为空。`outlet.position` 是喷口在未缩放零件坐标中的位置，须落在 `outlet.face` 指定的面上。`face` 是排气方向，推力方向与它相反。`performance.thrust` 的单位为 N，`performance.vacuum_specific_impulse` 和 `performance.sea_level_specific_impulse` 的单位为 s。`electric_power` 是满推力耗电功率，单位为 W，省略时为 0。
-- `properties` 沿用 `part_properties` 的字段和默认值。`mass`、`fuel_capacity`、`electric_capacity`、`heat_resistance` 和 `impact_resistance` 写入零件。`thrust`、`vacuum_specific_impulse`、`sea_level_specific_impulse` 和 `electric_power` 的零件级读数从 `engines` 汇总。飞行时从填充模板的铁块读取阻力系数。 [零件属性数据包](part-properties.md)
+- `rcs` 是独立的 RCS 列表，省略时为空。每项使用相同的 `outlet` 结构，`position` 须位于零件包围盒内或边界上。`performance` 包含 `thrust`、`isp` 和可选的 `electric_power`。
+- `properties` 沿用 `part_properties` 的字段和默认值。`mass`、`fuel_capacity`、`electric_capacity`、`heat_resistance`、`impact_resistance` 和 `wheel_torque` 写入零件。`thrust`、`vacuum_specific_impulse`、`sea_level_specific_impulse` 和 `electric_power` 的零件级读数从 `engines` 汇总。飞行时从填充模板的铁块读取阻力系数。 [零件属性数据包](part-properties.md)
 - `display_model` 可省略。省略时成品按填充包围盒的铁块结构渲染。
 
 `normal` 和 `face` 接受 `down`、`up`、`north`、`south`、`west` 和 `east`。制作时选择接口尺寸配置允许的最大比例。

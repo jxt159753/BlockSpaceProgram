@@ -21,13 +21,20 @@ public record ShipFlightInput(int shipId, int keys) implements CustomPacketPaylo
     public static final int STAGE = 1 << 9;
     public static final int CYCLE_ATTITUDE = 1 << 10;
     public static final int CYCLE_THROTTLE = 1 << 11;
-    private static final int KEY_MASK = (CYCLE_THROTTLE << 1) - 1;
+    public static final int TRANSLATE_LEFT = 1 << 12;
+    public static final int TRANSLATE_RIGHT = 1 << 13;
+    public static final int TRANSLATE_UP = 1 << 14;
+    public static final int TRANSLATE_DOWN = 1 << 15;
+    public static final int TRANSLATE_FORWARD = 1 << 16;
+    public static final int TRANSLATE_BACK = 1 << 17;
+    public static final int TOGGLE_RCS = 1 << 18;
+    private static final int KEY_MASK = (TOGGLE_RCS << 1) - 1;
     private static final Type<ShipFlightInput> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(BlockSpaceProgram.MOD_ID, "ship_flight_input"));
     private static final StreamCodec<FriendlyByteBuf, ShipFlightInput> CODEC = StreamCodec.of((buf, input) -> {
         buf.writeVarInt(input.shipId);
-        buf.writeShort(input.keys);
-    }, buf -> new ShipFlightInput(buf.readVarInt(), buf.readUnsignedShort()));
+        buf.writeInt(input.keys);
+    }, buf -> new ShipFlightInput(buf.readVarInt(), buf.readInt()));
 
     public static void register(RegisterPayloadHandlersEvent event) {
         event.registrar("1").playToServer(TYPE, CODEC, (input, context) -> {

@@ -8,7 +8,6 @@ import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.Attitude
 import io.github.jxt159753.blockspaceprogram.assembly.ShipFlightControl.ThrottleMode;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -185,7 +184,7 @@ public final class AeroTrials {
                         && flight(upperDock).aerodynamics().exposedArea(Side.POS_Y, 0) == 1, "Expected two exposed docking pods");
                 AeroCacheTrial.run(LOGGER, benchmark);
                 var payload = AeroTrialDesigns.payload();
-                var uncovered = ShipAerodynamics.project(payload, new BitSet());
+                var uncovered = ShipAerodynamics.project(payload, 0);
                 fairing = spawn(level, AeroTrialDesigns.fairings(payload), new Vec3(8, 115, -8));
                 var covered = flight(fairing).aerodynamics();
                 recordFairing("bare", uncovered);
