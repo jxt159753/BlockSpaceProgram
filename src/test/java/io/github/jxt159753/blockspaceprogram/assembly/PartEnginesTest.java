@@ -12,8 +12,9 @@ import java.util.Set;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
@@ -57,7 +58,7 @@ public class PartEnginesTest {
         var encoded = BakedPart.CODEC.encodeStart(NbtOps.INSTANCE, part).getOrThrow();
         var decoded = BakedPart.CODEC.parse(NbtOps.INSTANCE, encoded).getOrThrow();
         assertEquals(part.engines(), decoded.withScale(0.25F).engines());
-        var buffer = new FriendlyByteBuf(Unpooled.buffer());
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
         try {
             BakedPart.STREAM_CODEC.encode(buffer, decoded);
             assertEquals(part.engines(), BakedPart.STREAM_CODEC.decode(buffer).engines());

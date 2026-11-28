@@ -34,6 +34,8 @@ import io.github.jxt159753.blockspaceprogram.part.ModularEngines;
 import io.github.jxt159753.blockspaceprogram.part.NozzleSegmentBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
+import io.github.jxt159753.blockspaceprogram.part.PartTemplate;
+import io.github.jxt159753.blockspaceprogram.part.PartTemplateRecipe;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
 import io.github.jxt159753.blockspaceprogram.sky.SurfaceColor;
 import java.util.function.BooleanSupplier;
@@ -48,6 +50,7 @@ import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -87,6 +90,7 @@ public final class BlockSpaceProgram {
     private static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
             DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, MOD_ID);
     private static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, MOD_ID);
+    private static final DeferredRegister<RecipeSerializer<?>> RECIPES = DeferredRegister.create(Registries.RECIPE_SERIALIZER, MOD_ID);
     private static final DeferredRegister.DataComponents COMPONENTS =
             DeferredRegister.createDataComponents(Registries.DATA_COMPONENT_TYPE, MOD_ID);
     private static FacilityLevels facilities;
@@ -145,6 +149,8 @@ public final class BlockSpaceProgram {
             "world_assembly", () -> IMenuTypeExtension.create(AssemblyMenu::worldClient));
     public static final DeferredHolder<MenuType<?>, MenuType<FlightTerminalMenu>> FLIGHT_TERMINAL_MENU = MENUS.register(
             "flight_terminal", () -> IMenuTypeExtension.create(FlightTerminalMenu::new));
+    public static final DeferredHolder<RecipeSerializer<?>, PartTemplateRecipe.Serializer> PART_TEMPLATE_RECIPE =
+            RECIPES.register("part_template", PartTemplateRecipe.Serializer::new);
 
     static {
         ITEMS.registerSimpleBlockItem(BAKING_TABLE);
@@ -164,6 +170,10 @@ public final class BlockSpaceProgram {
                     output.accept(ATTACHMENT_FACE);
                     output.accept(COMBUSTION_CHAMBER);
                     output.accept(NOZZLE_SEGMENT);
+                    ItemStack largeEngine = PartTemplate.creativeLargeEngine(parameters.holders());
+                    if (!largeEngine.isEmpty()) {
+                        output.accept(largeEngine);
+                    }
                     output.accept(ASSEMBLY_TABLE);
                     output.accept(SHIP_BLUEPRINT);
                     output.accept(SHIP_ASSEMBLER);
@@ -178,12 +188,14 @@ public final class BlockSpaceProgram {
         facilities = new FacilityLevels(ShipServerConfig.FACILITY, ModList.get().isLoaded("ftbteams")
                 ? new FtbTeamsFacilityOwnerResolver() : FacilityOwnerResolver::personal);
         NeoForge.EVENT_BUS.addListener(FacilityCommands::register);
+        NeoForge.EVENT_BUS.addListener(PartTemplate::register);
         BLOCKS.register(modBus);
         ITEMS.register(modBus);
         CREATIVE_TABS.register(modBus);
         ENTITIES.register(modBus);
         BLOCK_ENTITIES.register(modBus);
         MENUS.register(modBus);
+        RECIPES.register(modBus);
         COMPONENTS.register(modBus);
         modBus.addListener(BlockPartProperties::register);
         modBus.addListener(ModularEngines::register);
