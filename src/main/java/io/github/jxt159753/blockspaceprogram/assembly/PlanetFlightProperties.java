@@ -57,7 +57,7 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
             @Override
             protected void apply(Map<ResourceLocation, JsonElement> json, ResourceManager resources, ProfilerFiller profiler) {
                 var loaded = new HashMap<ResourceLocation, Profile>();
-                json.forEach((dimension, entry) -> Profile.codec(dimension).parse(JsonOps.INSTANCE, entry)
+                json.forEach((dimension, entry) -> Profile.parse(dimension, entry)
                         .resultOrPartial(error -> LOGGER.error("Invalid ship flight parameters for {}: {}", dimension, error))
                         .ifPresent(properties -> loaded.put(dimension, properties)));
                 planets = Map.copyOf(loaded);
@@ -125,23 +125,27 @@ public record PlanetFlightProperties(double seaLevel, double radius, double surf
     }
 
     public record Profile(PlanetFlightProperties flight, Optional<HandoffHeights> handoff, Appearance appearance) {
-        static Codec<Profile> codec(ResourceLocation dimension) {
-            var appearance = Appearance.CODEC.optionalFieldOf("appearance", Appearance.DEFAULT).orElse(error -> {
-                LOGGER.error("Invalid appearance for {}: {}", dimension, error);
-            }, Appearance.DEFAULT);
-            return RecordCodecBuilder.<Profile>create(instance -> instance.group(
-                    PlanetFlightProperties.CODEC.forGetter(Profile::flight),
-                    HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff),
-                    appearance.forGetter(Profile::appearance)
-            ).apply(instance, Profile::new)).validate(profile -> {
-                var heights = profile.handoff().orElse(null);
-                if (heights != null && (heights.ascent() <= heights.descent()
-                        || (profile.flight().hasAtmosphere() && heights.descent() <= profile.flight().atmosphereTop()))) {
-                    return DataResult.error(() -> "Expected ascent_altitude > descent_altitude above any atmosphere",
-                            new Profile(profile.flight(), Optional.empty(), profile.appearance()));
-                }
-                return DataResult.success(profile);
-            });
+        private static final Codec<Appearance> APPEARANCE_CODEC =
+                Appearance.CODEC.optionalFieldOf("appearance", Appearance.DEFAULT).codec();
+        private static final Codec<Profile> FLIGHT_CODEC = RecordCodecBuilder.<Profile>create(instance -> instance.group(
+                PlanetFlightProperties.CODEC.forGetter(Profile::flight),
+                HandoffHeights.CODEC.optionalFieldOf("orbit_handoff").forGetter(Profile::handoff)
+        ).apply(instance, (flight, handoff) -> new Profile(flight, handoff, Appearance.DEFAULT))).validate(profile -> {
+            var heights = profile.handoff().orElse(null);
+            if (heights != null && (heights.ascent() <= heights.descent()
+                    || (profile.flight().hasAtmosphere() && heights.descent() <= profile.flight().atmosphereTop()))) {
+                return DataResult.error(() -> "Expected ascent_altitude > descent_altitude above any atmosphere",
+                        new Profile(profile.flight(), Optional.empty(), profile.appearance()));
+            }
+            return DataResult.success(profile);
+        });
+
+        static DataResult<Profile> parse(ResourceLocation dimension, JsonElement json) {
+            var result = APPEARANCE_CODEC.parse(JsonOps.INSTANCE, json);
+            result.error().ifPresent(error -> LOGGER.error("Invalid appearance for {}: {}", dimension, error.message()));
+            Appearance appearance = result.result().orElse(Appearance.DEFAULT);
+            return FLIGHT_CODEC.parse(JsonOps.INSTANCE, json)
+                    .map(profile -> new Profile(profile.flight(), profile.handoff(), appearance));
         }
     }
 

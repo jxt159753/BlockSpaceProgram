@@ -1,7 +1,6 @@
 package io.github.jxt159753.blockspaceprogram.assembly;
 
 import com.google.gson.JsonParser;
-import com.mojang.serialization.JsonOps;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties.Appearance;
 import io.github.jxt159753.blockspaceprogram.assembly.PlanetFlightProperties.Profile;
 import net.minecraft.resources.ResourceLocation;
@@ -47,6 +46,6 @@ public class PlanetAppearanceTest {
                  "orbit_handoff": {"ascent_altitude": 6000, "descent_altitude": 5000}}
                 """).getAsJsonObject();
         json.add("appearance", JsonParser.parseString(appearance));
-        return Profile.codec(ResourceLocation.withDefaultNamespace("overworld")).parse(JsonOps.INSTANCE, json).getOrThrow();
+        return Profile.parse(ResourceLocation.withDefaultNamespace("overworld"), json).getOrThrow();
     }
 }
