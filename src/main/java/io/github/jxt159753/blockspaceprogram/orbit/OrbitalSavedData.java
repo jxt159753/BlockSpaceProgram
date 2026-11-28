@@ -176,7 +176,8 @@ public final class OrbitalSavedData extends SavedData {
             return ManeuverResult.NO_THRUST;
         }
         if (!propulsion.estimate(deltaV).supplies(deltaV)) {
-            return ManeuverResult.INSUFFICIENT_FUEL;
+            return propulsion.electricityLimits(deltaV) ? ManeuverResult.INSUFFICIENT_ELECTRICITY
+                    : ManeuverResult.INSUFFICIENT_FUEL;
         }
         try {
             node.preview(system, ship.orbit(), now);
@@ -215,12 +216,14 @@ public final class OrbitalSavedData extends SavedData {
             OrbitingShip advanced = ship;
             double start = from;
             BiConsumer<Orbit, Orbit> onCrossing = (before, after) ->
-                    crossings.add(ShipOrbitEvent.soiChanged(id, ship.ownerId(), before, after));
+                    crossings.add(ShipOrbitEvent.soiChanged(ship, registries, before, after));
             if (node != null && node.seconds() <= to) {
                 // Fit the impulse at its exact epoch, even when it falls between ticks.
                 start = Math.max(from, node.seconds());
                 Orbit before = system.advance(ship.orbit(), from, start, onCrossing);
                 advanced = ignite(ship.withOrbit(before), node, start, registries);
+                var afterBurn = advanced;
+                onCrossing = (previous, after) -> crossings.add(ShipOrbitEvent.soiChanged(afterBurn, registries, previous, after));
             }
             Orbit next = system.advance(advanced.orbit(), start, to, onCrossing);
             if (next != advanced.orbit()) {
@@ -247,7 +250,7 @@ public final class OrbitalSavedData extends SavedData {
                 try {
                     Orbit next = new ManeuverNode(seconds, node.deltaV()).apply(system, ship.orbit());
                     return new OrbitingShip(ship.id(), next, ship.orientation(), ship.angularVelocity(),
-                            snapshot.afterBurn(burn.seconds()));
+                            snapshot.afterBurn(burn));
                 } catch (IllegalArgumentException exception) {
                     LOGGER.warn("Could not apply maneuver on orbiting ship {}", ship.id(), exception);
                 }
@@ -305,6 +308,6 @@ public final class OrbitalSavedData extends SavedData {
 
     public enum ManeuverResult {
         QUEUED, CANCELED, FORBIDDEN, MISSING_SHIP, NO_NODE, ALREADY_QUEUED, INVALID_NODE, INSUFFICIENT_FUEL,
-        PLANNED, NO_THRUST
+        PLANNED, NO_THRUST, INSUFFICIENT_ELECTRICITY
     }
 }

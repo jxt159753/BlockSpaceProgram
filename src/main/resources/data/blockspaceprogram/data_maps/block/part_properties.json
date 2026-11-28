@@ -9,7 +9,7 @@
     "minecraft:cauldron": {
       "mass": 50.0,
       "fuel_capacity": {
-        "blockspaceprogram:liquid_fuel": 100.0
+        "blockspaceprogram:fuel": 100.0
       }
     }
   }

@@ -55,17 +55,19 @@ public interface ShipFlightControl {
         }
     }
 
+    record Propellant(double fuel, double electric) {}
+
     record Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
-                     Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double thrust,
+                     Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double electric, double thrust,
                      double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
                      AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
                      @Nullable PlanetFlightProperties planet, double verticalSpeed) {
         public Telemetry(UUID shipId, ResourceLocation dimension, Vec3 position, Vec3 velocity, double altitude,
-                         Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double thrust,
+                         Attitude attitude, Vec3 angularVelocity, double mass, double fuel, double electric, double thrust,
                          double availableThrust, double gravity, double thrustToWeight, double throttle, int stage,
                          AttitudeMode attitudeMode, ThrottleMode throttleMode, Vec3 axes, boolean landed,
                          @Nullable PlanetFlightProperties planet) {
-            this(shipId, dimension, position, velocity, altitude, attitude, angularVelocity, mass, fuel, thrust,
+            this(shipId, dimension, position, velocity, altitude, attitude, angularVelocity, mass, fuel, electric, thrust,
                     availableThrust, gravity, thrustToWeight, throttle, stage, attitudeMode, throttleMode, axes,
                     landed, planet, velocity.y);
         }

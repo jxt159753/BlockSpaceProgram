@@ -22,13 +22,14 @@ public record BlockPartProperties(
         double dragCoefficient,
         double heatResistance,
         double electricCapacity,
+        double electricPower,
         double impactResistance) {
 
     private static final double DEFAULT_MASS = 1.0;
     private static final double DEFAULT_IMPACT_RESISTANCE = 8.0;
     private static final BlockPartProperties DEFAULT = new BlockPartProperties(
-            DEFAULT_MASS, Map.of(), 0, 0, 0, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
-    private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0);
+            DEFAULT_MASS, Map.of(), 0, 0, 0, 0, 0, 0, 0, DEFAULT_IMPACT_RESISTANCE);
+    private static final BlockPartProperties AIR = new BlockPartProperties(0, Map.of(), 0, 0, 0, 0, 0, 0, 0, 0);
     private static final Codec<Double> NON_NEGATIVE = Codec.doubleRange(0, Double.MAX_VALUE);
     static final Codec<BlockPartProperties> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             NON_NEGATIVE.optionalFieldOf("mass", DEFAULT_MASS).forGetter(BlockPartProperties::mass),
@@ -40,6 +41,7 @@ public record BlockPartProperties(
             NON_NEGATIVE.optionalFieldOf("drag_coefficient", 0.0).forGetter(BlockPartProperties::dragCoefficient),
             NON_NEGATIVE.optionalFieldOf("heat_resistance", 0.0).forGetter(BlockPartProperties::heatResistance),
             NON_NEGATIVE.optionalFieldOf("electric_capacity", 0.0).forGetter(BlockPartProperties::electricCapacity),
+            NON_NEGATIVE.optionalFieldOf("electric_power", 0.0).forGetter(BlockPartProperties::electricPower),
             NON_NEGATIVE.optionalFieldOf("impact_resistance", DEFAULT_IMPACT_RESISTANCE)
                     .forGetter(BlockPartProperties::impactResistance)
     ).apply(instance, BlockPartProperties::new));

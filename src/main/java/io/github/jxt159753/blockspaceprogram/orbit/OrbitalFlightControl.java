@@ -127,7 +127,7 @@ public final class OrbitalFlightControl {
         return new ShipFlightControl.Telemetry(shipId, BlockSpaceProgram.ORBITAL_SPACE.location(), state.position(),
                 state.velocity(), radius - body.radius(), ShipFlightControl.Attitude.fromOrientation(orientation),
                 ship.angularVelocity(), propulsion == null ? 0 : propulsion.wetMass(),
-                propulsion == null ? 0 : propulsion.fuel(), 0,
+                propulsion == null ? 0 : propulsion.fuel(), propulsion == null ? 0 : propulsion.electric(), 0,
                 propulsion == null ? 0 : propulsion.netThrust(),
                 body.gravitationalParameter() / (radius * radius), 0, 0, snapshot == null ? -1 : snapshot.stage(),
                 controls == null ? AttitudeMode.MANUAL : controls.attitudeMode(),

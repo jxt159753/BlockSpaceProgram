@@ -30,7 +30,6 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -90,6 +89,7 @@ public final class SableShipFlight implements ShipFlightControl {
     private boolean remoteTicket;
     private double thrust;
     private boolean fuelDepleted;
+    private boolean electricDepleted;
     private long supportAt = Long.MIN_VALUE;
     private boolean airborne;
     private boolean landed;
@@ -165,7 +165,7 @@ public final class SableShipFlight implements ShipFlightControl {
         if (design.nodes().stream().noneMatch(node -> node.dryMass() > 0)) {
             throw new IllegalArgumentException("A flying ship needs positive dry mass");
         }
-        var state = new ShipFlightState(design, new ListTag(), 0, ShipFlightState.initialStage(design));
+        var state = new ShipFlightState(design, ShipPropellantData.EMPTY, 0, ShipFlightState.initialStage(design));
         var origin = new Vector3d(ship.getX(), ship.getY(), ship.getZ());
         var rotation = new Quaterniond(PartPose.orientation(ship.launchRotation())).normalize();
         var flight = spawn(ship, level, design, state, origin, rotation);
@@ -192,7 +192,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     static SableShipFlight restore(AssembledShipEntity ship, ServerLevel level, ShipDesign design, UUID bodyId,
-            ListTag savedFuel, int savedStage) {
+            ShipPropellantData savedPropellant, int savedStage) {
         var container = SubLevelContainer.getContainer(level);
         if (!(container.getSubLevel(bodyId) instanceof ServerSubLevel subLevel) || subLevel.isRemoved()) {
             throw new IllegalStateException("Saved Sable sub-level is missing");
@@ -203,7 +203,7 @@ public final class SableShipFlight implements ShipFlightControl {
                 || !subLevel.getPlot().contains(ship.chunkPosition())) {
             throw new IllegalStateException("Saved Sable sub-level belongs to a different ship");
         }
-        var state = savedState(ship, design, savedFuel, savedStage);
+        var state = savedState(ship, design, savedPropellant, savedStage);
         var body = new ShipCollisionBody(container, subLevel, origin);
         body.restoreBlocks(state.cells(), state.hull());
         return new SableShipFlight(ship, body, state, design);
@@ -215,15 +215,16 @@ public final class SableShipFlight implements ShipFlightControl {
         return flight != null && flight.isActive() && !flight.state.hull().isEmpty();
     }
 
-    static SableShipFlight rebuild(AssembledShipEntity ship, ServerLevel level, ShipDesign design, ListTag savedFuel,
+    static SableShipFlight rebuild(AssembledShipEntity ship, ServerLevel level, ShipDesign design, ShipPropellantData savedPropellant,
             Motion motion) {
-        var state = savedState(ship, design, savedFuel, ship.activeStage());
+        var state = savedState(ship, design, savedPropellant, ship.activeStage());
         return spawn(ship, level, design, state, vector(motion.center()), motion.orientation());
     }
 
-    private static ShipFlightState savedState(AssembledShipEntity ship, ShipDesign design, ListTag savedFuel, int savedStage) {
+    private static ShipFlightState savedState(AssembledShipEntity ship, ShipDesign design, ShipPropellantData savedPropellant,
+            int savedStage) {
         int stage = savedStage < -1 ? ShipFlightState.initialStage(design) : Math.min(savedStage, design.stageCount() - 1);
-        return new ShipFlightState(design, savedFuel, ship.damagedParts(), stage);
+        return new ShipFlightState(design, savedPropellant, ship.damagedParts(), stage);
     }
 
     void attach() {
@@ -679,8 +680,12 @@ public final class SableShipFlight implements ShipFlightControl {
         return state.seat();
     }
 
-    ListTag saveFuel() {
-        return state.saveFuel();
+    ShipPropellantData savePropellant() {
+        return state.savePropellant();
+    }
+
+    Propellant propellant() {
+        return new Propellant(state.remainingFuel(), state.remainingElectric());
     }
 
     boolean isDebris() {
@@ -753,7 +758,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     void syncStatus() {
-        ship.setFlightStatus((float) state.remainingFuel(), state.stage());
+        ship.setFlightStatus((float) state.remainingFuel(), state.remainingElectric(), state.stage());
     }
 
     @Override
@@ -768,7 +773,7 @@ public final class SableShipFlight implements ShipFlightControl {
         var attitude = Attitude.fromOrientation(motion.orientation());
         return new Telemetry(ship.getUUID(), level.dimension().location(), motion.center(), motion.velocity(),
                 y - (planet == null ? 0 : planet.seaLevel()), attitude, motion.angularVelocity(),
-                mass, state.remainingFuel(), thrust, state.availableThrust().length(), gravity,
+                mass, state.remainingFuel(), state.remainingElectric(), thrust, state.availableThrust().length(), gravity,
                 gravity > 0 ? thrust / (mass * gravity) : 0, controls.throttle(), state.stage(),
                 controls.attitudeMode(), controls.throttleMode(), vec(controls.axes()), landed, planet);
     }
@@ -852,6 +857,10 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     private void updateFlightEvents() {
+        if (electricDepleted) {
+            electricDepleted = false;
+            postFlightEvent(ShipFlightEvent.Kind.ELECTRIC_DEPLETED, state.stage());
+        }
         if (isDebris()) {
             return;
         }
@@ -1062,7 +1071,7 @@ public final class SableShipFlight implements ShipFlightControl {
     }
 
     private void updateGraph(ShipDesign updated, int stage, ShipDockingState docking) {
-        state = new ShipFlightState(updated, state.saveFuel(), state.damagedParts(), stage);
+        state = new ShipFlightState(updated, state.savePropellant(), state.damagedParts(), stage);
         ship.setFlightDesign(updated);
         ship.setDockingState(docking);
         syncStatus();
@@ -1288,7 +1297,9 @@ public final class SableShipFlight implements ShipFlightControl {
         var impulse = new Vector3d();
         var moment = new Vector3d();
         double throttle = controls.resolveThrottle(keys, linearVelocity.y, hoverAcceleration, maxUpAcceleration, maxThrustToWeight);
-        fuelDepleted |= state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment);
+        var depletion = state.burn(throttle, Math.min(1, pressure), seconds, body, impulse, moment);
+        fuelDepleted |= depletion.fuel();
+        electricDepleted |= depletion.electric();
         thrust = impulse.length() / seconds;
 
         var massData = subLevel.getMassTracker();

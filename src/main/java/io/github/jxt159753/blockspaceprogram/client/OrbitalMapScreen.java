@@ -359,22 +359,37 @@ final class OrbitalMapScreen extends Screen {
             }
         }
         var budget = burnEstimate(selected, node);
-        if (selected.propulsion().filter(VacuumPropulsion::thrustCancels).isPresent()) {
+        var propulsion = selected.propulsion().orElse(null);
+        if (propulsion != null && propulsion.thrustCancels()) {
             panelLine(graphics, text("result.no_thrust"), 186, PLAN);
         } else if (node != null && node.deltaV().lengthSqr() > 0) {
-            if (budget != null && budget.supplies(node.deltaV().length())) {
-                panelLine(graphics, text("burn", number(budget.seconds(), 2), number(budget.fuel(), 1)), 186, PLAN);
+            double deltaV = node.deltaV().length();
+            if (budget != null && budget.supplies(deltaV)) {
+                panelLine(graphics, text("burn", number(budget.seconds(), 2), number(budget.fuel(), 1),
+                        energy(budget.electric())), 186, PLAN);
+            } else if (propulsion != null && propulsion.electricityLimits(deltaV)) {
+                panelLine(graphics, text("result.insufficient_electricity"), 186, PLAN);
             } else {
                 panelLine(graphics, text("result.insufficient_fuel"), 186, PLAN);
             }
-        } else {
-            selected.propulsion().ifPresent(propulsion ->
-                    panelLine(graphics, text("fuel", number(propulsion.fuel(), 1)), 186, MUTED));
+        } else if (propulsion != null) {
+            panelLine(graphics, text("propellant", number(propulsion.fuel(), 1), energy(propulsion.electric())),
+                    186, MUTED);
         }
     }
 
     private void panelLine(GuiGraphics graphics, Component value, int y, int color) {
         drawText(graphics, value, panelLeft + 7, y, panelWidth - 14, color);
+    }
+
+    private static String energy(double joules) {
+        if (joules >= 1_000_000) {
+            return number(joules / 1_000_000, 1) + " MJ";
+        }
+        if (joules >= 1_000) {
+            return number(joules / 1_000, 1) + " kJ";
+        }
+        return number(joules, 0) + " J";
     }
 
     private void panelPair(GuiGraphics graphics, Component first, Component second, int y) {

@@ -58,6 +58,7 @@ final class ShipOrbitHandoff {
                     continue;
                 }
                 Orbit orbit;
+                var propellant = ship.propellant();
                 try {
                     var motion = flight.motion();
                     if (!PlanetFrame.isInProjection(body, motion.center())) {
@@ -77,7 +78,7 @@ final class ShipOrbitHandoff {
                     LOGGER.warn("Could not put ship {} on orbit", ship.getUUID(), error);
                     continue;
                 }
-                NeoForge.EVENT_BUS.post(ShipOrbitEvent.enteredOrbit(ship.getUUID(), ship.owner(), orbit));
+                NeoForge.EVENT_BUS.post(ShipOrbitEvent.enteredOrbit(ship.getUUID(), ship.owner(), orbit, propellant));
             }
         }
         checkDescents(server, data, previousSeconds);
@@ -133,8 +134,9 @@ final class ShipOrbitHandoff {
                 var motion = toDimension(ship, frame, frame.dimensionPosition(), frame.toDimensionVelocity(state.velocity()));
                 checkEnergy(body, state, PlanetFrame.atDimension(system, body, boundary.seaLevel(), motion.center(), crossing)
                         .toOrbit(motion.velocity()));
-                if (restoreFlight(data, level, ship, motion, frame.dimensionToInertialRotation().conjugate(), true) != null) {
-                    returned.add(ShipOrbitEvent.leftOrbit(ship.id(), ship.ownerId(), body.id(), orbit));
+                var restored = restoreFlight(data, level, ship, motion, frame.dimensionToInertialRotation().conjugate(), true);
+                if (restored != null) {
+                    returned.add(ShipOrbitEvent.leftOrbit(ship.id(), ship.ownerId(), body.id(), orbit, restored.propellant()));
                 }
             } catch (RuntimeException error) {
                 LOGGER.warn("Could not return ship {} to {}", ship.id(), body.id(), error);

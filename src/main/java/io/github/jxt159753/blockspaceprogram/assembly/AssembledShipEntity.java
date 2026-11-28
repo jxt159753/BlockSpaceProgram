@@ -8,7 +8,6 @@ import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
@@ -56,6 +55,8 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> FUEL = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Long> ELECTRIC = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.LONG);
     private static final EntityDataAccessor<Long> DAMAGED_PARTS = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.LONG);
     private static final EntityDataAccessor<Integer> ACTIVE_STAGE = SynchedEntityData.defineId(
@@ -72,7 +73,7 @@ public final class AssembledShipEntity extends Entity {
     private SableShipFlight flight;
     @Nullable
     private UUID bodyId;
-    private ListTag savedFuel = new ListTag();
+    private ShipPropellantData savedPropellant = ShipPropellantData.EMPTY;
     private ShipDockingState docking = ShipDockingState.EMPTY;
     private CompoundTag seats = new CompoundTag();
     private long debrisSince = -1;
@@ -91,6 +92,7 @@ public final class AssembledShipEntity extends Entity {
         builder.define(SEAT, new Vector3f());
         builder.define(THROTTLE, 0);
         builder.define(FUEL, 0.0F);
+        builder.define(ELECTRIC, 0L);
         builder.define(DAMAGED_PARTS, 0L);
         builder.define(ACTIVE_STAGE, -1);
         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
@@ -169,7 +171,7 @@ public final class AssembledShipEntity extends Entity {
         }
         try {
             bindFlight(bodyId == null ? SableShipFlight.launch(this, level, design)
-                    : SableShipFlight.restore(this, level, design, bodyId, savedFuel, activeStage()));
+                    : SableShipFlight.restore(this, level, design, bodyId, savedPropellant, activeStage()));
             return true;
         } catch (RuntimeException error) {
             LOGGER.warn("Could not initialize ship flight for {}", getUUID(), error);
@@ -272,7 +274,7 @@ public final class AssembledShipEntity extends Entity {
 
         boolean restored = false;
         try {
-            ship.bindFlight(SableShipFlight.rebuild(ship, level, design, ship.savedFuel, motion));
+            ship.bindFlight(SableShipFlight.rebuild(ship, level, design, ship.savedPropellant, motion));
             ship.flight.setMotion(motion);
             AABB bounds = ship.flight.worldBounds();
             if (!level.getWorldBorder().isWithinBounds(bounds) || (reentry && bounds.minY < level.getMaxBuildHeight())) {
@@ -318,7 +320,7 @@ public final class AssembledShipEntity extends Entity {
         this.flight = flight;
         triedFlight = true;
         bodyId = flight.bodyId();
-        savedFuel = new ListTag();
+        savedPropellant = ShipPropellantData.EMPTY;
         if (flight.isDebris() && debrisSince < 0) {
             debrisSince = level().getGameTime();
         }
@@ -338,6 +340,14 @@ public final class AssembledShipEntity extends Entity {
 
     public float fuel() {
         return entityData.get(FUEL);
+    }
+
+    public double electric() {
+        return Double.longBitsToDouble(entityData.get(ELECTRIC));
+    }
+
+    public ShipFlightControl.Propellant propellant() {
+        return flight == null ? new ShipFlightControl.Propellant(fuel(), electric()) : flight.propellant();
     }
 
     public int activeStage() {
@@ -373,9 +383,10 @@ public final class AssembledShipEntity extends Entity {
         return ShipFlightControl.ThrottleMode.values()[entityData.get(THROTTLE_MODE)];
     }
 
-    void setFlightStatus(float fuel, int stage) {
+    void setFlightStatus(float fuel, double electric, int stage) {
         entityData.set(THROTTLE, (int) Math.round(100 * flightControls.throttle()));
         entityData.set(FUEL, fuel);
+        entityData.set(ELECTRIC, Double.doubleToLongBits(electric));
         entityData.set(ACTIVE_STAGE, stage);
         entityData.set(ATTITUDE_MODE, flightControls.attitudeMode().ordinal());
         entityData.set(THROTTLE_MODE, flightControls.throttleMode().ordinal());
@@ -643,7 +654,7 @@ public final class AssembledShipEntity extends Entity {
         }
         if (tag.hasUUID("FlightBody")) {
             bodyId = tag.getUUID("FlightBody");
-            savedFuel = tag.getList("Fuel", Tag.TAG_DOUBLE);
+            savedPropellant = ShipPropellantData.read(tag);
             entityData.set(FLYING, true);
             entityData.set(ACTIVE_STAGE, tag.contains("FlightStage") ? tag.getInt("FlightStage") : NO_SAVED_STAGE);
             setDamagedParts(tag.getLong("DamagedParts"));
@@ -660,7 +671,7 @@ public final class AssembledShipEntity extends Entity {
         }
         if (bodyId != null) {
             tag.putUUID("FlightBody", bodyId);
-            tag.put("Fuel", flight == null ? savedFuel : flight.saveFuel());
+            (flight == null ? savedPropellant : flight.savePropellant()).write(tag);
             tag.putLong("DamagedParts", damagedParts());
             if (activeStage() >= -1) {
                 tag.putInt("FlightStage", activeStage());

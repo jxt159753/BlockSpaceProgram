@@ -9,46 +9,45 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
-import org.joml.Vector3d;
 
-/** Reads and writes the same per-part fuel saved by the local flight entity. */
+/** Reads and writes the same per-part propellant saved by the local flight entity. */
 public final class OrbitalShipPropulsion {
     private final CompoundTag shipData;
     private final double[] partFuel;
+    private final double[] partElectric;
     private final int[] groups;
-    private final double[] groupFuel;
-    private final double[] flow;
     private final VacuumPropulsion propulsion;
     private final int stage;
 
-    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ListTag savedFuel, long damage) {
+    private OrbitalShipPropulsion(CompoundTag shipData, ShipDesign design, int stage, ShipPropellantData saved, long damage) {
         this.shipData = shipData;
         this.stage = stage;
         int count = design.nodes().size();
         partFuel = new double[count];
+        partElectric = new double[count];
         groups = StagePerformance.tankGroups(design);
-        groupFuel = new double[count];
-        flow = new double[count];
-        var thrust = new Vector3d[count];
-        Arrays.setAll(thrust, index -> new Vector3d());
+        double[] groupFuel = new double[count];
+        var engines = new VacuumPropulsion.Builder(count);
         double dryMass = 0;
-        double fuel = 0;
         for (ShipDesign.Branch branch : design.tree(Set.of())) {
             int index = branch.node();
             var node = design.nodes().get(index);
             int group = groups[index];
             boolean damaged = (damage & (1L << index)) != 0;
-            partFuel[index] = ShipFlightState.initialFuel(savedFuel, count, index, StagePerformance.fuelCapacity(node), damaged);
+            partFuel[index] = ShipPropellantData.initialAmount(saved.fuel(), count, index,
+                    StagePerformance.fuelCapacity(node), damaged);
+            partElectric[index] = ShipPropellantData.initialAmount(saved.electric(), count, index,
+                    StagePerformance.electricCapacity(node), damaged);
             groupFuel[group] += partFuel[index];
-            fuel += partFuel[index];
             dryMass += node.dryMass();
             if (!damaged && ShipFlightState.hasIgnited(node.engineStage(), stage) && ShipFlightState.hasEngine(node)) {
                 var properties = node.part().properties();
-                thrust[group].add(ShipFlightState.vacuumThrust(node));
-                flow[group] += StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse());
+                engines.addEngine(group, ShipFlightState.vacuumThrust(node),
+                        StagePerformance.fuelFlow(properties.thrust(), properties.vacuumSpecificImpulse()), properties.electricPower());
             }
         }
-        propulsion = VacuumPropulsion.fromGroups(ShipFlightState.flightDryMass(dryMass) + fuel, fuel, groupFuel, thrust, flow);
+        propulsion = engines.build(ShipFlightState.flightDryMass(dryMass) + Arrays.stream(partFuel).sum(),
+                groupFuel, Arrays.stream(partElectric).sum());
     }
 
     @Nullable
@@ -65,7 +64,7 @@ public final class OrbitalShipPropulsion {
         if (stage < -1) {
             stage = ShipFlightState.initialStage(design);
         }
-        return new OrbitalShipPropulsion(shipData, design, stage, shipData.getList("Fuel", Tag.TAG_DOUBLE),
+        return new OrbitalShipPropulsion(shipData, design, stage, ShipPropellantData.read(shipData),
                 shipData.getLong("DamagedParts"));
     }
 
@@ -77,16 +76,16 @@ public final class OrbitalShipPropulsion {
         return stage;
     }
 
-    public CompoundTag afterBurn(double seconds) {
+    public CompoundTag afterBurn(VacuumPropulsion.Burn burn) {
         var fuel = new ListTag();
+        var electric = new ListTag();
+        double electricFraction = burn.electricFraction(propulsion.electric());
         for (int i = 0; i < partFuel.length; i++) {
-            int group = groups[i];
-            double fraction = groupFuel[group] > 0
-                    ? VacuumPropulsion.fractionRemaining(groupFuel[group], flow[group], seconds) : 0;
-            fuel.add(DoubleTag.valueOf(partFuel[i] * fraction));
+            fuel.add(DoubleTag.valueOf(partFuel[i] * burn.fuelFraction(groups[i])));
+            electric.add(DoubleTag.valueOf(partElectric[i] * electricFraction));
         }
         var updated = shipData.copy();
-        updated.put("Fuel", fuel);
+        new ShipPropellantData(fuel, electric).write(updated);
         return updated;
     }
 }

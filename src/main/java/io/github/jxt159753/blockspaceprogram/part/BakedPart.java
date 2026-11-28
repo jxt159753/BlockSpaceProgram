@@ -166,12 +166,16 @@ public record BakedPart(
         double drag = 0;
         double heat = Double.POSITIVE_INFINITY;
         double electricCapacity = 0;
+        double electricPower = 0;
         double impactResistance = Double.POSITIVE_INFINITY;
         Map<ResourceLocation, Double> fuelCapacity = new HashMap<>();
         for (BlockPartProperties contribution : contributions) {
             mass += contribution.mass();
-            thrust += contribution.thrust();
             if (contribution.thrust() > 0) {
+                double combinedThrust = thrust + contribution.thrust();
+                electricPower = electricPower * (thrust / combinedThrust)
+                        + contribution.electricPower() * (contribution.thrust() / combinedThrust);
+                thrust = combinedThrust;
                 vacuumFlow += contribution.thrust() / contribution.vacuumSpecificImpulse();
                 seaLevelFlow += contribution.thrust() / contribution.seaLevelSpecificImpulse();
             }
@@ -185,7 +189,7 @@ public record BakedPart(
         }
         double vacuumIsp = vacuumFlow == 0 ? 0 : thrust / vacuumFlow;
         double seaLevelIsp = seaLevelFlow == 0 ? 0 : thrust / seaLevelFlow;
-        if (!finite(mass, thrust, vacuumIsp, seaLevelIsp, drag, electricCapacity)
+        if (!finite(mass, thrust, vacuumIsp, seaLevelIsp, drag, electricCapacity, electricPower)
                 || fuelCapacity.values().stream().anyMatch(value -> !Double.isFinite(value))) {
             return Optional.empty();
         }
@@ -221,7 +225,7 @@ public record BakedPart(
         }
 
         BlockPartProperties properties = new BlockPartProperties(mass, fuelCapacity, thrust, vacuumIsp, seaLevelIsp,
-                drag, Double.isFinite(heat) ? heat : 0, electricCapacity, impactResistance);
+                drag, Double.isFinite(heat) ? heat : 0, electricCapacity, electricPower, impactResistance);
         return Optional.of(new BakedPart(geometry, properties, center, new InertiaTensor(xx, yy, zz, xy, xz, yz),
                 PartType.classify(structure.values()), scales.getFirst(), connectors));
     }

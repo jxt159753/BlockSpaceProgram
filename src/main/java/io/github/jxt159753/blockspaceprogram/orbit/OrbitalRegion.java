@@ -361,12 +361,13 @@ public final class OrbitalRegion {
                         continue;
                     }
                     pendingDescents.remove(id);
+                    var propellant = ship.propellant();
                     if (descent.transfer(ship)) {
                         region.members.remove(id);
                         assignments.remove(id);
                         transferred = true;
                         NeoForge.EVENT_BUS.post(ShipOrbitEvent.leftOrbit(id, ship.owner(),
-                                descent.level().dimension().location(), region.reference));
+                                descent.level().dimension().location(), region.reference, propellant));
                     }
                 } catch (RuntimeException error) {
                     LOGGER.warn("Could not return ship {} from orbital space", ship.getUUID(), error);
@@ -606,7 +607,7 @@ public final class OrbitalRegion {
     private static void postSoiChange(Region region, Orbit before, Orbit after) {
         for (var member : List.copyOf(region.members.values())) {
             if (member instanceof AssembledShipEntity ship) {
-                NeoForge.EVENT_BUS.post(ShipOrbitEvent.soiChanged(ship.getUUID(), ship.owner(), before, after));
+                NeoForge.EVENT_BUS.post(ShipOrbitEvent.soiChanged(ship.getUUID(), ship.owner(), before, after, ship.propellant()));
             }
         }
     }
