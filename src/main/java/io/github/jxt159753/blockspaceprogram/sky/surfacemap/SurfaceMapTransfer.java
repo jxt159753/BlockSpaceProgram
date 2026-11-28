@@ -9,7 +9,7 @@ import java.util.Set;
 
 public final class SurfaceMapTransfer {
     static final int FRAGMENT_BYTES = 768 * 1024;
-    static final int MAX_COMPRESSED_BYTES = 3 * 1024 * 1024;
+    public static final int MAX_COMPRESSED_BYTES = 3 * 1024 * 1024;
     private static final int MAX_FRAGMENTS = Math.ceilDiv(MAX_COMPRESSED_BYTES, FRAGMENT_BYTES);
 
     private SurfaceMapTransfer() {}
