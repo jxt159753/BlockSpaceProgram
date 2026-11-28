@@ -20,6 +20,8 @@ uniform vec3 BodyAtmosphere;
 uniform vec2 CloudRotation;
 uniform sampler2D SurfaceMap;
 uniform float SurfaceMapWeight;
+// Cells per radian at the equator, followed by the minimum squared cosine of latitude.
+uniform vec2 SurfaceMapSampling;
 uniform vec3 AmbientExtinction;
 uniform float LunarHaloStrength;
 uniform vec3 HighlandColor;
@@ -101,11 +103,20 @@ Air traceAtmosphere(vec3 ray, float alongRay, float shellDiscriminant, float sur
 
 const float TWO_PI = 6.28318530718;
 
-vec4 mappedSurface(vec3 normal) {
+vec4 mappedSurface(vec3 normal, float footprint) {
     // The third body-fixed component points west, and grid rows run north to south.
     float longitude = normal.x == 0.0 && normal.z == 0.0 ? 0.0 : atan(-normal.z, normal.x);
     float latitude = asin(clamp(normal.y, -1.0, 1.0));
-    return textureLod(SurfaceMap, vec2(0.5 + longitude / TWO_PI, 0.5 - 2.0 * latitude / TWO_PI), 0.0);
+    vec2 uv = vec2(0.5 + longitude / TWO_PI, 0.5 - 2.0 * latitude / TWO_PI);
+    // The 2:1 grid has equal angular steps. Longitude is the denser axis away from the equator.
+    // Use the spherical footprint directly so the longitude seam does not affect the LOD.
+    float longitudeScaleSquared = 1.0 / max(dot(normal.xz, normal.xz), SurfaceMapSampling.y);
+    float cells = footprint * SurfaceMapSampling.x;
+    // Raise the minimum LOD smoothly where longitude cells are more than twice as narrow as latitude cells.
+    float polarScale = 0.25 * longitudeScaleSquared;
+    float polarCellsSquared = polarScale * polarScale * polarScale;
+    float lod = 0.5 * log2(max(cells * cells * longitudeScaleSquared, polarCellsSquared));
+    return textureLod(SurfaceMap, uv, lod);
 }
 
 // Basin centers and chord radii. Overlapping basins form the larger maria.
@@ -187,7 +198,7 @@ float craterRelief(vec3 normal, vec4 crater, float footprint, uint craterIndex) 
 }
 
 vec3 lunarSurface(vec3 normal, float footprint) {
-    vec3 mapped = SurfaceMapWeight > 0.0 ? mappedSurface(normal).rgb : vec3(0.0);
+    vec3 mapped = SurfaceMapWeight > 0.0 ? mappedSurface(normal, footprint).rgb : vec3(0.0);
     // Rotate the basins and craters around the body-fixed prime meridian.
     float angle = float(uint(SurfaceSeed) & 65535u) * (TWO_PI / 65536.0);
     float c = cos(angle);
@@ -240,14 +251,9 @@ vec4 proceduralSurface(vec3 normal) {
 }
 
 vec3 atmosphericSurface(vec3 normal, vec3 ray, vec3 worldNormal, float light, float footprint) {
-    vec4 surface;
-    if (SurfaceMapWeight >= 1.0) {
-        surface = mappedSurface(normal);
-    } else {
-        surface = proceduralSurface(normal);
-        if (SurfaceMapWeight > 0.0) {
-            surface = mix(surface, mappedSurface(normal), SurfaceMapWeight);
-        }
+    vec4 surface = SurfaceMapWeight < 1.0 ? proceduralSurface(normal) : vec4(0.0);
+    if (SurfaceMapWeight > 0.0) {
+        surface = mix(surface, mappedSurface(normal, footprint), SurfaceMapWeight);
     }
     vec3 ground = surface.rgb * (1.0 + SurfaceDetailStrength * surfaceDetail(normal, footprint));
     float clouds = cloudOpacity(normal, footprint);
