@@ -161,6 +161,7 @@
   "key.blockspaceprogram.cutoff": "關閉油門",
   "key.blockspaceprogram.cycle_attitude": "切換姿態模式",
   "key.blockspaceprogram.cycle_throttle": "切換油門模式",
+  "key.blockspaceprogram.toggle_ship_camera": "切換飛船視角",
   "flight.blockspaceprogram.modes": "姿態 %s   油門 %s",
   "flight.blockspaceprogram.orbit_heights": "海拔 %s m   近點 %s m",
   "flight.blockspaceprogram.attitude.manual": "手動",
