@@ -17,6 +17,10 @@
     },
     "blockspaceprogram:nozzle_segment": {
       "mass": 10.0
+    },
+    "blockspaceprogram:fairing_panel": {
+      "mass": 10.0,
+      "drag_coefficient": 0.3
     }
   }
 }
