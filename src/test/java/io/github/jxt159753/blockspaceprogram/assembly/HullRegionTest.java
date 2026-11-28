@@ -12,11 +12,12 @@ import java.util.Set;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -82,13 +83,13 @@ public class HullRegionTest {
         assertEquals(expected, ShipDesign.CODEC.parse(NbtOps.INSTANCE, legacy).getOrThrow());
         assertEquals(expected, ShipDesign.FLIGHT_CODEC.parse(NbtOps.INSTANCE, legacy).getOrThrow());
         assertEquals(legacy, ShipDesign.FLIGHT_CODEC.encodeStart(NbtOps.INSTANCE, expected).getOrThrow());
-        var buffer = new FriendlyByteBuf(Unpooled.buffer());
-        var updated = new FriendlyByteBuf(Unpooled.buffer());
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+        var updated = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
         try {
             ShipDesign.STREAM_CODEC.encode(buffer, expected);
             ShipDesign.FLIGHT_STREAM_CODEC.encode(updated, expected);
             assertTrue(ByteBufUtil.equals(buffer, updated));
-            var legacyNetworkDesign = ShipDesign.STREAM_CODEC.decode(new FriendlyByteBuf(buffer.duplicate()));
+            var legacyNetworkDesign = ShipDesign.STREAM_CODEC.decode(new RegistryFriendlyByteBuf(buffer.duplicate(), RegistryAccess.EMPTY));
             assertEquals(legacyNetworkDesign, ShipDesign.FLIGHT_STREAM_CODEC.decode(buffer));
             assertFalse(buffer.isReadable());
         } finally {
@@ -116,7 +117,7 @@ public class HullRegionTest {
         assertEquals(ShipDesign.FLIGHT_CODEC.encodeStart(NbtOps.INSTANCE, design).getOrThrow(), saved);
         assertEquals(design, codec.parse(NbtOps.INSTANCE, saved).getOrThrow());
         assertEquals(design, ShipDesign.FLIGHT_CODEC.parse(NbtOps.INSTANCE, saved).getOrThrow());
-        var buffer = new FriendlyByteBuf(Unpooled.buffer());
+        var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
         try {
             ShipDesign.FLIGHT_STREAM_CODEC.encode(buffer, design);
             assertEquals(design, ShipDesign.FLIGHT_STREAM_CODEC.decode(buffer));

@@ -16,15 +16,20 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.Sheets;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.resources.model.ModelResourceLocation;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.model.data.ModelData;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
@@ -39,7 +44,7 @@ public final class PartMeshRenderer {
     private static final int LIGHT_OFFSET = FORMAT.getOffset(VertexFormatElement.UV2);
     private static final int NORMAL_OFFSET = FORMAT.getOffset(VertexFormatElement.NORMAL);
 
-    private static final Map<BakedPart.Geometry, Mesh> MESHES = new LinkedHashMap<>(16, 0.75F, true);
+    private static final Map<MeshKey, Mesh> MESHES = new LinkedHashMap<>(16, 0.75F, true);
     private static long cachedBytes;
     private static ShaderInstance cutoutShader;
 
@@ -48,7 +53,7 @@ public final class PartMeshRenderer {
 
     /** Draws an installed part. The caller positions and orients the pose at the part's minimum corner. */
     public static void render(BakedPart part, PoseStack poses, MultiBufferSource buffers, int light) {
-        Mesh mesh = getMesh(part.geometry());
+        Mesh mesh = getMesh(part);
         poses.pushPose();
         poses.scale(part.scale(), part.scale(), part.scale());
         if (mesh.cutoutBuffer() != null && !BlockSpaceProgram.isIrisShaderPackInUse()) {
@@ -61,7 +66,7 @@ public final class PartMeshRenderer {
     }
 
     static void renderItem(BakedPart part, PoseStack poses, MultiBufferSource buffers, int light, int overlay) {
-        Mesh mesh = getMesh(part.geometry());
+        Mesh mesh = getMesh(part);
         var size = part.modelToLocal(part.geometry().size());
         float fit = (float) (1.0 / Math.max(1.0, Math.max(size.x, Math.max(size.y, size.z))));
         poses.pushPose();
@@ -83,13 +88,14 @@ public final class PartMeshRenderer {
         cachedBytes = 0;
     }
 
-    private static Mesh getMesh(BakedPart.Geometry geometry) {
-        Mesh mesh = MESHES.get(geometry);
+    private static Mesh getMesh(BakedPart part) {
+        var key = new MeshKey(part.geometry(), part.displayModel());
+        Mesh mesh = MESHES.get(key);
         if (mesh != null) {
             return mesh;
         }
 
-        mesh = bake(geometry);
+        mesh = bake(key);
         if (mesh.bytes() <= CACHE_BUDGET) {
             var oldest = MESHES.values().iterator();
             while (cachedBytes + mesh.bytes() > CACHE_BUDGET) {
@@ -98,38 +104,24 @@ public final class PartMeshRenderer {
                 cachedBytes -= evicted.bytes();
                 evicted.close();
             }
-            MESHES.put(geometry, mesh);
+            MESHES.put(key, mesh);
             cachedBytes += mesh.bytes();
         }
         return mesh;
     }
 
-    private static Mesh bake(BakedPart.Geometry geometry) {
-        var dispatcher = Minecraft.getInstance().getBlockRenderer();
-        var view = new PartBlockView(geometry);
+    private static Mesh bake(MeshKey key) {
+        var geometry = key.geometry();
         PoseStack poses = new PoseStack();
-        RandomSource random = RandomSource.create();
         VertexFormat bakeFormat = BlockSpaceProgram.isIrisShaderPackInUse() ? IRIS_BAKE_FORMAT : FORMAT;
         try (ByteBufferBuilder cutoutStorage = new ByteBufferBuilder(4096);
                 ByteBufferBuilder translucentStorage = new ByteBufferBuilder(4096)) {
             var cutout = new BufferBuilder(cutoutStorage, VertexFormat.Mode.QUADS, bakeFormat);
             var translucent = new BufferBuilder(translucentStorage, VertexFormat.Mode.QUADS, bakeFormat);
-            for (BakedPart.StructureBlock block : geometry.blocks()) {
-                var state = block.state();
-                if (state.getRenderShape() != RenderShape.MODEL) {
-                    continue;
-                }
-                var pos = block.pos();
-                var model = dispatcher.getBlockModel(state);
-                var data = model.getModelData(view, pos, state, ModelData.EMPTY);
-                random.setSeed(state.getSeed(pos));
-                poses.pushPose();
-                poses.translate(pos.getX(), pos.getY(), pos.getZ());
-                for (RenderType layer : model.getRenderTypes(state, random, data)) {
-                    var target = layer == RenderType.translucent() ? translucent : cutout;
-                    dispatcher.renderBatched(state, pos, view, poses, target, true, random, data, layer);
-                }
-                poses.popPose();
+            if (key.displayModel().isPresent()) {
+                bakeDisplayModel(key.displayModel().get(), geometry.size(), poses, cutout, translucent);
+            } else {
+                bakeBlocks(geometry, poses, cutout, translucent);
             }
 
             try (MeshData cutoutData = cutout.build(); MeshData translucentData = translucent.build()) {
@@ -153,6 +145,44 @@ public final class PartMeshRenderer {
                 }
                 return new Mesh(cutoutVertices, translucentVertices, cutoutBuffer, bytes);
             }
+        }
+    }
+
+    private static void bakeBlocks(BakedPart.Geometry geometry, PoseStack poses,
+            VertexConsumer cutout, VertexConsumer translucent) {
+        var dispatcher = Minecraft.getInstance().getBlockRenderer();
+        var view = new PartBlockView(geometry);
+        RandomSource random = RandomSource.create();
+        for (BakedPart.StructureBlock block : geometry.blocks()) {
+            var state = block.state();
+            if (state.getRenderShape() != RenderShape.MODEL) {
+                continue;
+            }
+            var pos = block.pos();
+            var model = dispatcher.getBlockModel(state);
+            var data = model.getModelData(view, pos, state, ModelData.EMPTY);
+            random.setSeed(state.getSeed(pos));
+            poses.pushPose();
+            poses.translate(pos.getX(), pos.getY(), pos.getZ());
+            for (RenderType layer : model.getRenderTypes(state, random, data)) {
+                var target = layer == RenderType.translucent() ? translucent : cutout;
+                dispatcher.renderBatched(state, pos, view, poses, target, true, random, data, layer);
+            }
+            poses.popPose();
+        }
+    }
+
+    private static void bakeDisplayModel(ResourceLocation id, Vec3 size, PoseStack poses,
+            VertexConsumer cutout, VertexConsumer translucent) {
+        var game = Minecraft.getInstance();
+        var model = game.getModelManager().getModel(ModelResourceLocation.standalone(id));
+        var renderer = game.getBlockRenderer().getModelRenderer();
+        var state = Blocks.BARRIER.defaultBlockState();
+        poses.scale((float) size.x, (float) size.y, (float) size.z);
+        for (RenderType layer : model.getRenderTypes(state, RandomSource.create(0), ModelData.EMPTY)) {
+            var target = layer == RenderType.translucent() ? translucent : cutout;
+            renderer.renderModel(poses.last(), target, state, model, 1, 1, 1, 0,
+                    OverlayTexture.NO_OVERLAY, ModelData.EMPTY, layer);
         }
     }
 
@@ -211,6 +241,9 @@ public final class PartMeshRenderer {
             consumer.addVertex(pos.x(), pos.y(), pos.z(), color, data.getFloat(uv), data.getFloat(uv + 4),
                     overlay, skyLight << 16 | blockLight, normal.x(), normal.y(), normal.z());
         }
+    }
+
+    private record MeshKey(BakedPart.Geometry geometry, Optional<ResourceLocation> displayModel) {
     }
 
     private record Mesh(byte[] cutout, byte[] translucent, @Nullable VertexBuffer cutoutBuffer, long bytes) {

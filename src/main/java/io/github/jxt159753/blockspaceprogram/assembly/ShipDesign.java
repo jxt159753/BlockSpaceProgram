@@ -18,6 +18,7 @@ import java.util.function.IntUnaryOperator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.phys.AABB;
@@ -47,13 +48,13 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
     public static final Codec<ShipDesign> CODEC = FLIGHT_CODEC.validate(design -> design.hasBlueprintRoot()
             ? DataResult.success(design) : DataResult.error(() -> "Invalid ship blueprint root"));
 
-    public static final StreamCodec<FriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS);
-    public static final StreamCodec<FriendlyByteBuf, ShipDesign> BENCHMARK_STREAM_CODEC =
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> STREAM_CODEC = streamCodec(MAX_PARTS, MAX_LINKS);
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> BENCHMARK_STREAM_CODEC =
             streamCodec(BENCHMARK_MAX_PARTS, BENCHMARK_MAX_PARTS - 1);
     private static final int HULL_STREAM_MARKER = -1;
-    private static final StreamCodec<? super FriendlyByteBuf, ShipDesign> HULL_STREAM_CODEC =
-            ByteBufCodecs.fromCodec(FLIGHT_CODEC);
-    public static final StreamCodec<FriendlyByteBuf, ShipDesign> FLIGHT_STREAM_CODEC = StreamCodec.of((buffer, design) -> {
+    private static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> HULL_STREAM_CODEC =
+            ByteBufCodecs.fromCodecWithRegistries(FLIGHT_CODEC);
+    public static final StreamCodec<RegistryFriendlyByteBuf, ShipDesign> FLIGHT_STREAM_CODEC = StreamCodec.of((buffer, design) -> {
         if (design.hasHull()) {
             buffer.writeVarInt(HULL_STREAM_MARKER);
             HULL_STREAM_CODEC.encode(buffer, design);
@@ -69,7 +70,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         return STREAM_CODEC.decode(buffer);
     });
 
-    private static StreamCodec<FriendlyByteBuf, ShipDesign> streamCodec(int parts, int links) {
+    private static StreamCodec<RegistryFriendlyByteBuf, ShipDesign> streamCodec(int parts, int links) {
         return StreamCodec.composite(
                 Node.STREAM_CODEC.apply(ByteBufCodecs.list(parts)), ShipDesign::nodes,
                 Link.STREAM_CODEC.apply(ByteBufCodecs.list(links)), ShipDesign::links,
@@ -104,7 +105,7 @@ public record ShipDesign(List<Node> nodes, List<Link> links, int stageCount) {
         ).apply(instance, (part, pose, stage, hull) -> new Node(part.orElse(null), pose, stage, hull.orElse(null))))
                 .validate(node -> node.hasGeometry() ? DataResult.success(node)
                         : DataResult.error(() -> "A ship node needs either a part or a hull region"));
-        private static final StreamCodec<FriendlyByteBuf, Node> STREAM_CODEC = StreamCodec.composite(
+        private static final StreamCodec<RegistryFriendlyByteBuf, Node> STREAM_CODEC = StreamCodec.composite(
                 BakedPart.STREAM_CODEC, Node::part, PartPose.STREAM_CODEC, Node::pose,
                 ByteBufCodecs.VAR_INT, Node::engineStage, Node::new);
 

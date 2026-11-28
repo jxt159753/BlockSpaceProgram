@@ -22,6 +22,12 @@ public final class BakedPartItem extends Item {
     }
 
     @Override
+    public Component getName(ItemStack stack) {
+        BakedPart part = stack.get(BlockSpaceProgram.PART_DATA);
+        return part == null ? super.getName(stack) : part.name().orElseGet(() -> super.getName(stack));
+    }
+
+    @Override
     public InteractionResult useOn(UseOnContext context) {
         ItemStack stack = context.getItemInHand();
         BakedPart part = stack.get(BlockSpaceProgram.PART_DATA);

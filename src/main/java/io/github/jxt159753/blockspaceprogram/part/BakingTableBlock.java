@@ -187,6 +187,10 @@ public final class BakingTableBlock extends Block {
     }
 
     private static void dismantle(ServerPlayer player, ItemStack stack, BakedPart part) {
+        if (part.isTemplatePart()) {
+            reject(player, "template_part");
+            return;
+        }
         Map<Item, Integer> returned = new LinkedHashMap<>();
         for (BakedPart.StructureBlock block : part.blocks()) {
             BlockState state = block.state();
