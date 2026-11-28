@@ -1,6 +1,6 @@
 # 成品发动机与拼装喷管原型
 
-拼装发动机由 #131 并入正式代码，成品发动机由 #132 接续。下文保留原型的运行步骤，复测原型时请在原型提交上运行。 [原型提交](https://github.com/jxt159753/BlockSpaceProgram/tree/cf46ed219f40be743f383a3c4b1770c31a93e7dc/experiments/engine-templates)
+拼装发动机和成品发动机分别由 #131 和 #132 并入正式代码。下文保留原型的运行步骤，复测原型时请在原型提交上运行。 [正式用法](../../docs/engines.md) · [原型提交](https://github.com/jxt159753/BlockSpaceProgram/tree/cf46ed219f40be743f383a3c4b1770c31a93e7dc/experiments/engine-templates)
 
 用 #118 的 A 方案验证模板配方、零件模型、多方块喷管和装配提示。使用 Java 21、Minecraft 1.21.1 和 NeoForge 21.1.267。飞行和橙色碰撞格使用 Sable 2.0.6。 [设计决策 #118](https://github.com/jxt159753/BlockSpaceProgram/issues/118)
 

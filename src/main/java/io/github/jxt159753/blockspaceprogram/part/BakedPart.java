@@ -15,10 +15,14 @@ import java.util.Optional;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -32,11 +36,13 @@ public record BakedPart(
         Set<PartType> types,
         float scale,
         List<PartConnector> connectors,
-        List<PartEngine> engines) {
+        List<PartEngine> engines,
+        Optional<ResourceLocation> displayModel,
+        Optional<Component> name) {
 
     public static final int MAX_SIDE = 9;
     public static final int MAX_BLOCKS = MAX_SIDE * MAX_SIDE * MAX_SIDE;
-    private static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
+    static final List<Float> SCALES = List.of(1.0F, 0.5F, 0.25F);
     private static final Codec<Float> SCALE_CODEC = Codec.floatRange(Float.MIN_VALUE, 1.0F)
             .xmap(BakedPart::migrateScale, scale -> scale);
 
@@ -49,7 +55,9 @@ public record BakedPart(
                     .fieldOf("types").forGetter(BakedPart::types),
             SCALE_CODEC.optionalFieldOf("scale", 1.0F).forGetter(BakedPart::scale),
             PartConnector.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("connectors", List.of()).forGetter(BakedPart::connectors),
-            PartEngine.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("engines").forGetter(part -> Optional.of(part.engines()))
+            PartEngine.CODEC.listOf(0, MAX_BLOCKS).optionalFieldOf("engines").forGetter(part -> Optional.of(part.engines())),
+            ResourceLocation.CODEC.optionalFieldOf("display_model").forGetter(BakedPart::displayModel),
+            ComponentSerialization.CODEC.optionalFieldOf("name").forGetter(BakedPart::name)
     ).apply(instance, BakedPart::fromSaved));
 
     private static final StreamCodec<ByteBuf, BlockPartProperties> PROPERTIES_STREAM =
@@ -58,8 +66,13 @@ public record BakedPart(
             PartConnector.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
     private static final StreamCodec<FriendlyByteBuf, List<PartEngine>> ENGINE_STREAM =
             PartEngine.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_BLOCKS));
-    public static final StreamCodec<FriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
-        buffer.writeVarInt(part.blocks().size());
+    // The block count fits in ten bits. Parts without template metadata keep their existing encoding.
+    private static final int TEMPLATE_FIELDS = 1 << 10;
+    private static final StreamCodec<ByteBuf, Optional<ResourceLocation>> DISPLAY_MODEL_STREAM =
+            ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC);
+    public static final StreamCodec<RegistryFriendlyByteBuf, BakedPart> STREAM_CODEC = StreamCodec.of((buffer, part) -> {
+        boolean hasTemplateFields = part.isTemplatePart();
+        buffer.writeVarInt(part.blocks().size() | (hasTemplateFields ? TEMPLATE_FIELDS : 0));
         for (StructureBlock block : part.blocks()) {
             BlockPos pos = block.pos();
             buffer.writeShort(pos.getX() | pos.getY() << 4 | pos.getZ() << 8);
@@ -76,8 +89,14 @@ public record BakedPart(
         buffer.writeFloat(part.scale());
         CONNECTOR_STREAM.encode(buffer, part.connectors());
         ENGINE_STREAM.encode(buffer, part.engines());
+        if (hasTemplateFields) {
+            DISPLAY_MODEL_STREAM.encode(buffer, part.displayModel());
+            ComponentSerialization.OPTIONAL_STREAM_CODEC.encode(buffer, part.name());
+        }
     }, buffer -> {
-        int size = buffer.readVarInt();
+        int header = buffer.readVarInt();
+        boolean hasTemplateFields = (header & TEMPLATE_FIELDS) != 0;
+        int size = header & ~TEMPLATE_FIELDS;
         if (size < 1 || size > MAX_BLOCKS) {
             throw new DecoderException("Invalid baked geometry size: " + size);
         }
@@ -90,7 +109,9 @@ public record BakedPart(
         return new BakedPart(new Geometry(blocks), PROPERTIES_STREAM.decode(buffer), buffer.readVec3(),
                 new InertiaTensor(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
                         buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
-                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer), ENGINE_STREAM.decode(buffer));
+                buffer.readEnumSet(PartType.class), buffer.readFloat(), CONNECTOR_STREAM.decode(buffer), ENGINE_STREAM.decode(buffer),
+                hasTemplateFields ? DISPLAY_MODEL_STREAM.decode(buffer) : Optional.empty(),
+                hasTemplateFields ? ComponentSerialization.OPTIONAL_STREAM_CODEC.decode(buffer) : Optional.empty());
     });
 
     public BakedPart {
@@ -105,17 +126,26 @@ public record BakedPart(
 
     private static BakedPart fromSaved(Geometry geometry, BlockPartProperties properties, Vec3 center,
             InertiaTensor inertia, Set<PartType> types, float scale, List<PartConnector> connectors,
-            Optional<List<PartEngine>> engines) {
-        return engines.map(list -> new BakedPart(geometry, properties, center, inertia, types, scale, connectors, list))
-                .orElseGet(() -> new BakedPart(geometry, properties, center, inertia, types, scale, connectors));
+            Optional<List<PartEngine>> engines, Optional<ResourceLocation> displayModel, Optional<Component> name) {
+        return new BakedPart(geometry, properties, center, inertia, types, scale, connectors,
+                engines.orElseGet(() -> legacyEngines(geometry, properties, types)), displayModel, name);
+    }
+
+    public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
+            Set<PartType> types, float scale, List<PartConnector> connectors, List<PartEngine> engines) {
+        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, engines, Optional.empty(), Optional.empty());
     }
 
     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
             Set<PartType> types, float scale, List<PartConnector> connectors) {
-        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, types.contains(PartType.ENGINE)
+        this(geometry, properties, centerOfMass, inertia, types, scale, connectors, legacyEngines(geometry, properties, types));
+    }
+
+    private static List<PartEngine> legacyEngines(Geometry geometry, BlockPartProperties properties, Set<PartType> types) {
+        return types.contains(PartType.ENGINE)
                 ? PartEngine.legacy(geometry, new EnginePerformance(properties.thrust(), properties.vacuumSpecificImpulse(),
                         properties.seaLevelSpecificImpulse()), properties.electricPower(), true)
-                : List.of());
+                : List.of();
     }
 
     public BakedPart(Geometry geometry, BlockPartProperties properties, Vec3 centerOfMass, InertiaTensor inertia,
@@ -127,8 +157,13 @@ public record BakedPart(
         return geometry.blocks();
     }
 
+    boolean isTemplatePart() {
+        // Every template supplies a name, including ones rendered as blocks.
+        return name.isPresent() || displayModel.isPresent();
+    }
+
     public BakedPart withScale(float newScale) {
-        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors, engines);
+        return new BakedPart(geometry, properties, centerOfMass, inertia, types, newScale, connectors, engines, displayModel, name);
     }
 
     private static float migrateScale(float scale) {
@@ -262,7 +297,7 @@ public record BakedPart(
                 PartType.classify(structure.values(), !engines.isEmpty()), scales.getFirst(), connectors, engines));
     }
 
-    private static boolean finite(double... values) {
+    static boolean finite(double... values) {
         for (double value : values) {
             if (!Double.isFinite(value)) {
                 return false;
@@ -309,6 +344,15 @@ public record BakedPart(
             }
             this.size = new Vec3(width, height, depth);
             this.hash = this.blocks.hashCode();
+        }
+
+        static Geometry filledBox(BlockPos size) {
+            var blocks = new ArrayList<StructureBlock>(size.getX() * size.getY() * size.getZ());
+            BlockState state = Blocks.IRON_BLOCK.defaultBlockState();
+            for (BlockPos pos : BlockPos.betweenClosed(BlockPos.ZERO, size.offset(-1, -1, -1))) {
+                blocks.add(new StructureBlock(pos, state));
+            }
+            return new Geometry(blocks);
         }
 
         public List<StructureBlock> blocks() {

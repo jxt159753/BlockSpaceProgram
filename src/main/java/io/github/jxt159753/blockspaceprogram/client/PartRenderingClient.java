@@ -16,6 +16,7 @@ import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.client.resources.model.ModelResourceLocation;
+import net.minecraft.resources.FileToIdConverter;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
@@ -66,6 +67,15 @@ public final class PartRenderingClient {
                 return renderer;
             }
         }, BlockSpaceProgram.BAKED_PART);
+    }
+
+    @SubscribeEvent
+    public static void registerPartModels(ModelEvent.RegisterAdditional event) {
+        var resources = Minecraft.getInstance().getResourceManager();
+        var models = FileToIdConverter.json("models");
+        for (var file : resources.listResources("models/part", id -> id.getPath().endsWith(".json")).keySet()) {
+            event.register(ModelResourceLocation.standalone(models.fileToId(file)));
+        }
     }
 
     @SubscribeEvent

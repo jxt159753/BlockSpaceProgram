@@ -1,0 +1,10 @@
+{
+  "type": "blockspaceprogram:part_template",
+  "category": "equipment",
+  "template": "blockspaceprogram:large_engine",
+  "ingredients": [
+    {"item": "minecraft:blast_furnace"},
+    {"item": "minecraft:lightning_rod"},
+    {"item": "minecraft:copper_ingot"}
+  ]
+}
