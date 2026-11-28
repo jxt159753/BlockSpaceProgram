@@ -31,9 +31,9 @@ final class ShipFlightState {
     private final List<Engine> engines = new ArrayList<>();
     private final List<Tank> tanks = new ArrayList<>();
     private final double[] fuel;
+    private final double[] electric;
     private final double[] groupFuel;
-    private final double[] demand;
-    private final double[] burnFraction;
+    private final PropellantFlow supply;
     private final ImpactPart[] impactParts;
     private final Map<BlockPos, Cell> cells;
     private final Map<BlockPos, SolidBlock> hull;
@@ -45,12 +45,12 @@ final class ShipFlightState {
     private long damagedParts;
     private long pendingDamage;
 
-    ShipFlightState(ShipDesign design, ListTag savedFuel, long savedDamage, int stage) {
+    ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
         int count = design.nodes().size();
         fuel = new double[count];
+        electric = new double[count];
         groupFuel = new double[count];
-        demand = new double[count];
-        burnFraction = new double[count];
+        supply = new PropellantFlow(count);
         impactParts = new ImpactPart[count];
         this.stage = stage;
         damagedParts = savedDamage & ((1L << count) - 1);
@@ -79,7 +79,9 @@ final class ShipFlightState {
             var properties = part.properties();
             int group = groups[index];
             double capacity = StagePerformance.fuelCapacity(node);
-            fuel[index] = initialFuel(savedFuel, count, index, capacity, isDamaged(index));
+            fuel[index] = ShipPropellantData.initialAmount(saved.fuel(), count, index, capacity, isDamaged(index));
+            electric[index] = ShipPropellantData.initialAmount(saved.electric(), count, index,
+                    properties.electricCapacity(), isDamaged(index));
 
             var partCells = ShipCollisionLayout.rasterize(part, node.pose().origin(), node.pose().rotation());
             ShipCollisionLayout.addPart(cells, partCells, properties.mass() + fuel[index] + extraMass);
@@ -118,11 +120,6 @@ final class ShipFlightState {
         int firstCut = design.links().stream().filter(link -> link.separationStage() >= 0)
                 .mapToInt(ShipDesign.Link::separationStage).min().orElse(design.stageCount());
         return Math.min(engineStage, firstCut - 1);
-    }
-
-    static double initialFuel(ListTag savedFuel, int partCount, int index, double capacity, boolean damaged) {
-        double remaining = savedFuel.size() == partCount ? savedFuel.getDouble(index) : capacity;
-        return !damaged && Double.isFinite(remaining) ? Math.clamp(remaining, 0, capacity) : 0;
     }
 
     static double flightDryMass(double dryMass) {
@@ -237,20 +234,24 @@ final class ShipFlightState {
 
     ShipFlightState fragment(ShipDesign design, List<Integer> members, int stage) {
         var remainingFuel = new ListTag();
+        var remainingElectric = new ListTag();
         long damage = 0;
         for (int part : members) {
             if (isDamaged(part)) {
                 damage |= 1L << remainingFuel.size();
             }
             remainingFuel.add(DoubleTag.valueOf(fuel[part]));
+            remainingElectric.add(DoubleTag.valueOf(electric[part]));
         }
-        return new ShipFlightState(design, remainingFuel, damage, stage);
+        return new ShipFlightState(design, new ShipPropellantData(remainingFuel, remainingElectric), damage, stage);
     }
 
     ShipFlightState docked(ShipDesign design, ShipFlightState incoming) {
-        var combinedFuel = saveFuel();
-        combinedFuel.addAll(incoming.saveFuel());
-        return new ShipFlightState(design, combinedFuel, damagedParts | incoming.damagedParts << fuel.length, stage);
+        var combined = savePropellant();
+        var added = incoming.savePropellant();
+        combined.fuel().addAll(added.fuel());
+        combined.electric().addAll(added.electric());
+        return new ShipFlightState(design, combined, damagedParts | incoming.damagedParts << fuel.length, stage);
     }
 
     double wheelTorque() {
@@ -299,6 +300,11 @@ final class ShipFlightState {
             return false;
         }
         damagedParts |= damage;
+        for (int part = 0; part < electric.length; part++) {
+            if ((damage & (1L << part)) != 0) {
+                electric[part] = 0;
+            }
+        }
         boolean drained = false;
         for (Tank tank : tanks) {
             if ((damage & (1L << tank.part)) != 0) {
@@ -320,12 +326,12 @@ final class ShipFlightState {
         return Arrays.stream(fuel).sum();
     }
 
-    ListTag saveFuel() {
-        var tag = new ListTag();
-        for (double remaining : fuel) {
-            tag.add(DoubleTag.valueOf(remaining));
-        }
-        return tag;
+    double remainingElectric() {
+        return Arrays.stream(electric).sum();
+    }
+
+    ShipPropellantData savePropellant() {
+        return new ShipPropellantData(ShipPropellantData.encode(fuel), ShipPropellantData.encode(electric));
     }
 
     private void collectGroupFuel() {
@@ -338,55 +344,76 @@ final class ShipFlightState {
     Vector3d availableThrust() {
         var thrust = new Vector3d();
         collectGroupFuel();
+        boolean powered = remainingElectric() > 0;
         for (Engine engine : engines) {
-            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part) && groupFuel[engine.group] > 0) {
+            if (ignited(engine) && groupFuel[engine.group] > 0 && (powered || engine.properties.electricPower() == 0)) {
                 thrust.fma(engine.properties.thrust(), engine.direction);
             }
         }
         return thrust;
     }
 
-    boolean burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
+    private boolean ignited(Engine engine) {
+        return hasIgnited(engine.stage, stage) && !isDamaged(engine.part);
+    }
+
+    Depletion burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
             Vector3d impulse, Vector3d momentAboutOrigin) {
         if (throttle == 0 || engines.isEmpty()) {
-            return false;
+            return Depletion.NONE;
         }
         collectGroupFuel();
-        Arrays.fill(demand, 0);
+        double charge = remainingElectric();
+        supply.reset(charge);
+        for (int group = 0; group < groupFuel.length; group++) {
+            supply.addFuel(group, groupFuel[group]);
+        }
         for (Engine engine : engines) {
-            if (!hasIgnited(engine.stage, stage) || isDamaged(engine.part)) {
+            if (!ignited(engine)) {
                 continue;
             }
             var props = engine.properties;
             double vacuum = props.vacuumSpecificImpulse();
             double seaLevel = props.seaLevelSpecificImpulse() > 0 ? props.seaLevelSpecificImpulse() : vacuum;
             double isp = Mth.lerp(pressure, vacuum, seaLevel);
-            demand[engine.group] += StagePerformance.fuelFlow(props.thrust(), isp) * throttle * seconds;
+            supply.addEngine(engine.group, StagePerformance.fuelFlow(props.thrust(), isp) * throttle,
+                    props.electricPower() * throttle);
+        }
+        boolean fuelDepleted = false;
+        while (seconds > 0) {
+            double duration = supply.nextSegment(seconds);
+            if (!(duration > 0) || !(supply.flowRate() > 0)) {
+                break;
+            }
+            boolean powered = supply.electric() > 0;
+            for (Engine engine : engines) {
+                if (ignited(engine) && supply.feeding(engine.group) && (powered || engine.properties.electricPower() == 0)) {
+                    double magnitude = engine.properties.thrust() * throttle * duration;
+                    impulse.fma(magnitude, engine.direction);
+                    momentAboutOrigin.fma(magnitude, engine.moment);
+                }
+            }
+            fuelDepleted |= supply.consume(duration);
+            seconds -= duration;
         }
         boolean burned = false;
-        boolean stillFed = false;
-        for (int group = 0; group < groupFuel.length; group++) {
-            burnFraction[group] = demand[group] > 0 ? Math.min(1, groupFuel[group] / demand[group]) : 0;
-            stillFed |= demand[group] > 0 && groupFuel[group] > demand[group];
-        }
         for (Tank tank : tanks) {
             int group = tank.group;
-            if (fuel[tank.part] > 0 && demand[group] > 0) {
-                double keep = Math.max(0, 1 - demand[group] / groupFuel[group]);
-                burned |= setFuel(tank, fuel[tank.part] * keep, body);
+            if (fuel[tank.part] > 0 && supply.fuel(group) < groupFuel[group]) {
+                burned |= setFuel(tank, fuel[tank.part] * (supply.fuel(group) / groupFuel[group]), body);
             }
         }
         if (burned) {
             body.subLevel().updateMergedMassData(0);
         }
-        for (Engine engine : engines) {
-            if (hasIgnited(engine.stage, stage) && !isDamaged(engine.part)) {
-                double magnitude = engine.properties.thrust() * throttle * seconds * burnFraction[engine.group];
-                impulse.fma(magnitude, engine.direction);
-                momentAboutOrigin.fma(magnitude, engine.moment);
+        if (supply.electric() < charge) {
+            double fraction = supply.electric() / charge;
+            for (int part = 0; part < electric.length; part++) {
+                electric[part] *= fraction;
             }
         }
-        return burned && !stillFed;
+        boolean electricDepleted = charge > 0 && supply.electric() == 0;
+        return fuelDepleted || electricDepleted ? new Depletion(fuelDepleted, electricDepleted) : Depletion.NONE;
     }
 
     private boolean setFuel(Tank tank, double remaining, ShipCollisionBody body) {
@@ -406,4 +433,8 @@ final class ShipFlightState {
     private record EngineGeometry(Vector3fc direction, Vector3fc moment) {}
 
     private record Engine(int part, int group, int stage, BlockPartProperties properties, Vector3fc direction, Vector3fc moment) {}
+
+    record Depletion(boolean fuel, boolean electric) {
+        private static final Depletion NONE = new Depletion(false, false);
+    }
 }

@@ -16,6 +16,14 @@ import net.minecraft.network.codec.StreamCodec;
 public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Optional<VacuumPropulsion> propulsion) {
     // Legacy payloads used a plain group count and one scalar thrust per group.
     private static final int VECTOR_GROUP_OFFSET = ShipDesign.MAX_PARTS + 1;
+    private static final int ELECTRIC_GROUP_OFFSET = 2 * VECTOR_GROUP_OFFSET;
+    private static final StreamCodec<ByteBuf, VacuumPropulsion.Drive> DRIVE_CODEC = StreamCodec.of((buffer, drive) -> {
+        buffer.writeDouble(drive.thrustX());
+        buffer.writeDouble(drive.thrustY());
+        buffer.writeDouble(drive.thrustZ());
+        buffer.writeDouble(drive.flow());
+    }, buffer -> new VacuumPropulsion.Drive(buffer.readDouble(), buffer.readDouble(), buffer.readDouble(),
+            buffer.readDouble()));
     private static final StreamCodec<ByteBuf, VacuumPropulsion> PROPULSION_CODEC = StreamCodec.of((buffer, propulsion) -> {
         int count = propulsion.groups().size();
         if (count > ShipDesign.MAX_PARTS) {
@@ -23,34 +31,37 @@ public record OrbitalShipView(Orbit orbit, Optional<ManeuverNode> maneuver, Opti
         }
         buffer.writeDouble(propulsion.wetMass());
         buffer.writeDouble(propulsion.fuel());
-        ByteBufCodecs.VAR_INT.encode(buffer, count + VECTOR_GROUP_OFFSET);
+        ByteBufCodecs.VAR_INT.encode(buffer, count + ELECTRIC_GROUP_OFFSET);
+        buffer.writeDouble(propulsion.electric());
         for (var group : propulsion.groups()) {
+            ByteBufCodecs.VAR_INT.encode(buffer, group.index());
             buffer.writeDouble(group.fuel());
-            buffer.writeDouble(group.thrustX());
-            buffer.writeDouble(group.thrustY());
-            buffer.writeDouble(group.thrustZ());
-            buffer.writeDouble(group.flow());
+            DRIVE_CODEC.encode(buffer, group.chemical());
+            DRIVE_CODEC.encode(buffer, group.electric());
+            buffer.writeDouble(group.electricPower());
         }
     }, buffer -> {
         double wetMass = buffer.readDouble();
         double fuel = buffer.readDouble();
-        int count = ByteBufCodecs.VAR_INT.decode(buffer);
-        boolean vectors = count >= VECTOR_GROUP_OFFSET;
-        if (vectors) {
-            count -= VECTOR_GROUP_OFFSET;
+        int header = ByteBufCodecs.VAR_INT.decode(buffer);
+        if (header < 0 || header > ELECTRIC_GROUP_OFFSET + ShipDesign.MAX_PARTS) {
+            throw new DecoderException("Invalid orbital fuel group header: " + header);
         }
-        if (count < 0 || count > ShipDesign.MAX_PARTS) {
-            throw new DecoderException("Invalid orbital fuel group count: " + count);
-        }
+        boolean vectors = header >= VECTOR_GROUP_OFFSET;
+        boolean electrical = header >= ELECTRIC_GROUP_OFFSET;
+        int count = header % VECTOR_GROUP_OFFSET;
+        double electric = electrical ? buffer.readDouble() : 0;
         var groups = new ArrayList<VacuumPropulsion.Group>(count);
         for (int i = 0; i < count; i++) {
+            int index = electrical ? ByteBufCodecs.VAR_INT.decode(buffer) : i;
             double groupFuel = buffer.readDouble();
-            double thrustX = buffer.readDouble();
-            double thrustY = vectors ? buffer.readDouble() : 0;
-            double thrustZ = vectors ? buffer.readDouble() : 0;
-            groups.add(new VacuumPropulsion.Group(groupFuel, thrustX, thrustY, thrustZ, buffer.readDouble()));
+            var chemical = vectors ? DRIVE_CODEC.decode(buffer)
+                    : new VacuumPropulsion.Drive(buffer.readDouble(), 0, 0, buffer.readDouble());
+            var electricDrive = electrical ? DRIVE_CODEC.decode(buffer) : new VacuumPropulsion.Drive(0, 0, 0, 0);
+            double power = electrical ? buffer.readDouble() : 0;
+            groups.add(new VacuumPropulsion.Group(index, groupFuel, chemical, electricDrive, power));
         }
-        return new VacuumPropulsion(wetMass, fuel, groups);
+        return new VacuumPropulsion(wetMass, fuel, electric, groups);
     });
 
     static final StreamCodec<ByteBuf, OrbitalShipView> STREAM_CODEC = StreamCodec.composite(

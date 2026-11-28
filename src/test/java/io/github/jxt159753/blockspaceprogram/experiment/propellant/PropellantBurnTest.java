@@ -13,15 +13,6 @@ public class PropellantBurnTest {
     private static final Supply FULL = new Supply(1_000, 100, 250_000_000);
 
     @Test
-    public void mixedStageUsesFuelAndElectricity() {
-        var burn = new PropellantBurn(CHEMICAL, ELECTRIC, POWER, true).advance(FULL, Double.POSITIVE_INFINITY);
-        assertEquals(249.8877036897, burn.deltaV(), 1e-9);
-        assertEquals(12.1333125, burn.seconds(), 1e-9);
-        assertEquals(5, burn.electricSeconds(), 0);
-        assertEquals(new Supply(1_000, 0, 0), burn.remaining());
-    }
-
-    @Test
     public void mixedStageUsesElectricityOnlyForElectricEngine() {
         var burn = new PropellantBurn(CHEMICAL, ELECTRIC, POWER, false).advance(FULL, Double.POSITIVE_INFINITY);
         assertEquals(252.1958801401, burn.deltaV(), 1e-9);

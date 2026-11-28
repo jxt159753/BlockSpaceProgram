@@ -4,7 +4,6 @@ sourceSets {
     propellantElectric {
         java.srcDirs = ["${experiment}/java"]
     }
-    test.java.srcDir 'src/test/propellant-electric'
 }
 
 neoForge.addModdingDependenciesTo(sourceSets.propellantElectric)

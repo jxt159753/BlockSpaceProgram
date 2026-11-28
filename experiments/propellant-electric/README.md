@@ -1,6 +1,6 @@
 # 推进剂原型
 
-原型测试化学与电推进同向、满节流、共用一个燃料组的情况。轨道机动另用一台电推进测试持续点火。Gradle 属性 `propellantElectric` 启用实验命令和算例。 [设计决策 #116](https://github.com/jxt159753/BlockSpaceProgram/issues/116)
+原型测试化学与电推进同向、满节流、共用一个燃料组的情况。轨道机动另用一台电推进测试持续点火。Gradle 属性 `propellantElectric` 启用实验命令。 [设计决策 #116](https://github.com/jxt159753/BlockSpaceProgram/issues/116)
 
 ## 混合级算例
 
@@ -13,7 +13,7 @@
 | A，电推进同时耗油和用电 | 41.808365 | 111.218126 | 138.669578 | 249.887704 | 12.133313 |
 | B，电推进只用电 | 40.788649 | 111.164919 | 141.030961 | 252.195880 | 12.258313 |
 
-另用 1,000 kg 无燃料飞船验证方案 B。4,000 N 电推进工作 5 s，给出 20 m/s 的 Δv。JUnit 算例位于 `src/test/propellant-electric/`。
+另用 1,000 kg 无燃料飞船验证方案 B。4,000 N 电推进工作 5 s，给出 20 m/s 的 Δv。方案 A 由正式推进计算的 `VacuumPropulsionTest` 验证。方案 B 的算例保留在 `PropellantBurnTest` 中。两组测试随默认构建执行。
 
 ## Sable 专用服实测
 
@@ -41,7 +41,7 @@ Minecraft 1.21.1、NeoForge 21.1.267、Sable 2.0.6、Java 21。测试飞船在�
 从仓库根目录运行算例，再用 `runPropellantElectric` 启动实验专用服。将 Sable 2.0.6 NeoForge JAR 放到 `runs/propellantElectric/mods/`，在同一目录准备 `eula.txt`。 [Sable 2.0.6](https://modrinth.com/mod/sable/version/fg9dTRz9)
 
 ```powershell
-.\gradlew.bat -PpropellantElectric test --tests '*PropellantBurnTest'
+.\gradlew.bat test --tests '*VacuumPropulsionTest' --tests '*PropellantBurnTest'
 .\gradlew.bat -PpropellantElectric runPropellantElectric
 ```
 

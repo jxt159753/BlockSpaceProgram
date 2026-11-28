@@ -5,6 +5,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion;
+import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion.Drive;
+import io.github.jxt159753.blockspaceprogram.assembly.VacuumPropulsion.Group;
 import io.github.jxt159753.blockspaceprogram.client.ClientOrbitalState;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -43,9 +45,9 @@ public class OrbitalNetworkingTest {
         Orbit patched = new Orbit(OrbitalSystem.MOON,
                 OrbitElements.fromSemiMajorAxis(-55_000, 1.4, 0.3, 0.4, 0.2, 0.2, 617.1));
         var before = new OrbitalShipView(original, Optional.of(new ManeuverNode(720, new Vec3(80, 0, 0))),
-                Optional.of(new VacuumPropulsion(1500, 200, List.of(
-                        new VacuumPropulsion.Group(100, 200, 1000, -150, 2),
-                        new VacuumPropulsion.Group(100, -200, -1000, 150, 2)))));
+                Optional.of(new VacuumPropulsion(1500, 200, 600_000, List.of(
+                        new Group(0, 100, new Drive(200, 1000, -150, 2), new Drive(0, 0, 0, 0), 0),
+                        new Group(2, 100, new Drive(0, 0, 0, 0), new Drive(-200, -1000, 150, 2), 4000)))));
         var after = new OrbitalShipView(patched, Optional.empty(), Optional.empty());
         receive(id, Optional.of(before));
         assertEquals(before, ClientOrbitalState.ships().get(id));
@@ -79,7 +81,8 @@ public class OrbitalNetworkingTest {
             assertEquals(id, payload.id());
             var ship = payload.ship().orElseThrow();
             assertEquals(orbit, ship.orbit());
-            assertEquals(new VacuumPropulsion(1_500, 200, List.of(new VacuumPropulsion.Group(200, 1_000, 2))),
+            assertEquals(new VacuumPropulsion(1_500, 200, 0, List.of(
+                    new Group(0, 200, new Drive(1_000, 0, 0, 2), new Drive(0, 0, 0, 0), 0))),
                     ship.propulsion().orElseThrow());
             assertEquals(0, buffer.readableBytes());
         } finally {

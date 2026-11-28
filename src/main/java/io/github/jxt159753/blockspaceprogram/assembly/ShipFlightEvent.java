@@ -12,6 +12,7 @@ public final class ShipFlightEvent extends Event {
     private final Kind kind;
     private final int stage;
     private final List<UUID> separatedShipIds;
+    private final ShipFlightControl.Propellant propellant;
 
     ShipFlightEvent(AssembledShipEntity ship, Kind kind, int stage) {
         this(ship, kind, stage, List.of());
@@ -22,6 +23,7 @@ public final class ShipFlightEvent extends Event {
         this.kind = kind;
         this.stage = stage;
         this.separatedShipIds = List.copyOf(separatedShipIds);
+        this.propellant = ship.propellant();
     }
 
     public AssembledShipEntity ship() {
@@ -55,7 +57,17 @@ public final class ShipFlightEvent extends Event {
         return separatedShipIds;
     }
 
+    /** Remaining fuel at the transition, in kg. */
+    public double fuel() {
+        return propellant.fuel();
+    }
+
+    /** Remaining electrical energy at the transition, in J. */
+    public double electric() {
+        return propellant.electric();
+    }
+
     public enum Kind {
-        FUEL_DEPLETED, LANDED, STAGE_CHANGED
+        FUEL_DEPLETED, LANDED, STAGE_CHANGED, ELECTRIC_DEPLETED
     }
 }

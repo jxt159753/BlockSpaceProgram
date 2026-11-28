@@ -87,7 +87,8 @@ public final class ShipFlightClient {
                     if (!game.options.hideGui && game.player != null
                             && game.player.getVehicle() instanceof AssembledShipEntity ship && ship.isFlyingShip()) {
                         var status = Component.translatable("flight.blockspaceprogram.status", ship.throttle(),
-                                String.format(Locale.ROOT, "%.1f", ship.fuel()));
+                                String.format(Locale.ROOT, "%.1f", ship.fuel()),
+                                String.format(Locale.ROOT, "%.0f", ship.electric()));
                         int stage = ship.activeStage();
                         status.append("   ").append(stage < 0 ? Component.translatable("flight.blockspaceprogram.stage_waiting")
                                 : Component.translatable("flight.blockspaceprogram.stage", stage + 1));

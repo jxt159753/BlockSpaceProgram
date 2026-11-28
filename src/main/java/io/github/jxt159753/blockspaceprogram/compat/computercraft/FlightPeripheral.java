@@ -97,6 +97,7 @@ public final class FlightPeripheral implements IPeripheral {
         result.put("angularVelocity", vector(data.angularVelocity()));
         result.put("mass", data.mass());
         result.put("fuel", data.fuel());
+        result.put("electric", data.electric());
         result.put("thrust", data.thrust());
         result.put("availableThrust", data.availableThrust());
         result.put("gravity", data.gravity());
@@ -230,6 +231,7 @@ public final class FlightPeripheral implements IPeripheral {
             case ALREADY_QUEUED -> throw new LuaException("A maneuver is already queued for this ship");
             case INVALID_NODE -> throw new LuaException("Invalid maneuver time or delta-v");
             case INSUFFICIENT_FUEL -> throw new LuaException("Insufficient fuel for the maneuver");
+            case INSUFFICIENT_ELECTRICITY -> throw new LuaException("Insufficient electricity for the maneuver");
             case NO_THRUST -> throw new LuaException("Engine thrust cancels out");
         }
     }
@@ -315,6 +317,7 @@ public final class FlightPeripheral implements IPeripheral {
     private static void onFlightEvent(ShipFlightEvent event) {
         String name = switch (event.kind()) {
             case FUEL_DEPLETED -> "bsp_ship_fuel_depleted";
+            case ELECTRIC_DEPLETED -> "bsp_ship_electric_depleted";
             case LANDED -> "bsp_ship_landed";
             case STAGE_CHANGED -> "bsp_ship_stage";
         };

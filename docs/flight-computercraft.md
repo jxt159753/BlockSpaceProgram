@@ -30,13 +30,14 @@
 | `altitude`、`verticalSpeed` | 相对海平面的海拔（m）、垂直速度（m/s）。无天体配置的维度以 Y=0 为海平面 |
 | `attitude`、`angularVelocity` | 姿态表含 `pitch`、`yaw`、`roll`，单位为度。角速度是世界坐标系下的 `x`、`y`、`z`，单位为 rad/s |
 | `mass`、`fuel` | 湿质量、全船剩余燃料质量，单位为 kg |
-| `thrust`、`availableThrust` | 实际合推力、已点火且完好有油的发动机在满节流时的合推力，单位为 N。均取船体坐标中推力矢量和的大小 |
+| `electric` | 全船剩余电量，单位为 J |
+| `thrust`、`availableThrust` | 实际合推力、已点火且完好有供能的发动机在满节流时的合推力，单位为 N。均取船体坐标中推力矢量和的大小 |
 | `gravity`、`thrustToWeight` | 当地重力加速度（m/s²）、实际推重比。重力为零时推重比返回 0 |
 | `throttle`、`axes` | 仲裁后的节流与姿态输入。姿态表键为 `pitch`、`yaw`、`roll` |
 | `stage`、`attitudeMode`、`throttleMode`、`landed` | 当前级（从 1 开始，待分级为 0）、模式 ID、着陆状态。节流模式 ID 为 `manual`、`direct`、`vertical_speed`、`thrust_to_weight` |
 | `planet` | 当前天体的 `seaLevel`、`radius`、`surfaceGravity`、`seaLevelDensity`、`atmosphereTop`、`scaleHeight`。维度没有配置时为 `nil` |
 
-电脑收到 `bsp_ship_fuel_depleted`、`bsp_ship_landed` 或 `bsp_ship_stage` 时，可用 `os.pullEvent()` 读取事件。参数依次为事件名、外设连接名、飞船 UUID 和当前级。燃料事件表示当前级的发动机因供油组耗尽而熄火。
+电脑可用 `os.pullEvent()` 读取 `bsp_ship_fuel_depleted`、`bsp_ship_electric_depleted`、`bsp_ship_landed` 或 `bsp_ship_stage`。参数依次为事件名、外设连接名、飞船 UUID 和当前级。燃料事件表示正在供油的组耗尽。电量事件对应 `ShipFlightEvent.Kind.ELECTRIC_DEPLETED`，每次电推进烧完全船电量时发出一次。
 
 驾驶员按住某一轴的键时，该轴由驾驶员控制。按 X 关闭节流并清除自动节流设定值。已绑定的飞船跨维度或进入轨道层时，终端仍可查询遥测，飞控模式和设定值会随船交接。飞船按轨道数据传播时，物理飞控暂停，设定值在恢复实体后继续生效。节流、姿态和分级指令需要已加载的实体飞船。
 
@@ -65,11 +66,11 @@ Java 调用方可在服务端从 `AssembledShipEntity.flightControl()` 获取飞
 | 方法 | 行为 |
 | --- | --- |
 | `addManeuverNode(seconds, prograde, normal, radial)` | 新建或替换未排队的草稿。时间为绝对轨道秒数，必须在未来 4 小时内。Δv 沿顺向、法向和径向向外，各分量单位为 m/s，范围为 −10,000 到 10,000 |
-| `executeManeuverNode()` | 校验草稿并排队。模组按轨道地图的流程，在指定时刻改变轨道并消耗燃料 |
+| `executeManeuverNode()` | 校验草稿并排队。模组按轨道地图的流程，在指定时刻改变轨道并结算耗油与耗电 |
 | `deleteManeuverNode()` | 删除草稿或取消已排队的节点。删除成功时返回 `true`，没有节点时返回 `false` |
 | `warpTo(seconds)` | 在未开放联机的单人存档里，安排轨道时钟快进到指定时刻。目标向上取整到轨道刻。遇到点火、下降或并入物理区前恢复 1 倍。专用服与开放联机的存档会抛出 Lua 错误 |
 
-机动节点用于 `orbit.onRails` 为 `true` 的飞船。每艘船有一个节点位置。草稿保留到执行、删除、离开轨道数据或关闭存档。Lua 和地图的已排队节点共用同一位置。发动机推力抵消时，提交机动节点会抛出 Lua 错误，已排队的节点也会在执行时取消。可在母星低轨运行轨道机动脚本，比较点火前后的远点和燃料。 [轨道机动脚本](examples/orbital-maneuver.lua)
+机动节点用于 `orbit.onRails` 为 `true` 的飞船。每艘船有一个节点位置。草稿保留到执行、删除、离开轨道数据或关闭存档。Lua 和地图的已排队节点共用同一位置。发动机推力抵消时，提交机动节点会抛出 Lua 错误，已排队的节点也会在执行时取消。提交时的燃料不足与电量不足有不同错误。可在母星低轨运行轨道机动脚本，比较点火前后的远点、燃料和电量。 [轨道机动脚本](examples/orbital-maneuver.lua)
 
 飞船进入轨道并滑行后，地面终端即可请求快进。`warpTo` 返回后，脚本可通过 `getTelemetry().orbit.seconds` 读取时钟。命令 `/bsp_warp stop` 可手动恢复常速。 [时间加速规则](orbit.md#时间加速)
 

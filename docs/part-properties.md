@@ -13,8 +13,7 @@
     "minecraft:cut_copper": {
       "mass": 75.0,
       "fuel_capacity": {
-        "example:liquid_fuel": 30.0,
-        "example:oxidizer": 36.0
+        "blockspaceprogram:fuel": 66.0
       },
       "thrust": 12000.0,
       "vacuum_specific_impulse": 320.0,
@@ -22,6 +21,7 @@
       "drag_coefficient": 0.25,
       "heat_resistance": 900.0,
       "electric_capacity": 1500.0,
+      "electric_power": 300.0,
       "impact_resistance": 12.0
     }
   }
@@ -38,9 +38,12 @@
 | `drag_coefficient` | 阻力系数，无量纲 | `0.0` |
 | `heat_resistance` | 耐热温度，K | `0.0` |
 | `electric_capacity` | 电量容量，J | `0.0` |
+| `electric_power` | 满推力时的耗电功率，W | `0.0` |
 | `impact_resistance` | 耐冲击速度，m/s | `8.0` |
 
-所有数值须为有限非负数。燃料 ID 使用 `命名空间:名称`。未配置的非空气方块使用表中的默认值，空气的属性为零。模组内置木板、铁块和空炼药锅的属性，可用优先级更高的数据包覆盖。同一方块匹配多条条目时，后加载的记录整体覆盖先加载的记录，省略的字段取默认值。 [NeoForge Data Maps](https://docs.neoforged.net/docs/1.21.1/resources/server/datamaps/)
+所有数值须为有限非负数。内置燃料 ID 为 `blockspaceprogram:fuel`。当前飞行计算将容量表中的各项合计为可用燃料。未配置的非空气方块使用表中的默认值，空气的属性为零。模组内置木板、铁块和空炼药锅的属性，可用优先级更高的数据包覆盖。同一方块匹配多条条目时，后加载的记录整体覆盖先加载的记录，省略的字段取默认值。 [NeoForge Data Maps](https://docs.neoforged.net/docs/1.21.1/resources/server/datamaps/)
+
+烘焙时将各方块的电量容量相加。零件的 `electric_power` 取有推力方块的功率加权平均值，权重为各方块的推力。一个零件的汇总功率大于零时，它的发动机同时消耗燃料和电力。
 
 零件烘焙时取组成方块中最低的耐冲击速度。旧零件和蓝图中的零件使用 8 m/s 的默认耐冲击速度。 [着陆和撞击损坏](flight.md#着陆)
 

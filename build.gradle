@@ -136,6 +136,10 @@ if (providers.gradleProperty('shipRigidBody').isPresent()) {
 
 if (providers.gradleProperty('propellantElectric').isPresent()) {
     apply from: 'experiments/propellant-electric/propellant-electric.gradle'
+} else {
+    tasks.named('compileTestJava', JavaCompile) {
+        source 'experiments/propellant-electric/java/io/github/jxt159753/blockspaceprogram/experiment/propellant/PropellantBurn.java'
+    }
 }
 
 if (providers.gradleProperty('candidateDimensions').isPresent()) {
