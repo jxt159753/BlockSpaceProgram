@@ -1,0 +1,16 @@
+{
+  "values": {
+    "bsp_function_block_models:json_nozzle": {
+      "mass": 20.0,
+      "thrust": 8000.0,
+      "vacuum_specific_impulse": 250.0,
+      "sea_level_specific_impulse": 200.0
+    },
+    "bsp_function_block_models:obj_nozzle": {
+      "mass": 20.0,
+      "thrust": 8000.0,
+      "vacuum_specific_impulse": 250.0,
+      "sea_level_specific_impulse": 200.0
+    }
+  }
+}

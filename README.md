@@ -40,6 +40,8 @@ Windows PowerShell 使用 `.\gradlew.bat build`。JAR 位于 `build/libs/`，可
 
 化学推进与电推进的 Δv 算例、Sable 推力和长时间点火实测见原型记录。 [推进剂原型](experiments/propellant-electric/README.md)
 
+喷管的 JSON 与 OBJ 模型对照、截图和顶点计数见原型记录。 [功能方块模型原型](experiments/function-block-models/README.md)
+
 用 `/bsp_bench` 复测零件渲染和飞船压力场景。 [性能基准命令](docs/benchmark.md)
 
 Mod ID 为 `blockspaceprogram`，Java 包名为 `io.github.jxt159753.blockspaceprogram`。工程基于 [NeoForge 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle)。

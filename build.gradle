@@ -145,3 +145,7 @@ if (providers.gradleProperty('candidateDimensions').isPresent()) {
 if (providers.gradleProperty('surfaceColorMap').isPresent()) {
     apply from: 'experiments/surface-color-map/surface-color-map.gradle'
 }
+
+if (providers.gradleProperty('functionBlockModels').isPresent()) {
+    apply from: 'experiments/function-block-models/function-block-models.gradle'
+}

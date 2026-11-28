@@ -1,0 +1,55 @@
+[plain]
+iris=false
+json uncullableQuads=35 upCullQuads=1 soloVertices=144 neighborAboveNozzleVertices=140 neighborSideNozzleVertices=144 normals={-127,0,0=28, 0,-127,0=24, 0,0,-127=20, 0,0,127=20, 0,127,0=24, 127,0,0=28} yRange=-0.5..1.0
+json down extent=0.5 mountQuad=1
+json up extent=0.5 mountQuad=1
+json north extent=0.49999994 mountQuad=1
+json south extent=0.5 mountQuad=1
+json west extent=0.49999988 mountQuad=1
+json east extent=0.49999988 mountQuad=1
+obj uncullableQuads=35 upCullQuads=1 soloVertices=144 neighborAboveNozzleVertices=140 neighborSideNozzleVertices=144 normals={-127,0,0=28, 0,-127,0=24, 0,0,-127=20, 0,0,127=20, 0,127,0=24, 127,0,0=28} yRange=-0.5..1.0
+obj down extent=0.5 mountQuad=1
+obj up extent=0.5 mountQuad=1
+obj north extent=0.49999994 mountQuad=1
+obj south extent=0.5 mountQuad=1
+obj west extent=0.49999988 mountQuad=1
+obj east extent=0.49999988 mountQuad=1
+ship model=block.bsp_function_block_models.json_nozzle nozzleCount=8 rootVertices=136 nozzleVertices=1152 total=1288
+ship model=block.bsp_function_block_models.obj_nozzle nozzleCount=8 rootVertices=136 nozzleVertices=1152 total=1288
+
+[iris]
+iris=true
+json uncullableQuads=35 upCullQuads=1 soloVertices=144 neighborAboveNozzleVertices=140 neighborSideNozzleVertices=144 normals={-127,0,0=28, 0,-127,0=24, 0,0,-127=20, 0,0,127=20, 0,127,0=24, 127,0,0=28} yRange=-0.5..1.0
+json down extent=0.5 mountQuad=1
+json up extent=0.5 mountQuad=1
+json north extent=0.49999994 mountQuad=1
+json south extent=0.5 mountQuad=1
+json west extent=0.49999988 mountQuad=1
+json east extent=0.49999988 mountQuad=1
+obj uncullableQuads=35 upCullQuads=1 soloVertices=144 neighborAboveNozzleVertices=140 neighborSideNozzleVertices=144 normals={-127,0,0=28, 0,-127,0=24, 0,0,-127=20, 0,0,127=20, 0,127,0=24, 127,0,0=28} yRange=-0.5..1.0
+obj down extent=0.5 mountQuad=1
+obj up extent=0.5 mountQuad=1
+obj north extent=0.49999994 mountQuad=1
+obj south extent=0.5 mountQuad=1
+obj west extent=0.49999988 mountQuad=1
+obj east extent=0.49999988 mountQuad=1
+ship model=block.bsp_function_block_models.json_nozzle nozzleCount=8 rootVertices=136 nozzleVertices=1152 total=1288
+ship model=block.bsp_function_block_models.obj_nozzle nozzleCount=8 rootVertices=136 nozzleVertices=1152 total=1288
+
+[sable ascent]
+ISSUE113 ASCENT scale=1.0 y=96.57440948486328 deltaY=1.1696475801013548 throttle=45 fuel=197.81534
+ISSUE113 ASCENT scale=0.5 y=96.59840393066406 deltaY=1.1698325020926177 throttle=45 fuel=197.81535
+ISSUE113 ASCENT scale=0.25 y=96.61030578613281 deltaY=1.1698295956565516 throttle=45 fuel=197.81535
+
+[iris ascent]
+ISSUE113 ASCENT scale=1.0 y=96.57440948486328 deltaY=1.1696475801013548 throttle=45 fuel=197.81534
+ISSUE113 ASCENT scale=0.5 y=96.59840393066406 deltaY=1.1698325020926177 throttle=45 fuel=197.81535
+ISSUE113 ASCENT scale=0.25 y=96.61030578613281 deltaY=1.1698295956565516 throttle=45 fuel=197.81535
+
+[assembly intersections]
+ISSUE113 INTERSECTION scale=1.0 modelOverlap=0.5 nozzleBounds=AABB[0.5, -1.0, 0.0] -> [1.5, 0.0, 1.0] neighborBounds=AABB[0.5, -2.0, 0.0] -> [1.5, -1.0, 1.0]
+ISSUE113 INTERSECTION scale=1.0 modelOverlap=0.5 nozzleBounds=AABB[2.5, -1.0, 0.0] -> [3.5, 0.0, 1.0] neighborBounds=AABB[2.5, -2.0, 0.0] -> [3.5, -1.0, 1.0]
+ISSUE113 INTERSECTION scale=0.5 modelOverlap=0.25 nozzleBounds=AABB[0.75, -0.5, 0.25] -> [1.25, 0.0, 0.75] neighborBounds=AABB[0.75, -1.0, 0.25] -> [1.25, -0.5, 0.75]
+ISSUE113 INTERSECTION scale=0.5 modelOverlap=0.25 nozzleBounds=AABB[2.75, -0.5, 0.25] -> [3.25, 0.0, 0.75] neighborBounds=AABB[2.75, -1.0, 0.25] -> [3.25, -0.5, 0.75]
+ISSUE113 INTERSECTION scale=0.25 modelOverlap=0.125 nozzleBounds=AABB[0.75, -0.25, 0.25] -> [1.0, 0.0, 0.5] neighborBounds=AABB[0.75, -0.5, 0.25] -> [1.0, -0.25, 0.5]
+ISSUE113 INTERSECTION scale=0.25 modelOverlap=0.125 nozzleBounds=AABB[3.0, -0.25, 0.25] -> [3.25, 0.0, 0.5] neighborBounds=AABB[3.0, -0.5, 0.25] -> [3.25, -0.25, 0.5]
