@@ -26,13 +26,14 @@ import org.joml.Vector3fc;
 
 /** Propellant, part damage, and the ship-local locations at which the flight systems act. */
 final class ShipFlightState {
-    private static final double POD_WHEEL_TORQUE = 1_500;
     private static final double MASSLESS_FRAGMENT_DRY_MASS = 0.01;
     private final List<Engine> engines = new ArrayList<>();
+    private final List<ShipRcs.Thruster> rcsThrusters;
     private final List<Tank> tanks = new ArrayList<>();
     private final ShipParachutes parachutes;
     private final double[] fuel;
     private final double[] electric;
+    private final double[] partWheelTorque;
     private final double[] groupFuel;
     private final PropellantFlow supply;
     private final ImpactPart[] impactParts;
@@ -46,6 +47,8 @@ final class ShipFlightState {
     private int stage;
     private long damagedParts;
     private long pendingDamage;
+    private long rcsTick = Long.MIN_VALUE;
+    private ShipRcs.Command rcsCommand;
 
     ShipFlightState(ShipDesign design, ShipPropellantData saved, long savedDamage, int stage) {
         aerodynamics = ShipAerodynamics.project(design, index -> false);
@@ -53,12 +56,14 @@ final class ShipFlightState {
         parachutes = new ShipParachutes(design);
         fuel = new double[count];
         electric = new double[count];
+        partWheelTorque = new double[count];
         groupFuel = new double[count];
         supply = new PropellantFlow(count);
         impactParts = new ImpactPart[count];
         this.stage = stage;
         damagedParts = savedDamage & ((1L << count) - 1);
         int[] groups = StagePerformance.tankGroups(design);
+        rcsThrusters = ShipRcs.mounts(design, groups);
         double dryMass = design.nodes().stream().mapToDouble(ShipDesign.Node::dryMass).sum();
         if (!Double.isFinite(dryMass)) {
             throw new IllegalArgumentException("A flying ship needs finite dry mass");
@@ -80,6 +85,7 @@ final class ShipFlightState {
             }
             var part = node.part();
             var properties = part.properties();
+            partWheelTorque[index] = properties.wheelTorque();
             int group = groups[index];
             double capacity = StagePerformance.fuelCapacity(node);
             fuel[index] = ShipPropellantData.initialAmount(saved.fuel(), count, index, capacity, isDamaged(index));
@@ -257,7 +263,13 @@ final class ShipFlightState {
     }
 
     double wheelTorque() {
-        return POD_WHEEL_TORQUE * Long.bitCount(commandPods & ~damagedParts);
+        double torque = ShipServerConfig.COMMAND_POD_WHEEL_TORQUE.get() * Long.bitCount(commandPods & ~damagedParts);
+        for (int i = 0; i < partWheelTorque.length; i++) {
+            if (!isDamaged(i)) {
+                torque += partWheelTorque[i];
+            }
+        }
+        return torque;
     }
 
     long damagedParts() {
@@ -372,9 +384,34 @@ final class ShipFlightState {
         return hasIgnited(engine.stage, stage) && !isDamaged(engine.part);
     }
 
+    ShipRcs.Command rcsCommand(long tick, Vector3dc center, Vector3d translation, Vector3dc torque, double wheelLimit) {
+        if (rcsTick != tick) {
+            rcsTick = tick;
+            collectGroupFuel();
+            boolean powered = remainingElectric() > 0;
+            var active = rcsThrusters.stream().filter(mount -> !isDamaged(mount.part()) && mount.supplied(groupFuel, powered))
+                    .toList();
+            var jets = active.stream().map(mount -> mount.jet(center)).toList();
+            if (translation.lengthSquared() > 0) {
+                translation.normalize().mul(RcsAllocator.availableAlong(jets, translation));
+            }
+            var result = RcsAllocator.allocate(jets, translation, torque, wheelLimit);
+            var firings = new ArrayList<ShipRcs.Firing>();
+            for (int i = 0; i < result.openings().length; i++) {
+                if (result.openings()[i] > 0) {
+                    firings.add(new ShipRcs.Firing(active.get(i), result.openings()[i]));
+                }
+            }
+            rcsCommand = new ShipRcs.Command(firings, result.torque());
+        }
+        return rcsCommand;
+    }
+
     Depletion burn(double throttle, double pressure, double seconds, ShipCollisionBody body,
-            Vector3d impulse, Vector3d momentAboutOrigin) {
-        if (throttle == 0 || engines.isEmpty()) {
+            Vector3d impulse, Vector3d momentAboutOrigin, List<ShipRcs.Firing> firings,
+            Vector3d rcsImpulse, Vector3d rcsMomentAboutOrigin) {
+        boolean mainThrust = throttle > 0 && !engines.isEmpty();
+        if (!mainThrust && firings.isEmpty()) {
             return Depletion.NONE;
         }
         collectGroupFuel();
@@ -384,7 +421,7 @@ final class ShipFlightState {
             supply.addFuel(group, groupFuel[group]);
         }
         for (Engine engine : engines) {
-            if (!ignited(engine)) {
+            if (!mainThrust || !ignited(engine)) {
                 continue;
             }
             var rating = engine.spec.performance();
@@ -394,6 +431,12 @@ final class ShipFlightState {
             supply.addEngine(engine.group, StagePerformance.fuelFlow(rating.thrust(), isp) * throttle,
                     engine.spec.electricPower() * throttle);
         }
+        for (var firing : firings) {
+            var jet = firing.thruster();
+            if (!isDamaged(jet.part())) {
+                supply.addEngine(jet.group(), jet.fuelFlow() * firing.opening(), jet.electricPower() * firing.opening());
+            }
+        }
         boolean fuelDepleted = false;
         while (seconds > 0) {
             double duration = supply.nextSegment(seconds);
@@ -402,10 +445,18 @@ final class ShipFlightState {
             }
             boolean powered = supply.electric() > 0;
             for (Engine engine : engines) {
-                if (ignited(engine) && supply.feeding(engine.group) && (powered || engine.spec.electricPower() == 0)) {
+                if (mainThrust && ignited(engine) && supply.feeding(engine.group) && (powered || engine.spec.electricPower() == 0)) {
                     double magnitude = engine.spec.performance().thrust() * throttle * duration;
                     impulse.fma(magnitude, engine.direction);
                     momentAboutOrigin.fma(magnitude, engine.moment);
+                }
+            }
+            for (var firing : firings) {
+                var jet = firing.thruster();
+                if (!isDamaged(jet.part()) && supply.feeding(jet.group()) && (powered || jet.electricPower() == 0)) {
+                    double magnitude = jet.thrust() * firing.opening() * duration;
+                    rcsImpulse.fma(magnitude, jet.direction());
+                    rcsMomentAboutOrigin.fma(magnitude, jet.moment());
                 }
             }
             fuelDepleted |= supply.consume(duration);

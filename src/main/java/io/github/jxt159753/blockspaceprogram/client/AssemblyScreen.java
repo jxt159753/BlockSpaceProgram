@@ -7,6 +7,8 @@ import io.github.jxt159753.blockspaceprogram.assembly.AssemblyNetworking.Action;
 import io.github.jxt159753.blockspaceprogram.assembly.ParachuteDeployment;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipDesign;
 import io.github.jxt159753.blockspaceprogram.assembly.ShipPlacement;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipRcs;
+import io.github.jxt159753.blockspaceprogram.assembly.ShipServerConfig;
 import io.github.jxt159753.blockspaceprogram.assembly.StagePerformance;
 import io.github.jxt159753.blockspaceprogram.facility.Facility;
 import io.github.jxt159753.blockspaceprogram.part.BakedPart;
@@ -37,6 +39,7 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private static final int INVENTORY_COLUMNS = 12;
     private static final int SLOT = 18;
     private static final int CHIP = 15;
+    private static final int RCS_CARD_HEIGHT = 78;
     private static final int STATS = 46;
     private static final int WHITE = 0xFFF1F5FB;
     private static final int MUTED = 0xFFAEBECF;
@@ -67,6 +70,8 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
     private double wetMass;
     private List<StageCard> cards = List.of();
     private int stageContentHeight;
+    private int rcsCardTop;
+    private double[] rcsForces = {};
     @Nullable
     private StageAction dragged;
     private int dragRevision;
@@ -262,7 +267,11 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
             y += card.height() + 4;
         }
         cards = updated;
-        stageContentHeight = y;
+        rcsCardTop = y;
+        if (!menu.isWorldAssembly()) {
+            rcsForces = ShipRcs.pureTranslation(design, ShipServerConfig.COMMAND_POD_WHEEL_TORQUE.get());
+        }
+        stageContentHeight = y + (rcsForces.length == 0 ? 0 : RCS_CARD_HEIGHT);
         stageScroll = Mth.clamp(stageScroll, 0, maxScroll());
     }
 
@@ -308,12 +317,29 @@ final class AssemblyScreen extends Screen implements MenuAccess<AssemblyMenu> {
                 y += CHIP;
             }
         }
+        if (rcsForces.length != 0) {
+            drawRcs(graphics, VIEW_TOP + rcsCardTop - stageScroll, right);
+        }
         graphics.disableScissor();
         if (maxScroll() > 0) {
             int height = viewBottom - VIEW_TOP;
             int thumb = Math.max(8, height * height / stageContentHeight);
             int top = VIEW_TOP + (height - thumb) * stageScroll / maxScroll();
             graphics.fill(right - 2, top, right, top + thumb, 0xFF768AA4);
+        }
+    }
+
+    private void drawRcs(GuiGraphics graphics, int y, int right) {
+        graphics.fill(stageLeft, y, right, y + RCS_CARD_HEIGHT, 0xFF24354B);
+        graphics.drawString(font, text("rcs_translation"), stageLeft + 5, y + 4, WHITE);
+        int line = y + 16;
+        for (Direction direction : Direction.values()) {
+            String axis = (direction.getAxisDirection() == Direction.AxisDirection.POSITIVE ? "+" : "-")
+                    + direction.getAxis().getName().toUpperCase(Locale.ROOT);
+            double thrust = rcsForces[direction.ordinal()];
+            var label = thrust > 0 ? text("rcs_thrust", axis, value(thrust, 1)) : text("rcs_unavailable", axis);
+            graphics.drawString(font, label, stageLeft + 5, line, thrust > 0 ? 0xFFACDDFF : MUTED);
+            line += 10;
         }
     }
 

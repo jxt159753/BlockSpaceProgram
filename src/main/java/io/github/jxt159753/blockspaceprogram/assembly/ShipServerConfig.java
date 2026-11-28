@@ -16,6 +16,7 @@ public final class ShipServerConfig {
     static final ModConfigSpec.IntValue DISTANCE;
     static final ModConfigSpec.IntValue LIFETIME;
     static final ModConfigSpec.IntValue MAX_REMOTE_SHIPS;
+    public static final ModConfigSpec.DoubleValue COMMAND_POD_WHEEL_TORQUE;
     static final ModConfigSpec.IntValue MAX_HULL_BLOCKS;
     static final ModConfigSpec.DoubleValue AERO_TORQUE_MULTIPLIER;
     static final ModConfigSpec.DoubleValue DEFAULT_HEAT_RESISTANCE;
@@ -44,6 +45,8 @@ public final class ShipServerConfig {
         builder.push("flight");
         MAX_REMOTE_SHIPS = builder.comment("Maximum ships kept loaded by a remote flight controller per dimension.")
                 .defineInRange("maxRemoteShips", 8, 0, Integer.MAX_VALUE);
+        COMMAND_POD_WHEEL_TORQUE = builder.comment("Reaction wheel torque per intact command pod in newton-metres.")
+                .defineInRange("command_pod_wheel_torque", 1_500.0, 0.0, Double.MAX_VALUE);
         builder.pop();
         builder.push("hull");
         MAX_HULL_BLOCKS = builder.comment("Maximum blocks in the connected hull collected by a ship assembler.")

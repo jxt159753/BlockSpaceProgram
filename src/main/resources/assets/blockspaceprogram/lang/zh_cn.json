@@ -351,5 +351,18 @@
   "surface_map.blockspaceprogram.no_regeneration": "当前没有可重新生成的颜色图。详情见服务端日志。",
   "surface_map.blockspaceprogram.unknown_body": "天体系统中没有维度 %s。",
   "surface_map.blockspaceprogram.unavailable": "维度 %s 暂无可用颜色图。",
-  "surface_map.blockspaceprogram.cell": "颜色图中 %s, %s 处的生物群系为 %s"
+  "surface_map.blockspaceprogram.cell": "颜色图中 %s, %s 处的生物群系为 %s",
+  "block.blockspaceprogram.rcs_thruster": "RCS 推力器",
+  "key.blockspaceprogram.toggle_rcs": "切换 RCS",
+  "key.blockspaceprogram.translate_left": "向左平移",
+  "key.blockspaceprogram.translate_right": "向右平移",
+  "key.blockspaceprogram.translate_up": "向上平移",
+  "key.blockspaceprogram.translate_down": "向下平移",
+  "key.blockspaceprogram.translate_forward": "向前平移",
+  "key.blockspaceprogram.translate_back": "向后平移",
+  "flight.blockspaceprogram.rcs_on": "RCS 开启",
+  "flight.blockspaceprogram.rcs_off": "RCS 关闭",
+  "assembly.blockspaceprogram.rcs_translation": "RCS 平移推力",
+  "assembly.blockspaceprogram.rcs_thrust": "%s  %s N",
+  "assembly.blockspaceprogram.rcs_unavailable": "%s  无法纯平移"
 }

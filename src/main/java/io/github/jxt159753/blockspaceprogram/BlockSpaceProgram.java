@@ -34,9 +34,11 @@ import io.github.jxt159753.blockspaceprogram.part.ModularEngines;
 import io.github.jxt159753.blockspaceprogram.part.NozzleSegmentBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartConnector;
 import io.github.jxt159753.blockspaceprogram.part.PartParachute;
+import io.github.jxt159753.blockspaceprogram.part.PartRcsThruster;
 import io.github.jxt159753.blockspaceprogram.part.PartConnectorBlock;
 import io.github.jxt159753.blockspaceprogram.part.PartTemplate;
 import io.github.jxt159753.blockspaceprogram.part.PartTemplateRecipe;
+import io.github.jxt159753.blockspaceprogram.part.RcsThrusterBlock;
 import io.github.jxt159753.blockspaceprogram.sky.SkyNetworking;
 import io.github.jxt159753.blockspaceprogram.sky.SurfaceColor;
 import java.util.function.BooleanSupplier;
@@ -119,6 +121,9 @@ public final class BlockSpaceProgram {
             "nozzle_segment", NozzleSegmentBlock::new, BlockBehaviour.Properties.of().strength(2.5F).noOcclusion());
     public static final DeferredBlock<Block> PARACHUTE = BLOCKS.registerBlock(
             "parachute", Block::new, BlockBehaviour.Properties.of().strength(2.0F).noOcclusion());
+    public static final DeferredBlock<RcsThrusterBlock> RCS_THRUSTER = BLOCKS.registerBlock(
+            "rcs_thruster", RcsThrusterBlock::new,
+            BlockBehaviour.Properties.of().strength(3.0F, 6.0F).requiresCorrectToolForDrops().noOcclusion());
     public static final DeferredBlock<Block> FAIRING_PANEL = BLOCKS.registerSimpleBlock(
             "fairing_panel", BlockBehaviour.Properties.of().strength(2.0F));
     public static final DeferredBlock<Block> HEAT_SHIELD = BLOCKS.registerSimpleBlock(
@@ -168,6 +173,7 @@ public final class BlockSpaceProgram {
         ITEMS.registerSimpleBlockItem(COMBUSTION_CHAMBER);
         ITEMS.registerSimpleBlockItem(NOZZLE_SEGMENT);
         ITEMS.registerSimpleBlockItem(PARACHUTE);
+        ITEMS.registerSimpleBlockItem(RCS_THRUSTER);
         ITEMS.registerSimpleBlockItem(FAIRING_PANEL);
         ITEMS.registerSimpleBlockItem(HEAT_SHIELD);
         CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
@@ -182,6 +188,7 @@ public final class BlockSpaceProgram {
                     output.accept(COMBUSTION_CHAMBER);
                     output.accept(NOZZLE_SEGMENT);
                     output.accept(PARACHUTE);
+                    output.accept(RCS_THRUSTER);
                     output.accept(FAIRING_PANEL);
                     output.accept(HEAT_SHIELD);
                     ItemStack largeEngine = PartTemplate.creativeLargeEngine(parameters.holders());
@@ -214,6 +221,7 @@ public final class BlockSpaceProgram {
         modBus.addListener(BlockPartProperties::register);
         modBus.addListener(ModularEngines::register);
         modBus.addListener(PartParachute::register);
+        modBus.addListener(PartRcsThruster::register);
         modBus.addListener(PartConnector::register);
         modBus.addListener((RegisterDataMapTypesEvent event) -> event.register(SURFACE_COLOR));
         modBus.addListener(AssemblyNetworking::register);

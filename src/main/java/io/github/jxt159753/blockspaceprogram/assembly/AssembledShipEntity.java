@@ -69,6 +69,8 @@ public final class AssembledShipEntity extends Entity {
             AssembledShipEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<CompoundTag> FLIGHT_EFFECTS = SynchedEntityData.defineId(
             AssembledShipEntity.class, EntityDataSerializers.COMPOUND_TAG);
+    private static final EntityDataAccessor<Boolean> RCS_ENABLED = SynchedEntityData.defineId(
+            AssembledShipEntity.class, EntityDataSerializers.BOOLEAN);
 
     private final ShipFlightControls flightControls = new ShipFlightControls();
     @Nullable
@@ -102,6 +104,7 @@ public final class AssembledShipEntity extends Entity {
         builder.define(ATTITUDE_MODE, ShipFlightControl.AttitudeMode.MANUAL.ordinal());
         builder.define(THROTTLE_MODE, ShipFlightControl.ThrottleMode.MANUAL.ordinal());
         builder.define(FLIGHT_EFFECTS, new CompoundTag());
+        builder.define(RCS_ENABLED, false);
     }
 
     @Nullable
@@ -422,13 +425,18 @@ public final class AssembledShipEntity extends Entity {
         return ShipFlightControl.ThrottleMode.values()[entityData.get(THROTTLE_MODE)];
     }
 
-    void setFlightStatus(float fuel, double electric, int stage) {
+    public boolean rcsEnabled() {
+        return entityData.get(RCS_ENABLED);
+    }
+
+    void setFlightStatus(float fuel, double electric, int stage, boolean rcsEnabled) {
         entityData.set(THROTTLE, (int) Math.round(100 * flightControls.throttle()));
         entityData.set(FUEL, fuel);
         entityData.set(ELECTRIC, Double.doubleToLongBits(electric));
         entityData.set(ACTIVE_STAGE, stage);
         entityData.set(ATTITUDE_MODE, flightControls.attitudeMode().ordinal());
         entityData.set(THROTTLE_MODE, flightControls.throttleMode().ordinal());
+        entityData.set(RCS_ENABLED, rcsEnabled);
     }
 
     void acceptFlightInput(ServerPlayer pilot, int keys) {
